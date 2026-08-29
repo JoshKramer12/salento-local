@@ -1,0 +1,2 @@
+-- Reserved migration: full-text search was intentionally not introduced in the
+-- SQLite schema. Keeping this no-op file preserves migration-chain integrity.

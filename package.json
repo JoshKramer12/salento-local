@@ -1,0 +1,70 @@
+{
+  "name": "salento-directory",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": "20.x"
+  },
+  "scripts": {
+    "dev": "PATH=\"/opt/homebrew/opt/node@20/bin:$PATH\" next dev --webpack -H 0.0.0.0 -p 3000",
+    "build": "PATH=\"/opt/homebrew/opt/node@20/bin:$PATH\" next build --webpack",
+    "start": "PATH=\"/opt/homebrew/opt/node@20/bin:$PATH\" next start -H 0.0.0.0 -p 3000",
+    "start:hosted": "sh ./scripts/start-hosted.sh",
+    "start:public": "bash ./scripts/start-public-test.sh",
+    "stop:public": "bash ./scripts/stop-public-test.sh",
+    "deploy:railway": "npx -y @railway/cli up --no-gitignore",
+    "lint": "eslint",
+    "test": "node --import tsx --test --test-concurrency=1 tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "postinstall": "prisma generate",
+    "prisma:generate": "prisma generate",
+    "prisma:validate": "prisma validate",
+    "db:prepare": "mkdir -p prisma && touch prisma/dev.db",
+    "db:push": "npm run db:prepare && prisma db push",
+    "db:deploy": "npm run db:prepare && prisma migrate deploy && npm run db:seed",
+    "db:seed": "npm run db:prepare && tsx prisma/seed.ts",
+    "db:reset": "npm run db:prepare && prisma db push --force-reset && npm run db:seed",
+    "enrich:town": "tsx scripts/enrichment/enrichTown.ts",
+    "enrich:all": "tsx scripts/enrichment/enrichAll.ts",
+    "data:coverage": "tsx scripts/enrichment/dataCoverage.ts",
+    "data:backup": "tsx scripts/enrichment/dataBackup.ts"
+  },
+  "dependencies": {
+    "@auth/prisma-adapter": "^2.11.3",
+    "@prisma/client": "^6.19.0",
+    "@stripe/connect-js": "^3.4.6",
+    "@stripe/react-connect-js": "^3.4.4",
+    "@stripe/stripe-js": "^9.9.0",
+    "@tabler/icons-react": "^3.44.0",
+    "bcryptjs": "^3.0.3",
+    "clsx": "^2.1.1",
+    "libphonenumber-js": "^1.13.7",
+    "next": "^16.3.3",
+    "next-auth": "^5.0.0-beta.32",
+    "nodemailer": "^7.0.13",
+    "pdf-lib": "^1.17.1",
+    "qrcode": "^1.5.4",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "resend": "^6.17.2",
+    "stripe": "^22.3.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/nodemailer": "^8.0.1",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "^16.3.3",
+    "prisma": "^6.19.0",
+    "tailwindcss": "^4",
+    "tsx": "^4.22.4",
+    "typescript": "^5"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}

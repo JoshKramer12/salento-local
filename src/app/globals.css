@@ -1,0 +1,514 @@
+@import "tailwindcss" source(none);
+@source "../";
+
+:root {
+  --color-cream: #fff8ef;
+  --color-white: #ffffff;
+  --color-charcoal: #24323a;
+  --color-blue: #1e6f8c;
+  --color-blue-deep: #174f66;
+  --color-olive: #6f8f4e;
+  --color-terracotta: #d96c3b;
+  --color-sand: #f6e6c8;
+  --color-border: #e8ded0;
+  --color-muted: #5c6e76;
+  --shadow-soft: 0 18px 40px rgba(36, 50, 58, 0.08);
+  --background: var(--color-cream);
+  --foreground: var(--color-charcoal);
+  --primary: #2a6257;
+  --primary-foreground: #ffffff;
+  --secondary: rgba(247, 244, 239, 0.9);
+  --secondary-strong: rgba(232, 222, 208, 0.95);
+  --card: var(--color-white);
+  --border: var(--color-border);
+  --muted: var(--color-muted);
+  --muted-strong: #44545c;
+  --accent: #bf5b2a;
+  --accent-foreground: #ffffff;
+  --shadow-card: var(--shadow-soft);
+}
+
+@theme inline {
+  --font-sans: "Avenir Next", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-serif: "Iowan Old Style", Georgia, Cambria, "Times New Roman", serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--background);
+}
+
+body {
+  font-family: var(--font-sans);
+  background:
+    radial-gradient(circle at top left, rgba(246, 230, 200, 0.55), transparent 34%),
+    radial-gradient(circle at top right, rgba(30, 111, 140, 0.08), transparent 28%),
+    var(--background);
+  color: var(--foreground);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+  touch-action: manipulation;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+::selection {
+  background: rgba(30, 111, 140, 0.18);
+}
+
+.shell {
+  width: min(1180px, calc(100vw - 2rem));
+  margin-inline: auto;
+}
+
+.hero-shell {
+  width: min(1240px, calc(100vw - 2rem));
+  margin-inline: auto;
+}
+
+.section-kicker {
+  display: inline-flex;
+  border-radius: 9999px;
+  border: 1px solid rgba(30, 111, 140, 0.14);
+  background: rgba(255, 255, 255, 0.8);
+  padding: 0.4rem 0.85rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-blue);
+}
+
+.card {
+  border: 1px solid rgba(232, 222, 208, 0.9);
+  border-radius: 1.75rem;
+  background: var(--color-white);
+  box-shadow: var(--shadow-soft);
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(30, 111, 140, 0.18);
+  box-shadow: 0 24px 46px rgba(36, 50, 58, 0.12);
+}
+
+.pill,
+.pill-muted,
+.pill-accent,
+.pill-success,
+.pill-warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 9999px;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.pill {
+  background: rgba(30, 111, 140, 0.1);
+  color: var(--color-blue);
+}
+
+.pill-muted {
+  background: rgba(36, 50, 58, 0.06);
+  color: var(--color-muted);
+}
+
+.pill-accent {
+  background: rgba(217, 108, 59, 0.12);
+  color: var(--color-terracotta);
+}
+
+.pill-success {
+  background: rgba(111, 143, 78, 0.14);
+  color: var(--color-olive);
+}
+
+.pill-warning {
+  background: rgba(217, 108, 59, 0.14);
+  color: var(--color-terracotta);
+}
+
+.summary-label {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.btn-primary,
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  padding: 0.7rem 0.9rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  transition:
+    transform 0.16s ease,
+    background 0.16s ease,
+    color 0.16s ease;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: white;
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  background: #214c43;
+}
+
+.mobile-menu-primary {
+  background: var(--primary);
+  color: white;
+}
+
+.mobile-menu-primary:hover {
+  background: #214c43;
+}
+
+.btn-secondary {
+  border: 1px solid var(--color-border);
+  background: white;
+  color: var(--color-charcoal);
+}
+
+.btn-secondary:hover {
+  transform: translateY(-1px);
+  border-color: rgba(30, 111, 140, 0.18);
+}
+
+.nav-link {
+  border-radius: 9999px;
+  padding: 0.55rem 0.7rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-muted);
+  transition: background 0.16s ease;
+}
+
+.nav-link:hover,
+.nav-link-active {
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--color-charcoal);
+}
+
+.homepage-category,
+.homepage-editorial-card,
+.homepage-town-card,
+.homepage-locality-card,
+.homepage-place-card {
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease;
+}
+
+@media (hover: hover) {
+  .homepage-category:hover,
+  .homepage-editorial-card:hover,
+  .homepage-town-card:hover,
+  .homepage-locality-card:hover,
+  .homepage-place-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(42, 98, 87, 0.3);
+    box-shadow: 0 13px 26px rgba(40, 51, 48, 0.11);
+  }
+}
+
+@media (max-width: 639px) {
+  .homepage-locality-card {
+    display: flex;
+    align-items: center;
+  }
+
+  .homepage-locality-card > div:first-child {
+    width: 6.5rem;
+  }
+
+  .homepage-town-card {
+    display: flex;
+    align-items: stretch;
+  }
+
+  .homepage-town-card > div:first-child {
+    width: 8.5rem;
+    height: auto;
+    min-height: 7.35rem;
+    flex: 0 0 auto;
+  }
+
+  .homepage-town-card > div:last-child {
+    display: flex;
+    min-height: 7.35rem;
+    flex: 1;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .homepage-editorial-card {
+    display: grid;
+    grid-template-columns: 7.7rem minmax(0, 1fr);
+  }
+
+  .homepage-editorial-card > div:first-child {
+    height: 100%;
+    min-height: 8.5rem;
+  }
+
+  .homepage-editorial-card > div:last-child {
+    display: flex;
+    min-height: 8.5rem;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .homepage-place-card {
+    display: grid;
+    grid-template-columns: 7.7rem minmax(0, 1fr);
+  }
+
+  .homepage-place-card > div:first-child {
+    height: 100%;
+    min-height: 8.7rem;
+  }
+
+  .homepage-place-card > div:last-child {
+    display: flex;
+    min-height: 8.7rem;
+    flex-direction: column;
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .homepage-category,
+  .homepage-editorial-card,
+  .homepage-town-card,
+  .homepage-locality-card,
+  .homepage-place-card,
+  .homepage-editorial-card img,
+  .homepage-town-card img,
+  .homepage-locality-card img,
+  .homepage-place-card img {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.input-field {
+  width: 100%;
+  border-radius: 1.1rem;
+  border: 1px solid var(--color-border);
+  background: rgba(255, 255, 255, 0.92);
+  padding: 0.9rem 1rem;
+  font-size: 0.95rem;
+  color: var(--color-charcoal);
+  outline: none;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.input-field:focus {
+  border-color: rgba(30, 111, 140, 0.45);
+  box-shadow: 0 0 0 4px rgba(30, 111, 140, 0.08);
+}
+
+.field-label {
+  display: grid;
+  gap: 0.55rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-charcoal);
+}
+
+.filter-panel {
+  border: 1px solid rgba(232, 222, 208, 0.9);
+  border-radius: 1.75rem;
+  background: rgba(255, 255, 255, 0.78);
+  padding: 1.25rem;
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(10px);
+}
+
+.explore-filter-select {
+  min-height: 2.5rem;
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 0.8rem;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  outline: none;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+.explore-filter-select:hover,
+.explore-filter-select:focus {
+  border-color: var(--border);
+  background: white;
+}
+
+@media (max-width: 767px) {
+  .explore-place-card {
+    display: grid;
+    grid-template-columns: 7.15rem minmax(0, 1fr);
+    min-height: 7.15rem;
+  }
+
+  .explore-place-card > div:first-child {
+    aspect-ratio: auto;
+    min-height: 7.15rem;
+  }
+
+  .explore-place-card > div:last-child {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0.7rem 0.85rem;
+  }
+
+  .explore-place-card > div:last-child > span:last-child {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .shell,
+  .hero-shell {
+    width: min(100vw - 1rem, 1180px);
+  }
+
+}
+
+@media (max-width: 767px) {
+  .dashboard-nav-shell,
+  .dashboard-nav {
+    display: none;
+  }
+}
+
+@media (max-width: 767px) {
+  .publish-page {
+    width: 100%;
+    max-width: 100%;
+    margin-inline: 0;
+    padding: 1.5rem 0 2.5rem;
+    overflow-x: clip;
+  }
+
+  .publish-page-nav,
+  .publish-form-intro {
+    padding-inline: 1.25rem;
+  }
+
+  .publish-page-nav {
+    margin-bottom: 1.5rem;
+  }
+
+  .publish-form-shell {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    gap: 0.75rem;
+  }
+
+  .publish-form-shell > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .publish-form-progress,
+  .publish-form-card {
+    border-right: 0;
+    border-left: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .publish-form-progress:hover,
+  .publish-form-card:hover {
+    transform: none;
+    box-shadow: none;
+  }
+
+  .publish-form-card {
+    overflow: visible;
+  }
+
+  .publish-form-content {
+    padding-inline: 1.25rem;
+  }
+
+  .publish-form-footer {
+    padding-right: 1.25rem;
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+    padding-left: 1.25rem;
+  }
+
+  .publish-form-card-hours .publish-form-content {
+    padding-bottom: 7.5rem;
+  }
+
+  .hours-wizard-footer {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 20;
+    display: grid;
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.25fr) minmax(0, 1fr);
+    flex-wrap: nowrap;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem max(0.75rem, env(safe-area-inset-bottom));
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 -8px 24px rgba(36, 50, 58, 0.06);
+  }
+
+  .hours-wizard-footer > button {
+    width: 100%;
+    min-width: 0;
+    min-height: 2.9rem;
+    padding: 0.65rem 0.35rem;
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+
+  .publish-form-shell input:not([type="checkbox"]):not([type="radio"]),
+  .publish-form-shell select,
+  .publish-form-shell textarea {
+    min-width: 0;
+    max-width: 100%;
+    font-size: 16px;
+  }
+}

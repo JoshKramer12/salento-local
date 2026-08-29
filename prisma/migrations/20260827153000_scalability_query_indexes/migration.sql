@@ -1,0 +1,10 @@
+CREATE INDEX "Business_isLikelyClosed_townId_isFeatured_reviewCount_rating_name_idx" ON "Business"("isLikelyClosed", "townId", "isFeatured", "reviewCount", "rating", "name");
+CREATE INDEX "Business_isLikelyClosed_categoryId_isFeatured_reviewCount_rating_name_idx" ON "Business"("isLikelyClosed", "categoryId", "isFeatured", "reviewCount", "rating", "name");
+CREATE INDEX "Business_isLikelyClosed_localityId_isFeatured_reviewCount_rating_name_idx" ON "Business"("isLikelyClosed", "localityId", "isFeatured", "reviewCount", "rating", "name");
+CREATE INDEX "Business_ownerUserId_updatedAt_idx" ON "Business"("ownerUserId", "updatedAt");
+CREATE INDEX "User_role_createdAt_idx" ON "User"("role", "createdAt");
+CREATE INDEX "BusinessSubmission_userId_createdAt_idx" ON "BusinessSubmission"("userId", "createdAt");
+CREATE INDEX "BusinessSubmission_userId_updatedAt_idx" ON "BusinessSubmission"("userId", "updatedAt");
+CREATE INDEX "PartnerCommission_partnerUserId_createdAt_idx" ON "PartnerCommission"("partnerUserId", "createdAt");
+CREATE INDEX "BusinessImage_businessId_sortOrder_idx" ON "BusinessImage"("businessId", "sortOrder");
+CREATE INDEX "Review_businessId_createdAt_idx" ON "Review"("businessId", "createdAt");

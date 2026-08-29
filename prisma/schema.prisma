@@ -1,0 +1,826 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum CategoryGroup {
+  FOOD
+  SERVICE
+  SHOPPING
+  TOURISM
+  STAY
+  BEACH
+  ESSENTIAL
+}
+
+enum LocalityKind {
+  LOCALITY
+  MARINA
+  FRAZIONE
+  HAMLET
+  VILLAGE
+  SUBURB
+  QUARTER
+  NEIGHBOURHOOD
+}
+
+enum VerificationStatus {
+  UNVERIFIED
+  OPEN_DATA
+  COMMUNITY_VERIFIED
+  OWNER_VERIFIED
+  REPORTED_STALE
+}
+
+enum ListingFeedbackType {
+  REPORT_CLOSED
+  SUGGEST_EDIT
+  CLAIM_LISTING
+}
+
+enum ListingFeedbackStatus {
+  NEW
+  REVIEWED
+  RESOLVED
+  DISMISSED
+}
+
+enum SourceType {
+  OPENSTREETMAP
+  WIKIPEDIA
+  WIKIDATA
+  MUNICIPALITY
+  OFFICIAL_WEBSITE
+  TOURISM_PORTAL
+  OPEN_DATA_PORTAL
+  CHAMBER_OF_COMMERCE
+  OTHER
+}
+
+enum SourceReuseStatus {
+  ALLOWED
+  LINK_ONLY
+  SKIPPED
+  UNKNOWN
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  GETTER
+  BUSINESS_OWNER
+}
+
+enum SubmissionStatus {
+  DRAFT
+  AWAITING_VERIFICATION
+  VERIFIED
+  AWAITING_PAYMENT
+  PAID
+  PAYMENT_PENDING
+  PAYMENT_CONFIRMED
+  PENDING_REVIEW
+  APPROVED
+  READY_TO_PUBLISH
+  PUBLISHED
+  NEEDS_REVIEW
+  REJECTED
+}
+
+enum PaymentMethod {
+  ONLINE
+  CASH
+  BANK_TRANSFER
+  OTHER
+}
+
+enum PaymentStatus {
+  NOT_REQUIRED
+  PENDING_PAYMENT
+  AWAITING_BANK_TRANSFER
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum PaymentRecordMethod {
+  STRIPE_CHECKOUT
+  BANK_TRANSFER
+}
+
+enum VerificationChannel {
+  EMAIL
+  SMS
+  WHATSAPP
+  MANUAL
+}
+
+enum BusinessClaimStatus {
+  REQUESTED
+  AWAITING_VERIFICATION
+  MANUAL_REVIEW
+  VERIFIED
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+enum PartnerStripeAccountStatus {
+  NOT_STARTED
+  INCOMPLETE
+  ACTION_REQUIRED
+  READY
+  RESTRICTED
+}
+
+enum PartnerPayoutMethod {
+  STRIPE
+  PAYPAL
+  POSTEPAY
+  HYPE
+}
+
+enum PartnerPayoutSetupStatus {
+  NOT_SELECTED
+  INCOMPLETE
+  READY
+  ACTION_REQUIRED
+}
+
+enum PartnerCommissionType {
+  COMMISSION
+  REVERSAL
+  ADJUSTMENT
+}
+
+enum PartnerCommissionStatus {
+  PENDING
+  AVAILABLE
+  RESERVED
+  PAID
+  REVERSED
+  DEBT
+}
+
+enum PartnerPayoutRunStatus {
+  RUNNING
+  COMPLETED
+  PARTIAL
+  FAILED
+}
+
+enum PartnerPayoutStatus {
+  SCHEDULED
+  PROCESSING
+  PAID
+  FAILED
+  ACTION_REQUIRED
+  CANCELED
+}
+
+enum StripeWebhookEndpointType {
+  PLATFORM
+  CONNECT
+}
+
+enum StripeWebhookProcessingStatus {
+  PROCESSED
+  SKIPPED
+  FAILED
+}
+
+enum LegalDocumentType {
+  BUSINESS_TERMS
+  PARTNER_TERMS
+  PRIVACY_POLICY
+  COOKIE_POLICY
+}
+
+enum LegalAcceptanceContext {
+  BUSINESS_SIGNUP
+  PARTNER_SIGNUP
+  BUSINESS_CLAIM
+  BUSINESS_SUBMISSION
+}
+
+model Town {
+  id               String     @id @default(cuid())
+  slug             String     @unique
+  name             String
+  province         String
+  region           String     @default("Puglia")
+  shortDescription String
+  intro            String
+  history          String
+  practicalInfo    String
+  heroImageSeed    String
+  imageUrl         String?
+  latitude         Float
+  longitude        Float
+  population       Int?
+  areaKm2          Float?
+  elevationM       Int?
+  wikipediaTitle   String?
+  wikidataId       String?
+  officialWebsite  String?
+  sourceUrl        String?
+  featured         Boolean    @default(false)
+  aliases          TownAlias[]
+  businesses       Business[]
+  localities       Locality[]
+  submissions      BusinessSubmission[]
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+}
+
+model TownAlias {
+  id       String @id @default(cuid())
+  slug     String @unique
+  name     String
+  note     String?
+  townId   String
+  town     Town   @relation(fields: [townId], references: [id], onDelete: Cascade)
+}
+
+model Category {
+  id          String        @id @default(cuid())
+  slug        String        @unique
+  name        String
+  icon        String
+  description String
+  group       CategoryGroup
+  featured    Boolean       @default(false)
+  businesses  Business[]
+  submissions BusinessSubmission[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model User {
+  id               String               @id @default(cuid())
+  email            String               @unique
+  username         String               @unique @default(cuid())
+  name             String?
+  passwordHash     String?
+  image            String?
+  role             UserRole             @default(USER)
+  sessionVersion   Int                  @default(0)
+  emailVerified    DateTime?
+  profileCompleted Boolean              @default(false)
+  accounts         Account[]
+  sessions         Session[]
+  submissions      BusinessSubmission[]
+  claims           BusinessClaim[]
+  ownedBusinesses  Business[]
+  payments         Payment[]            @relation("SubmissionPayer")
+  partnerPayments  Payment[]            @relation("SubmissionPartner")
+  partnerCommissions PartnerCommission[]
+  partnerPayouts   PartnerPayout[]
+  localPartnerProfile LocalPartnerProfile?
+  legalAcceptances LegalAcceptance[]
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  @@index([role, createdAt])
+}
+
+model Account {
+  id                String @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@id([identifier, token])
+}
+
+// Hashed, short-lived counters used for credential and public-write abuse
+// protection. Keys intentionally do not retain raw IP addresses or account
+// identifiers.
+model SecurityRateLimit {
+  key       String   @id
+  count     Int      @default(0)
+  expiresAt DateTime
+  updatedAt DateTime @updatedAt
+
+  @@index([expiresAt])
+}
+
+model Business {
+  id               String          @id @default(cuid())
+  slug             String          @unique
+  sourceKey        String?         @unique
+  externalSource   String?
+  sourceUrl        String?
+  name             String
+  subcategory      String?
+  shortDescription String
+  description      String
+  address          String
+  addressPlaceId   String?
+  addressStreetNumber String?
+  addressRoute     String?
+  addressLocality  String?
+  addressProvince  String?
+  addressRegion    String?
+  addressPostalCode String?
+  addressCountry   String?
+  addressCountryCode String?
+  phone            String?
+  email            String?
+  website          String?
+  socialLinks      Json?
+  openingHoursText String?
+  rating           Float           @default(0)
+  reviewCount      Int             @default(0)
+  priceLevel       Int?
+  isFeatured       Boolean         @default(false)
+  isOpenNow        Boolean         @default(false)
+  verificationStatus VerificationStatus @default(UNVERIFIED)
+  sourceConfidence Int             @default(0)
+  lastVerifiedAt   DateTime?
+  lastEnrichedAt   DateTime?
+  isLikelyClosed   Boolean         @default(false)
+  mapsUrl          String?
+  heroImageSeed    String
+  latitude         Float
+  longitude        Float
+  rawTags          Json?
+  categoryId       String
+  townId           String
+  localityId       String?
+  ownerUserId      String?
+  category         Category        @relation(fields: [categoryId], references: [id])
+  locality         Locality?       @relation(fields: [localityId], references: [id])
+  ownerUser        User?           @relation(fields: [ownerUserId], references: [id], onDelete: SetNull)
+  town             Town            @relation(fields: [townId], references: [id])
+  images           BusinessImage[]
+  hours            BusinessHour[]
+  reviews          Review[]
+  feedback         ListingFeedback[]
+  claims           BusinessClaim[]
+  payments         Payment[]
+  partnerCommissions PartnerCommission[]
+  sources          BusinessSource[]
+  submissions      BusinessSubmission[]
+  tags             BusinessTag[]
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([isLikelyClosed, townId, isFeatured, reviewCount, rating, name])
+  @@index([isLikelyClosed, categoryId, isFeatured, reviewCount, rating, name])
+  @@index([isLikelyClosed, localityId, isFeatured, reviewCount, rating, name])
+  @@index([ownerUserId, updatedAt])
+}
+
+model Locality {
+  id               String       @id @default(cuid())
+  slug             String       @unique
+  name             String
+  shortDescription String
+  intro            String
+  practicalInfo    String
+  heroImageSeed    String
+  imageUrl         String?
+  latitude         Float
+  longitude        Float
+  placeType        LocalityKind @default(LOCALITY)
+  sourceUrl        String?
+  featured         Boolean      @default(false)
+  townId           String
+  town             Town         @relation(fields: [townId], references: [id], onDelete: Cascade)
+  businesses       Business[]
+  submissions      BusinessSubmission[]
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+}
+
+model BusinessSubmission {
+  id                 String            @id @default(cuid())
+  userId             String
+  status             SubmissionStatus  @default(DRAFT)
+  businessName       String
+  townId             String
+  localityId         String?
+  categoryId         String
+  address            String
+  addressPlaceId     String?
+  addressLatitude    Float?
+  addressLongitude   Float?
+  addressStreetNumber String?
+  addressRoute       String?
+  addressLocality    String?
+  addressProvince    String?
+  addressRegion      String?
+  addressPostalCode  String?
+  addressCountry     String?
+  addressCountryCode String?
+  googleMapsUrl      String
+  phone              String
+  whatsapp           String
+  email              String
+  website            String?
+  instagram          String?
+  facebook           String?
+  openingHours       String
+  shortDescription   String
+  longDescription    String
+  ownerName          String
+  ownerPhone         String
+  ownerEmail         String
+  ownerHasNoEmail    Boolean           @default(false)
+  signerFullName     String?
+  signerRole         String?
+  signerRoleOther    String?
+  agreementSignature String?
+  signedAt           DateTime?
+  businessTermsAcceptedAt DateTime?
+  businessTermsVersion String?
+  privacyPolicyVersionPresented String?
+  firstYearPriceCentsAtAcceptance Int?
+  renewalPriceCentsAtAcceptance Int?
+  listingTermMonthsAtAcceptance Int?
+  automaticRenewalAtAcceptance Boolean?
+  contractualEmail   String?
+  purchaseConfirmationSentAt DateTime?
+  photoUrls          Json?
+  paymentMethod      PaymentMethod?
+  businessPriceCents Int               @default(10000)
+  commissionCents    Int               @default(5000)
+  platformShareCents Int               @default(5000)
+  amountPaidCents    Int               @default(0)
+  amountOwedCents    Int               @default(10000)
+  paymentStatus      PaymentStatus     @default(NOT_REQUIRED)
+  bankTransferReference String?
+  createdBusinessId  String?
+  verificationChannel VerificationChannel?
+  verificationCodeHash String?
+  verificationCodeExpiresAt DateTime?
+  verificationAttempts Int            @default(0)
+  verificationLastSentAt DateTime?
+  verificationSentTo   String?
+  verificationVerifiedAt DateTime?
+  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  town               Town              @relation(fields: [townId], references: [id])
+  locality           Locality?         @relation(fields: [localityId], references: [id])
+  category           Category          @relation(fields: [categoryId], references: [id])
+  createdBusiness    Business?         @relation(fields: [createdBusinessId], references: [id])
+  payments           Payment[]
+  partnerCommissions PartnerCommission[]
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@index([userId, status])
+  @@index([townId])
+  @@index([categoryId])
+  @@index([userId, createdAt])
+  @@index([userId, updatedAt])
+}
+
+model Payment {
+  id                     String              @id @default(cuid())
+  businessSubmissionId   String
+  businessId             String?
+  userId                 String
+  partnerUserId          String?
+  amountCents            Int
+  currency               String              @default("eur")
+  method                 PaymentRecordMethod
+  status                 PaymentStatus       @default(PENDING_PAYMENT)
+  stripeCheckoutSessionId String?            @unique
+  stripePaymentIntentId  String?
+  stripeLastEventId      String?             @unique
+  bankTransferReference  String?
+  paidAt                 DateTime?
+  business               Business?           @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  businessSubmission     BusinessSubmission  @relation(fields: [businessSubmissionId], references: [id], onDelete: Cascade)
+  user                   User                @relation("SubmissionPayer", fields: [userId], references: [id], onDelete: Cascade)
+  partnerUser            User?               @relation("SubmissionPartner", fields: [partnerUserId], references: [id], onDelete: SetNull)
+  partnerCommissions     PartnerCommission[]
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+
+  @@index([businessSubmissionId, createdAt])
+  @@index([userId, createdAt])
+  @@index([partnerUserId, createdAt])
+  @@index([status, method])
+}
+
+model LocalPartnerProfile {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  fullName              String
+  legalFullName         String
+  phone                 String
+  whatsapp              String?
+  baseTownOrArea        String
+  preferredLanguage     String
+  heardAbout            String?
+  birthDate             DateTime?
+  billingAddress        String
+  taxIdOrVatNumber      String
+  understandsNoCash     Boolean  @default(false)
+  understandsNoPricing  Boolean  @default(false)
+  understandsNoNegotiation Boolean @default(false)
+  understandsDirectPayment Boolean @default(false)
+  stripeConnectedAccountId String? @unique
+  stripeOnboardingComplete Boolean @default(false)
+  stripeDetailsSubmitted Boolean @default(false)
+  stripePayoutsEnabled  Boolean @default(false)
+  stripeChargesEnabled  Boolean @default(false)
+  stripeRequirementsDue Json?
+  stripeAccountStatus   PartnerStripeAccountStatus @default(NOT_STARTED)
+  stripeDisabledReason  String?
+  stripeOnboardingStartedAt DateTime?
+  stripeOnboardingCompletedAt DateTime?
+  stripeLastSyncedAt    DateTime?
+  stripeCurrentDeadline DateTime?
+  stripePayoutAccountLast4 String?
+  stripePayoutBankName  String?
+  preferredPayoutMethod PartnerPayoutMethod @default(STRIPE)
+  payoutSetupStatus     PartnerPayoutSetupStatus @default(INCOMPLETE)
+  payoutMethodUpdatedAt DateTime?
+  paypalPayoutEmail     String?
+  bankPayoutIbanEncrypted String?
+  bankPayoutAccountLast4 String?
+  bankPayoutAccountHolder String?
+  partnerGuideCompleted Boolean  @default(false)
+  partnerGuideVersion   Int      @default(0)
+  partnerOnboardingCompletedAt DateTime?
+  completedAt           DateTime?
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payouts               PartnerPayout[]
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model PartnerCommission {
+  id                    String                 @id @default(cuid())
+  partnerUserId         String
+  businessSubmissionId  String?
+  businessId            String?
+  paymentId             String?
+  payoutId              String?
+  amountCents           Int
+  currency              String                 @default("eur")
+  type                  PartnerCommissionType
+  status                PartnerCommissionStatus
+  sourceKey             String                 @unique
+  sourceEventType       String?
+  sourceEventId         String?
+  stripePaymentIntentId String?
+  stripeCheckoutSessionId String?
+  stripeChargeId        String?
+  stripeTransferId      String?
+  stripePayoutId        String?
+  earnedAt              DateTime?
+  eligibleAt            DateTime?
+  transferredAt         DateTime?
+  paidAt                DateTime?
+  reversedAt            DateTime?
+  reversalReason        String?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  business              Business?              @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  businessSubmission    BusinessSubmission?    @relation(fields: [businessSubmissionId], references: [id], onDelete: SetNull)
+  partnerUser           User                   @relation(fields: [partnerUserId], references: [id], onDelete: Cascade)
+  payment               Payment?               @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  payout                PartnerPayout?         @relation(fields: [payoutId], references: [id], onDelete: SetNull)
+
+  @@index([partnerUserId, status, eligibleAt])
+  @@index([businessSubmissionId, type])
+  @@index([stripePaymentIntentId])
+  @@index([partnerUserId, createdAt])
+}
+
+model PartnerPayoutRun {
+  id                    String                 @id @default(cuid())
+  runKey                String                 @unique
+  scheduledFor          DateTime
+  status                PartnerPayoutRunStatus
+  startedAt             DateTime               @default(now())
+  completedAt           DateTime?
+  summary               Json?
+  lastError             String?
+  payouts               PartnerPayout[]
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  @@index([scheduledFor, status])
+}
+
+model PartnerPayout {
+  id                    String                 @id @default(cuid())
+  payoutRunId           String
+  partnerUserId         String
+  localPartnerProfileId String?
+  amountCents           Int
+  currency              String                 @default("eur")
+  status                PartnerPayoutStatus
+  attemptCount          Int                    @default(0)
+  initiatedAt           DateTime               @default(now())
+  paidAt                DateTime?
+  failedAt              DateTime?
+  actionRequiredAt      DateTime?
+  canceledAt            DateTime?
+  failureMessage        String?
+  stripeConnectedAccountId String?
+  stripeTransferId      String?                @unique
+  stripePayoutId        String?                @unique
+  bankAccountLast4      String?
+  bankName              String?
+  payoutMethod          PartnerPayoutMethod @default(STRIPE)
+  providerPayoutId      String?                @unique
+  providerBatchId       String?
+  providerReference     String?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  localPartnerProfile   LocalPartnerProfile?   @relation(fields: [localPartnerProfileId], references: [id], onDelete: SetNull)
+  partnerUser           User                   @relation(fields: [partnerUserId], references: [id], onDelete: Cascade)
+  payoutRun             PartnerPayoutRun       @relation(fields: [payoutRunId], references: [id], onDelete: Cascade)
+  commissions           PartnerCommission[]
+
+  @@index([partnerUserId, status, initiatedAt])
+}
+
+model StripeWebhookEvent {
+  id                    String                       @id @default(cuid())
+  stripeEventId         String                       @unique
+  endpointType          StripeWebhookEndpointType
+  eventType             String
+  stripeObjectId        String?
+  stripeAccountId       String?
+  livemode              Boolean                      @default(false)
+  status                StripeWebhookProcessingStatus
+  errorMessage          String?
+  summary               Json?
+  processedAt           DateTime?
+  createdAt             DateTime                     @default(now())
+  updatedAt             DateTime                     @updatedAt
+
+  @@index([endpointType, eventType, createdAt])
+}
+
+model BusinessClaim {
+  id                      String              @id @default(cuid())
+  businessId              String
+  userId                  String
+  status                  BusinessClaimStatus @default(REQUESTED)
+  claimantName            String
+  claimantPosition        String
+  claimantEmail           String?
+  claimantPhone           String?
+  claimantWhatsapp        String?
+  message                 String?
+  verificationChannel     VerificationChannel?
+  businessContactEmail    String?
+  businessContactWhatsapp String?
+  verificationCodeHash    String?
+  verificationCodeExpiresAt DateTime?
+  verificationAttempts    Int                 @default(0)
+  verificationLastSentAt  DateTime?
+  verificationSentTo      String?
+  resendCount             Int                 @default(0)
+  resendAvailableAt       DateTime?
+  verifiedAt              DateTime?
+  reviewedAt              DateTime?
+  business                Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user                    User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+
+  @@index([businessId, status])
+  @@index([userId, status])
+}
+
+model LegalAcceptance {
+  id                String                 @id @default(cuid())
+  userId            String
+  documentType      LegalDocumentType
+  documentVersion   String
+  locale            String
+  acceptanceContext LegalAcceptanceContext
+  contextRef        String                 @default("")
+  acceptedAt        DateTime               @default(now())
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  user              User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, documentType, documentVersion, acceptanceContext, contextRef])
+  @@index([userId, documentType, acceptedAt])
+}
+
+model BusinessImage {
+  id         String   @id @default(cuid())
+  businessId String
+  url        String
+  alt        String
+  sortOrder  Int      @default(0)
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, sortOrder])
+}
+
+model BusinessHour {
+  id         String   @id @default(cuid())
+  businessId String
+  dayOfWeek  Int
+  startTime  String?
+  endTime    String?
+  closed     Boolean  @default(false)
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, dayOfWeek])
+}
+
+model Review {
+  id         String   @id @default(cuid())
+  businessId String
+  authorName String
+  title      String
+  body       String
+  rating     Float
+  createdAt  DateTime @default(now())
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, createdAt])
+}
+
+model ListingFeedback {
+  id          String                @id @default(cuid())
+  businessId  String
+  type        ListingFeedbackType
+  status      ListingFeedbackStatus @default(NEW)
+  senderName  String?
+  senderEmail String?
+  message     String
+  business    Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+}
+
+model BusinessSource {
+  id          String            @id @default(cuid())
+  businessId  String
+  sourceType  SourceType
+  sourceName  String
+  sourceUrl   String
+  sourceKey   String?
+  license     String?
+  reuseStatus SourceReuseStatus @default(ALLOWED)
+  confidence  Int               @default(0)
+  isPrimary   Boolean           @default(false)
+  fieldMask   Json?
+  payload     Json?
+  firstSeenAt DateTime          @default(now())
+  lastSeenAt  DateTime          @default(now())
+  lastCheckedAt DateTime        @default(now())
+  business    Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@unique([businessId, sourceType, sourceUrl])
+}
+
+model Tag {
+  id         String        @id @default(cuid())
+  slug       String        @unique
+  name       String
+  businesses BusinessTag[]
+}
+
+model BusinessTag {
+  businessId String
+  tagId      String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  tag        Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([businessId, tagId])
+}

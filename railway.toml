@@ -1,0 +1,8 @@
+[build]
+builder = "RAILPACK"
+buildCommand = "npm ci && npm run build"
+
+[deploy]
+startCommand = "sh ./scripts/start-hosted.sh"
+restartPolicyType = "ALWAYS"
+restartPolicyMaxRetries = 10
