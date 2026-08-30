@@ -54,11 +54,16 @@ export default async function PublishPaymentSuccessPage({
   searchParams,
 }: PublishPaymentSuccessPageProps) {
   const requestHeaders = await headers();
-  const locale = await getCurrentLocale();
   const viewer = await getViewer();
   const resolvedSearchParams = await searchParams;
   const submissionId = getSingleParam(resolvedSearchParams.submission);
   const checkoutSessionId = getSingleParam(resolvedSearchParams.session);
+  const ownerCheckoutLocale = getSingleParam(resolvedSearchParams.locale);
+  const locale = checkoutSessionId
+    ? ownerCheckoutLocale === "en"
+      ? "en"
+      : "it"
+    : await getCurrentLocale();
 
   if (!submissionId) {
     redirect("/");

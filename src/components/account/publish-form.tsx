@@ -34,6 +34,7 @@ import {
   useActionState,
   useEffect,
   useEffectEvent,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -1508,15 +1509,12 @@ export function PublishForm({
         return;
       }
 
-      startTransition(() => {
-        setWizardStep(
-          hasCredibleDuplicateMatches(state.duplicateMatches) &&
-          duplicateResponseMatchesCurrentValues(submission)
-            ? "duplicate"
-            : getPostDuplicateCheckStep(),
-        );
-      });
-      window.scrollTo({ top: 0 });
+      moveToWizardStep(
+        hasCredibleDuplicateMatches(state.duplicateMatches) &&
+        duplicateResponseMatchesCurrentValues(submission)
+          ? "duplicate"
+          : getPostDuplicateCheckStep(),
+      );
       return;
     }
 
@@ -2214,8 +2212,11 @@ export function PublishForm({
 
   function moveToWizardStep(next: WizardStep) {
     startTransition(() => setWizardStep(next));
-    window.scrollTo({ top: 0 });
   }
+
+  useLayoutEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, [wizardStep]);
 
   function checkForExistingBusinesses() {
     if (duplicateDecision === "new") {
@@ -2288,7 +2289,8 @@ export function PublishForm({
 
   const showWizardFooter = wizardStep !== "duplicate-blocked" && wizardStep !== "payment";
   const ownerFlowStep = wizardStep === "handoff" || wizardStep === "owner-review" || wizardStep === "agreement" || wizardStep === "signature";
-  const specialFooterStep = wizardStep === "duplicate" || wizardStep === "agreement";
+  const specialFooterStep =
+    wizardStep === "duplicate" || wizardStep === "agreement" || wizardStep === "signature";
   const showFooterButtonIcons = collectionIndex >= 0 || specialFooterStep;
 
   function getPreviousWizardStep(): WizardStep | null {

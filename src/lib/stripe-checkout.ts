@@ -161,7 +161,7 @@ export async function ensureStripeCheckoutSession(params: {
       userId: params.submission.userId,
     }),
     mode: "payment",
-    success_url: `${appUrl}/publish/payment/success?submission=${encodeURIComponent(params.submission.id)}&session={CHECKOUT_SESSION_ID}`,
+    success_url: `${appUrl}/publish/payment/success?submission=${encodeURIComponent(params.submission.id)}&session={CHECKOUT_SESSION_ID}&locale=it`,
   });
 
   if (latestPendingPayment) {
