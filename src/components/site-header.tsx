@@ -107,7 +107,7 @@ export function SiteHeader({ locale, notificationCount = 0, viewer }: SiteHeader
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--primary)] text-white">
               <IconMapPin size={16} stroke={2.4} />
             </span>
-            <span className="font-serif text-lg leading-none text-[var(--color-charcoal)]">
+            <span className="site-header-wordmark font-serif text-lg leading-none text-[var(--color-charcoal)]">
               Salento
               <span className="ml-0.5 italic text-[var(--color-terracotta)]">Local</span>
             </span>

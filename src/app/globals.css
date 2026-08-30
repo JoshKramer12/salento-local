@@ -403,6 +403,14 @@ button {
   }
 }
 
+@media (max-width: 359px) {
+  /* Keep the authenticated mobile header within the narrowest supported
+     viewport. The location mark continues to identify the brand. */
+  .site-header-wordmark {
+    display: none;
+  }
+}
+
 @media (max-width: 768px) {
   .shell,
   .hero-shell {
@@ -446,6 +454,17 @@ button {
   .publish-form-shell > * {
     min-width: 0;
     max-width: 100%;
+  }
+
+  /* The Hours step is a focused mobile screen. Its in-card step marker is
+     enough orientation here; the full collection grid pushes the cards below
+     the fold and is intentionally retained for every other wizard step. */
+  .publish-form-shell-hours {
+    gap: 0;
+  }
+
+  .publish-form-shell-hours .publish-form-progress {
+    display: none;
   }
 
   .publish-form-progress,

@@ -2288,7 +2288,7 @@ export function PublishForm({
     <form
       ref={formRef}
       action={action}
-      className="publish-form-shell mx-auto grid w-full max-w-3xl gap-6"
+      className={`publish-form-shell mx-auto grid w-full max-w-3xl gap-6 ${wizardStep === "hours" ? "publish-form-shell-hours" : ""}`}
       onSubmitCapture={(event) => {
         const intent = intentInputRef.current?.value;
         if (intent === "submit" && validateAddressSelection()) event.preventDefault();
@@ -2398,7 +2398,7 @@ export function PublishForm({
           <div className="grid gap-5">
             <div>
               <p className="section-kicker">5. {locale === "it" ? "Orari" : "Hours"}</p>
-              <h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">
+              <h1 className="mt-2 font-serif text-[2.35rem] leading-tight text-[var(--foreground)] sm:text-3xl">
                 {locale === "it" ? "Quando sono aperti?" : "When are they open?"}
               </h1>
             </div>
