@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { DashboardNav } from "@/components/account/dashboard-nav";
+import { DashboardNav, DraftCountBadge } from "@/components/account/dashboard-nav";
 import { OwnedBusinessList } from "@/components/account/owned-business-list";
 import { PartnerWorkspaceNav } from "@/components/account/partner-workspace-nav";
 import { SubmissionList } from "@/components/account/submission-list";
@@ -205,10 +205,11 @@ export default async function DashboardBusinessesPage({
       ) : null}
 
       {personalView && draftSubmissions.length ? (
-        <section className="mb-10">
+        <section id="drafts" className="mb-10 scroll-mt-6">
           <div className="mb-5">
-            <h2 className="font-serif text-3xl text-[var(--foreground)]">
+            <h2 className="flex items-center gap-2 font-serif text-3xl text-[var(--foreground)]">
               {locale === "it" ? "Bozze" : "Drafts"}
+              <DraftCountBadge count={draftSubmissions.length} />
             </h2>
             <p className="mt-2 text-sm text-[var(--muted)]">
               {locale === "it"

@@ -153,6 +153,7 @@ export async function ensureStripeCheckoutSession(params: {
         quantity: 1,
       },
     ],
+    locale: "it",
     metadata: buildStripeCheckoutMetadata({
       businessId: params.submission.createdBusinessId,
       businessSubmissionId: params.submission.id,

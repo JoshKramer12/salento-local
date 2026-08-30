@@ -18,6 +18,26 @@ type DashboardNavProps = {
   role?: "ADMIN" | "BUSINESS_OWNER" | "GETTER" | "USER";
 };
 
+export function DraftCountBadge({
+  className = "",
+  count,
+}: {
+  className?: string;
+  count: number;
+}) {
+  if (count <= 0) {
+    return null;
+  }
+
+  return (
+    <span
+      className={`inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-[rgb(220,38,38)] px-1 text-[0.68rem] font-semibold leading-none text-white ${className}`}
+    >
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
+
 export function DashboardNav({
   active,
   draftCount = 0,
@@ -36,10 +56,8 @@ export function DashboardNav({
           className={`nav-link relative ${active === item.key ? "nav-link-active" : ""}`}
         >
           <span>{item.label}</span>
-          {item.key === "businesses" && draftCount > 0 ? (
-            <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-[rgb(220,38,38)] px-1 text-[0.68rem] font-semibold leading-none text-white">
-              {draftCount > 99 ? "99+" : draftCount}
-            </span>
+          {item.key === "businesses" ? (
+            <DraftCountBadge className="absolute -right-1 -top-1" count={draftCount} />
           ) : null}
         </HardNavigationLink>
       ))}
