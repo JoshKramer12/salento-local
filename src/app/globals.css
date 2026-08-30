@@ -490,6 +490,27 @@ button {
     padding-left: 1.25rem;
   }
 
+  /* Duplicate review and agreement are decision points, not collection
+     steps. Give their actions the full content width without changing the
+     accepted collection-step footer layout. */
+  .special-wizard-footer {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.75rem;
+    justify-content: stretch;
+    padding: 0.75rem 1.25rem max(0.75rem, env(safe-area-inset-bottom));
+  }
+
+  .special-wizard-footer > button {
+    width: 100%;
+    min-width: 0;
+    min-height: 2.75rem;
+  }
+
+  .special-wizard-footer > button:nth-child(n + 3) {
+    grid-column: 1 / -1;
+  }
+
   .hours-step {
     gap: 0.75rem;
   }

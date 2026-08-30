@@ -624,6 +624,35 @@ function getFieldInputClass(hasError: boolean, extraClassName = "") {
     .join(" ");
 }
 
+function SocialHandleInput({
+  hasError,
+  name,
+  onChange,
+  value,
+}: {
+  hasError: boolean;
+  name?: "facebook" | "instagram";
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <div className="relative">
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[0.95rem] text-[var(--foreground)]"
+      >
+        @
+      </span>
+      <input
+        name={name}
+        value={value}
+        onChange={(event) => onChange(normalizeSubmissionSocialInput(event.target.value))}
+        className={getFieldInputClass(hasError, "!pl-8")}
+      />
+    </div>
+  );
+}
+
 function getPanelClass(baseClassName: string, hasError: boolean) {
   return `${baseClassName} ${
     hasError
@@ -2259,6 +2288,8 @@ export function PublishForm({
 
   const showWizardFooter = wizardStep !== "duplicate-blocked" && wizardStep !== "payment";
   const ownerFlowStep = wizardStep === "handoff" || wizardStep === "owner-review" || wizardStep === "agreement" || wizardStep === "signature";
+  const specialFooterStep = wizardStep === "duplicate" || wizardStep === "agreement";
+  const showFooterButtonIcons = collectionIndex >= 0 || specialFooterStep;
 
   function getPreviousWizardStep(): WizardStep | null {
     switch (wizardStep) {
@@ -2413,7 +2444,7 @@ export function PublishForm({
 
         {wizardStep === "contact" ? <div className="grid gap-5">
           <div><p className="section-kicker">2. {locale === "it" ? "Contatti pubblici" : "Public contact"}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? "Come possono contattarli i clienti?" : "How can customers contact them?"}</h1>{firstSubmission ? <p className="mt-3 rounded-2xl bg-[rgba(42,98,87,0.08)] p-4 text-sm text-[var(--foreground)]">{locale === "it" ? "Chiedi al titolare: Qual e il numero migliore per contattarti?" : "Ask the owner: What's the best number customers should use to contact you?"}</p> : null}<p className="mt-3 text-sm text-[var(--muted)]">{locale === "it" ? "Questi dati possono comparire pubblicamente nella scheda." : "These details may appear publicly on the listing."}</p></div>
-          <div className="grid gap-4 sm:grid-cols-2"><label className="field-label"><FieldLabel title={copy.businessPhone} required={copy.required} /><div className="grid grid-cols-[7.25rem_minmax(0,1fr)] gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]"><PhoneCountrySelector value={businessPhoneParts.country} onChange={(country) => setBusinessPhoneParts({ ...businessPhoneParts, country })} options={phoneCountryOptions} aria-label={copy.phoneCode} aria-invalid={hasBusinessPhoneError} /><input value={businessPhoneParts.number} onChange={(event) => setBusinessPhoneParts({ ...businessPhoneParts, number: normalizeEditablePhoneNumberInput(event.target.value) })} inputMode="tel" className="input-field" /></div><FieldError message={businessPhoneErrorMessage} /></label><label className="field-label"><FieldLabel title={copy.whatsapp} optional={copy.optional} /><div className="grid grid-cols-[7.25rem_minmax(0,1fr)] gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]"><PhoneCountrySelector value={businessWhatsappParts.country} onChange={(country) => setBusinessWhatsappParts({ ...businessWhatsappParts, country })} options={phoneCountryOptions} aria-label={copy.phoneCode} aria-invalid={hasBusinessWhatsappError} /><input value={businessWhatsappParts.number} onChange={(event) => setBusinessWhatsappParts({ ...businessWhatsappParts, number: normalizeEditablePhoneNumberInput(event.target.value) })} inputMode="tel" className="input-field" /></div></label><label className="field-label"><FieldLabel title={copy.businessEmail} optional={copy.optional} /><input type="email" value={businessEmail} onChange={(event) => setBusinessEmail(event.target.value)} className="input-field" /></label><label className="field-label"><FieldLabel title="Website" optional={copy.optional} /><input value={website} onChange={(event) => setWebsite(event.target.value)} className="input-field" placeholder="https://" /></label><label className="field-label"><FieldLabel title="Instagram" optional={copy.optional} /><input value={instagram} onChange={(event) => setInstagram(event.target.value)} className="input-field" /></label><label className="field-label"><FieldLabel title="Facebook" optional={copy.optional} /><input value={facebook} onChange={(event) => setFacebook(event.target.value)} className="input-field" /></label></div>
+          <div className="grid gap-4 sm:grid-cols-2"><label className="field-label"><FieldLabel title={copy.businessPhone} required={copy.required} /><div className="grid grid-cols-[7.25rem_minmax(0,1fr)] gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]"><PhoneCountrySelector value={businessPhoneParts.country} onChange={(country) => setBusinessPhoneParts({ ...businessPhoneParts, country })} options={phoneCountryOptions} aria-label={copy.phoneCode} aria-invalid={hasBusinessPhoneError} /><input value={businessPhoneParts.number} onChange={(event) => setBusinessPhoneParts({ ...businessPhoneParts, number: normalizeEditablePhoneNumberInput(event.target.value) })} inputMode="tel" className="input-field" /></div><FieldError message={businessPhoneErrorMessage} /></label><label className="field-label"><FieldLabel title={copy.whatsapp} optional={copy.optional} /><div className="grid grid-cols-[7.25rem_minmax(0,1fr)] gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]"><PhoneCountrySelector value={businessWhatsappParts.country} onChange={(country) => setBusinessWhatsappParts({ ...businessWhatsappParts, country })} options={phoneCountryOptions} aria-label={copy.phoneCode} aria-invalid={hasBusinessWhatsappError} /><input value={businessWhatsappParts.number} onChange={(event) => setBusinessWhatsappParts({ ...businessWhatsappParts, number: normalizeEditablePhoneNumberInput(event.target.value) })} inputMode="tel" className="input-field" /></div></label><label className="field-label"><FieldLabel title={copy.businessEmail} optional={copy.optional} /><input type="email" value={businessEmail} onChange={(event) => setBusinessEmail(event.target.value)} className="input-field" /></label><label className="field-label"><FieldLabel title="Website" optional={copy.optional} /><input value={website} onChange={(event) => setWebsite(event.target.value)} className="input-field" placeholder="https://" /></label><label className="field-label"><FieldLabel title="Instagram" optional={copy.optional} /><SocialHandleInput hasError={hasFieldError("instagram")} value={instagram} onChange={setInstagram} /></label><label className="field-label"><FieldLabel title="Facebook" optional={copy.optional} /><SocialHandleInput hasError={hasFieldError("facebook")} value={facebook} onChange={setFacebook} /></label></div>
         </div> : null}
 
         {wizardStep === "owner" ? <div className="grid gap-5"><div><p className="section-kicker">3. {locale === "it" ? "Titolare" : "Owner"}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? "Con chi stai parlando?" : "Who are you speaking with?"}</h1><p className="mt-3 rounded-2xl border border-[rgba(42,98,87,0.16)] bg-[rgba(247,244,239,0.7)] p-4 text-sm leading-6 text-[var(--foreground)]"><strong>{locale === "it" ? "Informazioni private." : "Private information."}</strong> {locale === "it" ? "Servono per approvazione e comunicazioni: non compariranno nella scheda pubblica." : "These are used for approval and communication and will not appear on the public listing."}</p></div><div className="grid gap-4 sm:grid-cols-2"><label className="field-label self-start"><FieldLabel title={copy.ownerName} required={copy.required} /><input value={ownerName} onChange={(event) => setOwnerName(event.target.value)} className="input-field" /></label><label className="field-label"><FieldLabel title={copy.ownerWhatsapp} required={copy.required} /><div className="grid grid-cols-[7.25rem_minmax(0,1fr)] gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]"><PhoneCountrySelector value={ownerContactParts.country} onChange={(country) => { setOwnerMatchesBusinessWhatsapp(false); setOwnerContactParts({ ...ownerContactParts, country }); }} options={phoneCountryOptions} aria-label={copy.phoneCode} aria-invalid={hasOwnerPhoneError} /><input value={ownerContactParts.number} onChange={(event) => { setOwnerMatchesBusinessWhatsapp(false); setOwnerContactParts({ ...ownerContactParts, number: normalizeEditablePhoneNumberInput(event.target.value) }); }} inputMode="tel" className="input-field" /></div><CopyToggle checked={ownerMatchesBusinessWhatsapp} onChange={(checked) => { setOwnerMatchesBusinessWhatsapp(checked); if (checked) setOwnerContactParts(businessPhoneParts); }} label={copy.sameAsBusinessPhone} /></label><label className="field-label sm:col-span-2"><FieldLabel title={copy.ownerEmail} required={ownerHasNoEmail ? undefined : copy.required} /><input type="email" value={ownerEmail} disabled={ownerHasNoEmail} onChange={(event) => setOwnerEmail(event.target.value)} className="input-field disabled:opacity-60" /><CopyToggle checked={ownerHasNoEmail} onChange={(checked) => { setOwnerHasNoEmail(checked); if (checked) setOwnerEmail(""); }} label={copy.noEmail} /></label></div></div> : null}
@@ -2613,9 +2644,9 @@ export function PublishForm({
         {wizardStep === "payment" ? <div className="grid gap-6"><div><p className="section-kicker">{locale === "it" ? "Pagamento" : "Payment"}</p><h1 className="mt-2 font-serif text-4xl text-[var(--foreground)]">{locale === "it" ? "Come preferiscono pagare?" : "How would they like to pay?"}</h1><p className="mt-3 text-[var(--muted)]">{locale === "it" ? "Chiedi al titolare quale opzione preferisce." : "Ask the business owner which option they prefer."}</p></div>{adminMode ? <div className="rounded-2xl bg-[rgba(42,98,87,0.08)] p-4 text-sm">{locale === "it" ? "Modalita admin: la pubblicazione non richiede il pagamento." : "Admin mode: publication does not require payment."}</div> : <div className="grid gap-5 lg:grid-cols-2"><article className="flex flex-col rounded-[1.6rem] border-[1.5px] border-[rgba(42,98,87,0.42)] bg-white p-5 shadow-[0_12px_30px_rgba(42,98,87,0.08)] sm:p-6"><div className="flex items-center justify-between gap-3"><span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(42,98,87,0.1)] text-[var(--primary)]"><IconQrcode size={23} /></span><span className="rounded-full bg-[rgba(42,98,87,0.1)] px-3 py-1.5 text-[0.68rem] font-bold tracking-[0.12em] text-[var(--primary)]">{locale === "it" ? "CONSIGLIATO" : "RECOMMENDED"}</span></div><h2 className="mt-5 font-serif text-2xl text-[var(--foreground)]">{locale === "it" ? "Paga ora dal telefono" : "Pay now by phone"}</h2><p className="mt-2 text-sm leading-6 text-[var(--muted)]">{locale === "it" ? "Il titolare paga in sicurezza dal proprio telefono." : "The owner pays securely on their own phone."}</p><div className="mt-5 grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-1 rounded-2xl bg-[rgba(247,244,239,0.65)] p-3 text-center text-[0.7rem] font-semibold text-[var(--foreground)] sm:gap-2 sm:p-4"><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[var(--primary)]">1</b>{locale === "it" ? "Mostra QR" : "Show QR"}</span><span className="text-[var(--muted)]">→</span><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[var(--primary)]">2</b>{locale === "it" ? "Scansiona" : "Owner scans"}</span><span className="text-[var(--muted)]">→</span><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[var(--primary)]">3</b>{locale === "it" ? "Paga" : "Owner pays"}</span></div><p className="mt-4 text-center text-xs text-[var(--muted)]">Card <span className="mx-1 text-[var(--border)]">•</span> Apple Pay <span className="mx-1 text-[var(--border)]">•</span> Google Pay</p><button type="button" disabled={actionPending} onClick={() => continueWithPaymentMethod("ONLINE")} className="btn-primary mt-5 min-h-12 w-full disabled:cursor-wait disabled:opacity-60"><IconQrcode size={18} />{actionPending ? (locale === "it" ? "Caricamento..." : "Loading...") : locale === "it" ? "Mostra QR di pagamento" : "Show payment QR"}</button></article><article className="flex flex-col rounded-[1.6rem] border border-[var(--border)] bg-white p-5 sm:p-6"><div className="flex items-center justify-between"><span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(128,110,85,0.1)] text-[#806e55]"><IconCashBanknote size={23} /></span></div><h2 className="mt-5 font-serif text-2xl text-[var(--foreground)]">{locale === "it" ? "Paga con bonifico" : "Pay by bank transfer"}</h2><p className="mt-2 text-sm leading-6 text-[var(--muted)]">{locale === "it" ? "Usa questa opzione se il titolare preferisce fare un bonifico." : "Use this if the owner prefers to make a transfer."}</p><div className="mt-5 grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-1 rounded-2xl bg-[rgba(247,244,239,0.65)] p-3 text-center text-[0.7rem] font-semibold text-[var(--foreground)] sm:gap-2 sm:p-4"><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[#806e55]">1</b>{locale === "it" ? "Mostra QR" : "Show QR"}</span><span className="text-[var(--muted)]">→</span><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[#806e55]">2</b>{locale === "it" ? "Scansiona" : "Owner scans"}</span><span className="text-[var(--muted)]">→</span><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[#806e55]">3</b>{locale === "it" ? "Segui le istruzioni" : "Follow instructions"}</span></div><div className="mt-4 flex items-start gap-2 text-xs leading-5 text-[var(--muted)]"><IconReceipt2 size={17} className="mt-0.5 shrink-0 text-[var(--accent)]" />{locale === "it" ? "La scheda va online dopo la ricezione del bonifico." : "The listing goes live after the transfer is received."}</div><button type="button" disabled={actionPending} onClick={() => continueWithPaymentMethod("BANK_TRANSFER")} className="btn-secondary mt-5 min-h-12 w-full disabled:cursor-wait disabled:opacity-60"><IconQrcode size={18} />{actionPending ? (locale === "it" ? "Caricamento..." : "Loading...") : locale === "it" ? "Mostra QR del bonifico" : "Show bank transfer QR"}</button></article></div>}</div> : null}
       </section>
 
-      {showWizardFooter ? <div className={`publish-form-footer flex flex-wrap justify-end gap-3 border-t border-[rgba(42,98,87,0.12)] bg-[rgba(255,255,255,0.72)] p-3 sm:p-4 ${collectionIndex >= 0 ? `collection-wizard-footer ${previousWizardStep ? "collection-wizard-footer--with-back" : "collection-wizard-footer--without-back"}` : ""}`}>
-        {previousWizardStep ? <button type="button" disabled={draftSavePending || actionPending} onClick={goToPreviousStep} className="btn-secondary disabled:cursor-wait disabled:opacity-50">{collectionIndex >= 0 ? <IconArrowLeft size={18} aria-hidden="true" /> : null}{locale === "it" ? "Indietro" : "Back"}</button> : null}
-        <button type="button" disabled={draftSavePending || actionPending} onClick={() => requestDraftSave("manual", true)} className={`${ownerFlowStep ? "px-2 py-2 text-sm font-medium text-[var(--muted)] underline underline-offset-4" : "btn-secondary"} disabled:cursor-wait disabled:opacity-50`}>{collectionIndex >= 0 && !(draftSavePending || actionPending) ? <IconDeviceFloppy size={18} aria-hidden="true" /> : null}{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : locale === "it" ? "Salva ed esci" : "Save & exit"}</button>
+      {showWizardFooter ? <div className={`publish-form-footer flex flex-wrap justify-end gap-3 border-t border-[rgba(42,98,87,0.12)] bg-[rgba(255,255,255,0.72)] p-3 sm:p-4 ${collectionIndex >= 0 ? `collection-wizard-footer ${previousWizardStep ? "collection-wizard-footer--with-back" : "collection-wizard-footer--without-back"}` : ""} ${specialFooterStep ? "special-wizard-footer" : ""}`}>
+        {previousWizardStep ? <button type="button" disabled={draftSavePending || actionPending} onClick={goToPreviousStep} className="btn-secondary disabled:cursor-wait disabled:opacity-50">{showFooterButtonIcons ? <IconArrowLeft size={18} aria-hidden="true" /> : null}{locale === "it" ? "Indietro" : "Back"}</button> : null}
+        <button type="button" disabled={draftSavePending || actionPending} onClick={() => requestDraftSave("manual", true)} className={`${ownerFlowStep && !specialFooterStep ? "px-2 py-2 text-sm font-medium text-[var(--muted)] underline underline-offset-4" : "btn-secondary"} disabled:cursor-wait disabled:opacity-50`}>{showFooterButtonIcons && !(draftSavePending || actionPending) ? <IconDeviceFloppy size={18} aria-hidden="true" /> : null}{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : locale === "it" ? "Salva ed esci" : "Save & exit"}</button>
         {wizardStep === "business" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep("contact")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
         {wizardStep === "contact" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep("owner")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
         {wizardStep === "owner" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep("about")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
@@ -3414,32 +3445,22 @@ export function PublishForm({
               </label>
               <label className="field-label">
                 <FieldLabel title="Instagram" optional={copy.optional} />
-                <div className="relative">
-                  <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-[var(--muted)]">
-                    @
-                  </span>
-                  <input
-                    name="instagram"
-                    value={instagram}
-                    onChange={(event) => setInstagram(normalizeSubmissionSocialInput(event.target.value))}
-                    className={getFieldInputClass(hasFieldError("instagram"), "!pl-12")}
-                  />
-                </div>
+                <SocialHandleInput
+                  hasError={hasFieldError("instagram")}
+                  name="instagram"
+                  value={instagram}
+                  onChange={setInstagram}
+                />
                 <FieldError message={state.fieldErrors?.instagram} />
               </label>
               <label className="field-label">
                 <FieldLabel title="Facebook" optional={copy.optional} />
-                <div className="relative">
-                  <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-[var(--muted)]">
-                    @
-                  </span>
-                  <input
-                    name="facebook"
-                    value={facebook}
-                    onChange={(event) => setFacebook(normalizeSubmissionSocialInput(event.target.value))}
-                    className={getFieldInputClass(hasFieldError("facebook"), "!pl-12")}
-                  />
-                </div>
+                <SocialHandleInput
+                  hasError={hasFieldError("facebook")}
+                  name="facebook"
+                  value={facebook}
+                  onChange={setFacebook}
+                />
                 <FieldError message={state.fieldErrors?.facebook} />
               </label>
             </div>
