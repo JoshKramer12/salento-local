@@ -578,6 +578,32 @@ function CopyToggle({
   );
 }
 
+function HoursTimeInput({
+  ariaLabel,
+  disabled = false,
+  onChange,
+  value,
+}: {
+  ariaLabel: string;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <span className="hours-time-control">
+      <IconClock className="hours-time-icon" size={19} aria-hidden="true" />
+      <input
+        type="time"
+        aria-label={ariaLabel}
+        disabled={disabled}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="hours-time-input input-field"
+      />
+    </span>
+  );
+}
+
 function FieldError({ message }: { message?: string }) {
   if (!message) {
     return null;
@@ -2395,10 +2421,10 @@ export function PublishForm({
         {wizardStep === "about" ? <div className="grid gap-5"><div><p className="section-kicker">4. {locale === "it" ? "Descrizione" : "About"}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? "Raccontaci dell'attività" : "Tell us about the business"}</h1>{firstSubmission ? <p className="mt-3 rounded-2xl bg-[rgba(42,98,87,0.08)] p-4 text-sm">{locale === "it" ? "Chiedi: Cosa vorresti che chi visita il Salento sapesse della tua attività?" : "Ask: What would you like people visiting Salento to know about your business?"}</p> : null}</div><div className="grid gap-3"><FieldLabel title={copy.sellOrOffer} description={locale === "it" ? "Aggiungi almeno due punti." : "Add at least two points."} required={copy.required} />{offerItems.map((item, index) => <div key={index} className="flex gap-2"><input ref={(node) => { offerInputRefs.current[index] = node; }} value={item} onChange={(event) => updateOfferItem(index, event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addOfferItem(index); } }} className="input-field" placeholder={copy.sellOrOfferPlaceholder} /><button type="button" onClick={() => removeOfferItem(index)} className="btn-secondary px-3" aria-label={copy.removeBullet}><IconTrash size={18} /></button></div>)}<button type="button" onClick={() => addOfferItem()} className="btn-secondary w-fit"><IconPlus size={18} /> {locale === "it" ? "Aggiungi un altro" : "Add another"}</button></div><label className="field-label"><FieldLabel title={copy.businessSummary} optional={copy.optional} /><textarea value={businessSummary} onChange={(event) => setBusinessSummary(event.target.value)} className="input-field min-h-28" placeholder={copy.businessSummaryPlaceholder} /></label></div> : null}
 
         {wizardStep === "hours" ? (
-          <div className="grid gap-5">
+          <div className="hours-step grid gap-4">
             <div>
               <p className="section-kicker">5. {locale === "it" ? "Orari" : "Hours"}</p>
-              <h1 className="mt-2 font-serif text-[2.35rem] leading-tight text-[var(--foreground)] sm:text-3xl">
+              <h1 className="mt-2 font-serif text-[2rem] leading-[1.1] text-[var(--foreground)] sm:text-3xl">
                 {locale === "it" ? "Quando sono aperti?" : "When are they open?"}
               </h1>
             </div>
@@ -2412,7 +2438,7 @@ export function PublishForm({
               {copy.copyMonday}
             </button>
 
-              <div className="hours-mobile-days grid gap-3 md:hidden">
+              <div className="hours-mobile-days grid gap-2.5 md:hidden">
               {hours.map((day) => {
                 const dayName = locale === "it"
                   ? days.find((entry) => entry.key === day.day)?.it
@@ -2423,77 +2449,69 @@ export function PublishForm({
                 return (
                   <article
                     key={day.day}
-                    className="hours-mobile-day-card grid gap-4 rounded-2xl border border-[var(--border)] bg-[rgba(247,244,239,0.56)] p-4"
+                    className="hours-mobile-day-card grid gap-3 rounded-[1.25rem] border border-[var(--border)] bg-[rgba(247,244,239,0.56)] p-4"
                     aria-label={dayName}
                   >
-                    <div className="flex min-h-11 items-center justify-between gap-3">
-                        <strong className="text-[1.05rem] text-[var(--foreground)]">{dayName}</strong>
+                    <div className="flex items-center justify-between gap-3">
+                        <strong className="text-[1.05rem] leading-6 text-[var(--foreground)]">{dayName}</strong>
                         <CopyToggle
                           checked={day.closed}
                           onChange={(checked) => setHourValue(day.day, "closed", checked)}
                           label={copy.dayClosed}
-                          className="min-h-11 shrink-0"
-                          inputClassName="h-5 w-5"
+                          className="shrink-0"
+                          inputClassName="hours-checkbox"
                         />
                     </div>
 
-                    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2">
-                        <label className="grid min-w-0 gap-1.5">
-                          <span className="text-sm text-[var(--muted)]">{openLabel}</span>
-                          <input
-                            type="time"
-                            aria-label={`${dayName}: ${locale === "it" ? "apertura" : "opening"}`}
+                    <div className="hours-time-row grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2">
+                        <label className="grid min-w-0 gap-1">
+                          <span className="text-sm leading-5 text-[var(--muted)]">{openLabel}</span>
+                          <HoursTimeInput
+                            ariaLabel={`${dayName}: ${locale === "it" ? "apertura" : "opening"}`}
                             disabled={day.closed}
                             value={day.open1}
-                            onChange={(event) => setHourValue(day.day, "open1", event.target.value)}
-                            className="input-field min-w-0 px-3 py-3.5"
+                            onChange={(value) => setHourValue(day.day, "open1", value)}
                           />
                         </label>
-                        <span className="pb-3.5 text-lg text-[var(--muted)]" aria-hidden="true">–</span>
-                        <label className="grid min-w-0 gap-1.5">
-                          <span className="text-sm text-[var(--muted)]">{closeLabel}</span>
-                          <input
-                            type="time"
-                            aria-label={`${dayName}: ${locale === "it" ? "chiusura" : "closing"}`}
+                        <span className="hours-time-separator pb-3 text-lg text-[var(--muted)]" aria-hidden="true">–</span>
+                        <label className="grid min-w-0 gap-1">
+                          <span className="text-sm leading-5 text-[var(--muted)]">{closeLabel}</span>
+                          <HoursTimeInput
+                            ariaLabel={`${dayName}: ${locale === "it" ? "chiusura" : "closing"}`}
                             disabled={day.closed}
                             value={day.close1}
-                            onChange={(event) => setHourValue(day.day, "close1", event.target.value)}
-                            className="input-field min-w-0 px-3 py-3.5"
+                            onChange={(value) => setHourValue(day.day, "close1", value)}
                           />
                         </label>
                     </div>
 
-                    <div className="grid gap-3">
+                    <div className="grid gap-2">
                       <CopyToggle
                         checked={day.split}
                         disabled={day.closed}
                         onChange={(checked) => setHourValue(day.day, "split", checked)}
                         label={copy.splitHours}
-                        className="min-h-11 w-fit"
-                        inputClassName="h-5 w-5"
+                        className="w-fit"
+                        inputClassName="hours-checkbox"
                       />
 
                       {day.split && !day.closed ? (
-                        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2">
-                          <label className="grid min-w-0 gap-1.5">
-                            <span className="text-sm text-[var(--muted)]">{openLabel}</span>
-                            <input
-                              type="time"
-                              aria-label={`${dayName}: ${locale === "it" ? "apertura serale" : "evening opening"}`}
+                        <div className="hours-time-row grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2">
+                          <label className="grid min-w-0 gap-1">
+                            <span className="text-sm leading-5 text-[var(--muted)]">{openLabel}</span>
+                            <HoursTimeInput
+                              ariaLabel={`${dayName}: ${locale === "it" ? "apertura serale" : "evening opening"}`}
                               value={day.open2}
-                              onChange={(event) => setHourValue(day.day, "open2", event.target.value)}
-                              className="input-field min-w-0 px-3 py-3.5"
+                              onChange={(value) => setHourValue(day.day, "open2", value)}
                             />
                           </label>
-                          <span className="pb-3.5 text-lg text-[var(--muted)]" aria-hidden="true">–</span>
-                          <label className="grid min-w-0 gap-1.5">
-                            <span className="text-sm text-[var(--muted)]">{closeLabel}</span>
-                            <input
-                              type="time"
-                              aria-label={`${dayName}: ${locale === "it" ? "chiusura serale" : "evening closing"}`}
+                          <span className="hours-time-separator pb-3 text-lg text-[var(--muted)]" aria-hidden="true">–</span>
+                          <label className="grid min-w-0 gap-1">
+                            <span className="text-sm leading-5 text-[var(--muted)]">{closeLabel}</span>
+                            <HoursTimeInput
+                              ariaLabel={`${dayName}: ${locale === "it" ? "chiusura serale" : "evening closing"}`}
                               value={day.close2}
-                              onChange={(event) => setHourValue(day.day, "close2", event.target.value)}
-                              className="input-field min-w-0 px-3 py-3.5"
+                              onChange={(value) => setHourValue(day.day, "close2", value)}
                             />
                           </label>
                         </div>
