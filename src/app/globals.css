@@ -456,17 +456,10 @@ button {
     max-width: 100%;
   }
 
-  /* The Hours step is a focused mobile screen. Its in-card step marker is
-     enough orientation here; the full collection grid pushes the cards below
-     the fold and is intentionally retained for every other wizard step. */
   .publish-form-shell-hours {
-    gap: 0;
+    gap: 0.75rem;
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
-  }
-
-  .publish-form-shell-hours .publish-form-progress {
-    display: none;
   }
 
   .publish-form-progress,
@@ -495,10 +488,6 @@ button {
     padding-right: 1.25rem;
     padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
     padding-left: 1.25rem;
-  }
-
-  .publish-form-card-hours .publish-form-content {
-    padding-bottom: 5.25rem;
   }
 
   .hours-step {
@@ -598,12 +587,7 @@ button {
     flex: 0 0 auto;
   }
 
-  .hours-wizard-footer {
-    position: fixed;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    z-index: 20;
+  .collection-wizard-footer {
     display: grid;
     grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.25fr) minmax(0, 1fr);
     flex-wrap: nowrap;
@@ -613,7 +597,11 @@ button {
     box-shadow: 0 -8px 24px rgba(36, 50, 58, 0.06);
   }
 
-  .hours-wizard-footer > button {
+  .collection-wizard-footer--without-back {
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  }
+
+  .collection-wizard-footer > button {
     width: 100%;
     min-width: 0;
     min-height: 2.75rem;
@@ -658,13 +646,13 @@ button {
     font-size: 1rem;
   }
 
-  .hours-wizard-footer {
+  .collection-wizard-footer {
     gap: 0.375rem;
     padding-right: 0.5rem;
     padding-left: 0.5rem;
   }
 
-  .hours-wizard-footer > button {
+  .collection-wizard-footer > button {
     font-size: 0.72rem;
   }
 }
