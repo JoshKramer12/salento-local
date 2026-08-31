@@ -24,6 +24,17 @@ export function getPublishHref(role: UserRole, adminMode = false) {
   return role === "ADMIN" && adminMode ? "/publish?mode=admin" : "/publish";
 }
 
+export function getDesktopPartnerAddBusinessAction(locale: Locale, role?: UserRole | null) {
+  if (role !== "GETTER") {
+    return null;
+  }
+
+  return {
+    href: getPublishHref(role),
+    label: locale === "it" ? "Aggiungi attività" : "Add business",
+  };
+}
+
 export function getAccountNavigationItems(
   locale: Locale,
   role: UserRole,

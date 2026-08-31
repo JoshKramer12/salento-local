@@ -17,6 +17,7 @@ import {
   NotificationBadge,
 } from "@/components/mobile-navigation-drawer";
 import { SearchAutocomplete } from "@/components/search-autocomplete";
+import { getDesktopPartnerAddBusinessAction } from "@/lib/account-navigation";
 import type { Locale } from "@/lib/i18n";
 
 type HeaderViewer = {
@@ -81,6 +82,10 @@ export function SiteHeader({ locale, notificationCount = 0, viewer }: SiteHeader
           : copy.explore,
   }));
   const desktopSearchWidthClass = viewer ? "w-[18rem]" : "w-[13rem]";
+  const desktopPartnerAddBusinessAction = getDesktopPartnerAddBusinessAction(
+    locale,
+    viewer?.role,
+  );
 
   useEffect(() => {
     const desktopQuery = window.matchMedia("(min-width: 1280px)");
@@ -171,7 +176,16 @@ export function SiteHeader({ locale, notificationCount = 0, viewer }: SiteHeader
           </nav>
 
           <div className="hidden items-center gap-1.5 xl:flex">
-            <LanguageToggle locale={locale} />
+            {desktopPartnerAddBusinessAction ? (
+              <HardNavigationLink
+                href={desktopPartnerAddBusinessAction.href}
+                className="btn-primary whitespace-nowrap"
+              >
+                + {desktopPartnerAddBusinessAction.label}
+              </HardNavigationLink>
+            ) : (
+              <LanguageToggle locale={locale} />
+            )}
             <SearchAutocomplete
               locale={locale}
               placeholder={copy.searchPlaceholder}

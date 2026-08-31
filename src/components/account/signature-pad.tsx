@@ -22,8 +22,6 @@ type SignatureDrawing = {
 type SignaturePadProps = {
   clearLabel: string;
   drawHint: string;
-  typedHelp: string;
-  typedLabel: string;
   hasError?: boolean;
   legacyValueNotice: string;
   value: string;
@@ -124,8 +122,6 @@ function appendPointsToLastStroke(
 export function SignaturePad({
   clearLabel,
   drawHint,
-  typedHelp,
-  typedLabel,
   hasError = false,
   legacyValueNotice,
   value,
@@ -346,16 +342,6 @@ export function SignaturePad({
           {clearLabel}
         </button>
       </div>
-      <label className="field-label">
-        <span className="font-medium text-[var(--foreground)]">{typedLabel}</span>
-        <span className="text-sm text-[var(--muted)]">{typedHelp}</span>
-        <input
-          className="input-field"
-          type="text"
-          value={value.startsWith("typed:") ? value.slice(6) : ""}
-          onChange={(event) => onChange(`typed:${event.target.value}`)}
-        />
-      </label>
     </div>
   );
 }

@@ -7,6 +7,7 @@ import {
 } from "@/app/(account)/actions";
 import { signOutAction } from "@/app/(account)/sign-out-action";
 import { DashboardNav } from "@/components/account/dashboard-nav";
+import { LanguageToggle } from "@/components/language-toggle";
 import { isAdminViewer, isPrimaryAdminUsername } from "@/lib/admin";
 import { requireCompletedViewer } from "@/lib/auth-guards";
 import { getCurrentLocale } from "@/lib/locale";
@@ -204,6 +205,24 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
           </form>
         </article>
       </section>
+
+      {viewer.role === "GETTER" ? (
+        <section className="mt-6">
+          <article className="card p-6">
+            <h2 className="font-serif text-2xl text-[var(--foreground)]">
+              {locale === "it" ? "Lingua" : "Language"}
+            </h2>
+            <p className="mt-4 max-w-2xl text-[var(--muted)]">
+              {locale === "it"
+                ? "Scegli la lingua da usare in Salento Local."
+                : "Choose the language to use across Salento Local."}
+            </p>
+            <div className="mt-5">
+              <LanguageToggle locale={locale} />
+            </div>
+          </article>
+        </section>
+      ) : null}
 
       <section className="mt-6">
         <article className="card border-[color:rgba(191,91,42,0.28)] p-6">

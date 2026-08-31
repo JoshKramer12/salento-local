@@ -155,6 +155,29 @@ test("submit schema rejects invalid address coordinates", () => {
   assert.ok(parsed.error.issues.some((issue) => issue.path[0] === "addressLatitude"));
 });
 
+test("submit schema accepts a drawn signature and rejects an empty signature", () => {
+  const drawnSignature = JSON.stringify({
+    strokes: [[{ x: 12, y: 24 }, { x: 40, y: 32 }]],
+    version: 1,
+  });
+
+  assert.equal(
+    businessSubmissionSubmitSchema.safeParse(
+      createValidSubmission({ agreementSignature: drawnSignature }),
+    ).success,
+    true,
+  );
+
+  const emptySignature = businessSubmissionSubmitSchema.safeParse(
+    createValidSubmission({ agreementSignature: "" }),
+  );
+
+  assert.equal(emptySignature.success, false);
+  assert.ok(
+    emptySignature.error.issues.some((issue) => issue.path[0] === "agreementSignature"),
+  );
+});
+
 test("maps helpers preserve place ids for search and directions links", () => {
   const searchUrl = buildGoogleMapsSearchUrl({
     formattedAddress: "Via Roma 14, 73013 Galatina LE, Italy",
