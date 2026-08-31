@@ -895,6 +895,7 @@ export function PublishForm({
   const [draftSaveMode, setDraftSaveMode] = useState<"autosave" | "manual" | "local" | null>(null);
   const [duplicateDecision, setDuplicateDecision] = useState<"" | "new">("");
   const [duplicateRejected, setDuplicateRejected] = useState(false);
+  const [ownerDetailsExpanded, setOwnerDetailsExpanded] = useState(false);
   const [wizardStep, setWizardStep] = useState<WizardStep>(() => getResumeWizardStep(initialSubmissionValues));
   const offerInputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const photoInputRefs = useRef<Partial<Record<PhotoSlot, HTMLInputElement | null>>>({});
@@ -1750,6 +1751,39 @@ export function PublishForm({
             day.split && day.open2 && day.close2 ? `${day.open2}–${day.close2}` : "",
           ].filter(Boolean).join(" · "),
     }));
+  const ownerFlowCopy = locale === "it"
+    ? {
+      agree: "Accetta i termini",
+      agreeShort: "Accetta",
+      category: "Categoria",
+      confirm: "Conferma dati",
+      confirmShort: "Conferma",
+      contact: "Contatti",
+      details: "Vedi tutti i dettagli",
+      detailsHide: "Nascondi tutti i dettagli",
+      hours: "Orari",
+      ownerConfirmation: "Conferma del titolare",
+      ownerPrepared: "La tua scheda è pronta. Controlla che i dettagli principali qui sotto siano corretti.",
+      payment: "Pagamento",
+      photos: "Foto",
+      sign: "Firma",
+    }
+    : {
+      agree: "Agree to terms",
+      agreeShort: "Agree",
+      category: "Category",
+      confirm: "Confirm details",
+      confirmShort: "Confirm",
+      contact: "Contact",
+      details: "View all details",
+      detailsHide: "Hide all details",
+      hours: "Opening hours",
+      ownerConfirmation: "Owner confirmation",
+      ownerPrepared: "Your listing has been prepared. Please make sure the key details below are correct.",
+      payment: "Payment",
+      photos: "Photos",
+      sign: "Signature",
+    };
   const renderBusinessSummary = (photoSize: "compact" | "owner" = "compact") => (
     <div className="grid gap-4">
       <div>
@@ -1758,14 +1792,96 @@ export function PublishForm({
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         {selectedCategory ? <div><p className="summary-label">{locale === "it" ? "Categoria" : "Category"}</p><p className="mt-1 text-sm text-[var(--foreground)]">{getCategoryLabel(selectedCategory.slug, selectedCategory.name, locale)}</p></div> : null}
+        {businessSummary ? <div className="sm:col-span-2"><p className="summary-label">{locale === "it" ? "Descrizione attività" : "Business description"}</p><p className="mt-1 whitespace-pre-line text-sm leading-6 text-[var(--foreground)]">{businessSummary}</p></div> : null}
         {shortDescriptionValue ? <div className="sm:col-span-2"><p className="summary-label">{locale === "it" ? "Informazioni" : "About"}</p><p className="mt-1 text-sm leading-6 text-[var(--foreground)]">{shortDescriptionValue}</p></div> : null}
         {offerItems.filter(Boolean).length ? <div className="sm:col-span-2"><p className="summary-label">{locale === "it" ? "Cosa offrono" : "What they offer"}</p><div className="mt-2 flex flex-wrap gap-2">{offerItems.filter(Boolean).map((item) => <span key={item} className="pill-muted">{item}</span>)}</div></div> : null}
         {hoursSummary.length ? <div className="sm:col-span-2"><p className="summary-label">{locale === "it" ? "Orari" : "Opening hours"}</p><div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm text-[var(--foreground)] sm:grid-cols-3">{hoursSummary.map((entry) => <span key={entry.label}>{entry.label}: {entry.value}</span>)}</div></div> : null}
         <div><p className="summary-label">{locale === "it" ? "Contatti" : "Contact"}</p><div className="mt-1 grid gap-1 text-sm text-[var(--foreground)]"><span>{businessPhone}</span>{businessWhatsapp ? <span>WhatsApp: {businessWhatsapp}</span> : null}{businessEmail ? <span>{businessEmail}</span> : null}</div></div>
+        {website || instagram || facebook ? <div><p className="summary-label">{locale === "it" ? "Online" : "Online"}</p><div className="mt-1 grid gap-1 break-words text-sm text-[var(--foreground)]">{website ? <span>{website}</span> : null}{instagram ? <span>Instagram: {instagram}</span> : null}{facebook ? <span>Facebook: {facebook}</span> : null}</div></div> : null}
       </div>
       {Object.entries(photos).some(([, url]) => Boolean(url)) ? <div><p className="summary-label">{locale === "it" ? "Foto" : "Photos"}</p><div className="mt-2 flex gap-3 overflow-x-auto">{Object.entries(photos).filter(([, url]) => Boolean(url)).map(([slot, url]) => <img key={slot} src={url} alt={`${businessName} ${slot}`} className={photoSize === "owner" ? "h-28 w-28 shrink-0 rounded-2xl object-cover sm:h-32 sm:w-32" : "h-16 w-16 shrink-0 rounded-xl object-cover"} />)}</div></div> : null}
     </div>
   );
+  const renderOwnerConfirmationSummary = () => {
+    const photoEntries = Object.entries(photos).filter(([, url]) => Boolean(url));
+    const primaryPhoto = photoEntries[0]?.[1];
+    const categoryLabel = selectedCategory
+      ? getCategoryLabel(selectedCategory.slug, selectedCategory.name, locale)
+      : "";
+    const compactHours = hoursSummary
+      .reduce<Array<{ start: string; end: string; value: string }>>((groups, entry) => {
+        const label = entry.label || "";
+        const previousGroup = groups[groups.length - 1];
+
+        if (previousGroup?.value === entry.value) {
+          previousGroup.end = label;
+        } else {
+          groups.push({ start: label, end: label, value: entry.value });
+        }
+
+        return groups;
+      }, [])
+      .map((group) => `${group.start === group.end ? group.start : `${group.start}–${group.end}`}: ${group.value}`)
+      .join(" · ");
+
+    return (
+      <section className="owner-confirmation-card">
+        <div className="owner-confirmation-card__heading">
+          <div className="owner-confirmation-card__identity">
+            {primaryPhoto ? (
+              <img src={primaryPhoto} alt="" className="owner-confirmation-card__image" />
+            ) : (
+              <span className="owner-confirmation-card__image owner-confirmation-card__image--placeholder" aria-hidden="true">
+                <IconBuildingStore size={28} />
+              </span>
+            )}
+            <div className="min-w-0">
+              <h2 className="break-words font-serif text-2xl text-[var(--foreground)] sm:text-3xl">{businessName}</h2>
+              {categoryLabel ? <p className="mt-1 text-sm text-[var(--foreground)]">{categoryLabel}</p> : null}
+              <p className="mt-1 break-words text-sm leading-5 text-[var(--muted)]">{selectedAddress?.formattedAddress || address}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            aria-expanded={ownerDetailsExpanded}
+            aria-controls="owner-full-business-details"
+            onClick={() => setOwnerDetailsExpanded((expanded) => !expanded)}
+            className="owner-confirmation-card__details-toggle"
+          >
+            {ownerDetailsExpanded ? ownerFlowCopy.detailsHide : ownerFlowCopy.details}
+          </button>
+        </div>
+        <dl className="owner-confirmation-card__rows">
+          <div>
+            <dt>{ownerFlowCopy.contact}</dt>
+            <dd className="break-words">{businessPhone || businessWhatsapp || businessEmail || "—"}</dd>
+          </div>
+          <div>
+            <dt>{ownerFlowCopy.hours}</dt>
+            <dd>{compactHours || "—"}</dd>
+          </div>
+          <div>
+            <dt>{ownerFlowCopy.category}</dt>
+            <dd>{categoryLabel || "—"}</dd>
+          </div>
+          <div>
+            <dt>{ownerFlowCopy.photos}</dt>
+            <dd className="owner-confirmation-card__photos">
+              <span>{photoEntries.length}</span>
+              {photoEntries.slice(0, 2).map(([slot, url]) => (
+                <img key={slot} src={url} alt="" />
+              ))}
+            </dd>
+          </div>
+        </dl>
+        {ownerDetailsExpanded ? (
+          <div id="owner-full-business-details" className="owner-confirmation-card__full-details">
+            {renderBusinessSummary("owner")}
+          </div>
+        ) : null}
+      </section>
+    );
+  };
 
   function requestDraftSave(
     mode: "autosave" | "manual",
@@ -2187,6 +2303,13 @@ export function PublishForm({
     { key: "photos", label: locale === "it" ? "Foto" : "Photos" },
   ];
   const collectionIndex = collectionSteps.findIndex((step) => step.key === wizardStep);
+  const ownerSteps = [
+    { key: "owner-review", label: ownerFlowCopy.confirm, shortLabel: ownerFlowCopy.confirmShort, Icon: IconUser },
+    { key: "agreement", label: ownerFlowCopy.agree, shortLabel: ownerFlowCopy.agreeShort, Icon: IconCheck },
+    { key: "signature", label: ownerFlowCopy.sign, shortLabel: ownerFlowCopy.sign, Icon: IconSignature },
+    { key: "payment", label: ownerFlowCopy.payment, shortLabel: ownerFlowCopy.payment, Icon: IconCreditCard },
+  ] as const;
+  const ownerProgressIndex = ownerSteps.findIndex((step) => step.key === wizardStep);
   const visiblePhotoSlots: PhotoSlot[] = [
     "exterior",
     "interior",
@@ -2439,6 +2562,35 @@ export function PublishForm({
                 </button>
               </li>
             ))}
+          </ol>
+        </nav>
+      ) : null}
+
+      {ownerProgressIndex >= 0 ? (
+        <nav aria-label={locale === "it" ? "Avanzamento conferma del titolare" : "Owner confirmation progress"} className="owner-flow-progress">
+          <ol className="owner-flow-progress__list">
+            {ownerSteps.map((step, index) => {
+              const StepIcon = step.Icon;
+              const isCurrent = index === ownerProgressIndex;
+              const isComplete = index < ownerProgressIndex;
+
+              return (
+                <li key={step.key} className="owner-flow-progress__item">
+                  <span
+                    aria-current={isCurrent ? "step" : undefined}
+                    className={`owner-flow-progress__step ${isCurrent ? "owner-flow-progress__step--active" : ""} ${isComplete ? "owner-flow-progress__step--complete" : ""}`}
+                  >
+                    <span className="owner-flow-progress__icon" aria-hidden="true">
+                      {isComplete ? <IconCheck size={17} /> : <StepIcon size={18} />}
+                    </span>
+                    <span className="owner-flow-progress__label">
+                      <span className="owner-flow-progress__label-full">{step.label}</span>
+                      <span className="owner-flow-progress__label-short">{step.shortLabel}</span>
+                    </span>
+                  </span>
+                </li>
+              );
+            })}
           </ol>
         </nav>
       ) : null}
@@ -2745,15 +2897,51 @@ export function PublishForm({
           </div>
         ) : null}
 
-        {wizardStep === "review" ? <div className="grid gap-6"><div><p className="section-kicker">{locale === "it" ? "Revisione" : "Review"}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? "Ottimo lavoro" : "Nice work"}</h1><p className="mt-3 text-[var(--muted)]">{locale === "it" ? "Hai raccolto tutto per" : "You've collected everything for"} <strong>{businessName}</strong>.</p></div><div className="rounded-[1.6rem] border border-[rgba(42,98,87,0.14)] bg-white p-5 shadow-[var(--shadow-card)] sm:p-6">{renderBusinessSummary()}</div><div className="flex flex-wrap gap-3"><button type="button" disabled={actionPending} onClick={() => moveToWizardStep("business")} className="btn-secondary disabled:cursor-wait disabled:opacity-50">{locale === "it" ? "Modifica qualcosa" : "Edit something"}</button><button type="button" disabled={actionPending} onClick={checkForExistingBusinesses} className="btn-primary disabled:cursor-wait disabled:opacity-50">{actionPending ? (locale === "it" ? "Controllo..." : "Checking...") : isPartnerFlow ? (locale === "it" ? "Consegna il telefono al titolare →" : "Hand phone to owner →") : locale === "it" ? "Continua" : "Continue"}</button></div></div> : null}
+        {wizardStep === "review" ? (
+          <div className="grid gap-6">
+            <div>
+              <p className="section-kicker">{locale === "it" ? "Controlla il tuo lavoro" : "Check your work"}</p>
+              <h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">
+                {locale === "it" ? "È tutto corretto?" : "Everything look right?"}
+              </h1>
+              <p className="mt-3 text-[var(--muted)]">
+                {locale === "it"
+                  ? "Dai un'ultima occhiata prima di consegnare il telefono al titolare."
+                  : "Take a quick look before handing the phone to the owner."}
+              </p>
+            </div>
+            <div className="rounded-[1.6rem] border border-[rgba(42,98,87,0.14)] bg-white p-5 shadow-[var(--shadow-card)] sm:p-6">
+              {renderBusinessSummary()}
+            </div>
+            <div className="review-section-edits" aria-label={locale === "it" ? "Modifica una sezione" : "Edit a section"}>
+              {[
+                ["business", locale === "it" ? "Attività" : "Business"],
+                ["contact", locale === "it" ? "Contatti" : "Contact"],
+                ["about", locale === "it" ? "Descrizione" : "About"],
+                ["hours", locale === "it" ? "Orari" : "Opening hours"],
+                ["photos", locale === "it" ? "Foto" : "Photos"],
+              ].map(([step, label]) => (
+                <button key={step} type="button" onClick={() => moveToWizardStep(step as WizardStep)} className="review-section-edits__button">
+                  <span>{label}</span>
+                  <span>{locale === "it" ? "Modifica" : "Edit"}</span>
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <button type="button" disabled={actionPending} onClick={checkForExistingBusinesses} className="btn-primary disabled:cursor-wait disabled:opacity-50">
+                {actionPending ? (locale === "it" ? "Controllo..." : "Checking...") : isPartnerFlow ? <>{locale === "it" ? "Consegna il telefono al titolare" : "Hand phone to owner"}<IconArrowRight size={18} aria-hidden="true" /></> : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {wizardStep === "duplicate" ? <div className="grid gap-5"><div><p className="section-kicker">{copy.duplicateExistsTitle}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? "Controlla prima le attività simili" : "Check similar businesses first"}</h1><p className="mt-3 text-[var(--muted)]">{activeDuplicateMatches.length ? (locale === "it" ? "Abbiamo trovato possibili corrispondenze. Apri una scheda per controllare tutti i dettagli." : "We found possible matches. Open a listing to check all of its details.") : (locale === "it" ? "Stiamo controllando le attività esistenti, oppure non abbiamo trovato corrispondenze." : "We’re checking existing businesses, or there are no matches.")}</p></div>{!activeDuplicateMatches.length ? <div className="rounded-2xl border border-[rgba(42,98,87,0.14)] bg-[rgba(247,244,239,0.62)] p-5 text-sm text-[var(--foreground)]">{locale === "it" ? "Se non appare nessuna corrispondenza, puoi continuare: questa sarà trattata come una nuova attività." : "If no match appears, you can continue: this will be treated as a new business."}</div> : null}</div> : null}
 
         {wizardStep === "duplicate-blocked" ? <div className="mx-auto grid max-w-xl gap-6 text-center"><div className="rounded-[2rem] border border-[rgba(191,91,42,0.2)] bg-[rgba(255,248,243,0.96)] p-7"><p className="section-kicker">{locale === "it" ? "Pubblicazione non disponibile" : "Publication unavailable"}</p><h1 className="mt-3 font-serif text-4xl text-[var(--foreground)]">{locale === "it" ? "Ci dispiace per l'inconveniente" : "Sorry for the inconvenience"}</h1><p className="mt-4 leading-7 text-[var(--muted)]">{locale === "it" ? "Questa attività risulta già presente su Salento Local, quindi non possiamo pubblicare un secondo annuncio per la stessa attività." : "This business is already listed on Salento Local, so we can’t publish a second ad for the same business."}</p></div><HardNavigationLink href="/dashboard/businesses" className="btn-primary mx-auto">{locale === "it" ? "Torna alle mie segnalazioni" : "Back to my submissions"}</HardNavigationLink></div> : null}
 
-        {wizardStep === "handoff" ? <div className="mx-auto grid max-w-xl gap-6 text-center"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[rgba(42,98,87,0.1)] text-2xl text-[var(--primary)]">✓</div><div><p className="section-kicker">{locale === "it" ? "Parte del partner completata" : "Partner section complete"}</p><h1 className="mt-3 font-serif text-4xl text-[var(--foreground)]">{locale === "it" ? "Consegna il telefono al titolare." : "Please hand the phone to the business owner."}</h1><p className="mx-auto mt-4 max-w-lg text-[var(--muted)]">{locale === "it" ? "Il titolare controllerà i dati, firmerà e sceglierà come pagare." : "The owner will confirm their details, sign, and choose how they'd like to pay."}</p></div><button type="button" onClick={() => moveToWizardStep("owner-review")} className="btn-primary mx-auto">{locale === "it" ? "Sono il titolare →" : "I'm the business owner →"}</button></div> : null}
+        {wizardStep === "handoff" ? <div className="mx-auto grid max-w-xl gap-6 text-center"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[rgba(42,98,87,0.1)] text-[var(--primary)]"><IconCheck size={28} aria-hidden="true" /></div><div><p className="section-kicker">{locale === "it" ? "Parte del partner completata" : "Partner section complete"}</p><h1 className="mt-3 font-serif text-4xl text-[var(--foreground)]">{locale === "it" ? "Ora consegna il telefono al titolare." : "Now hand the phone to the business owner."}</h1><p className="mx-auto mt-4 max-w-lg text-[var(--muted)]">{locale === "it" ? "Controllerà la scheda e completerà gli ultimi passaggi." : "They’ll confirm the listing and complete the final steps."}</p></div><button type="button" onClick={() => moveToWizardStep("owner-review")} className="btn-primary mx-auto">{locale === "it" ? "Sono il titolare" : "I'm the business owner"}<IconArrowRight size={18} aria-hidden="true" /></button></div> : null}
 
-        {wizardStep === "owner-review" ? <div className="grid gap-6"><div><p className="section-kicker">{locale === "it" ? "Conferma i dati" : "Confirm details"}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{ownerName ? `${locale === "it" ? "Ciao" : "Hi"} ${ownerName.split(" ")[0]}` : locale === "it" ? "Ciao" : "Hi"}</h1><p className="mt-3 text-[var(--muted)]">{locale === "it" ? "Controlla che questi dati dell'attività siano corretti." : "Please check that these business details are correct."}</p></div><div className="rounded-[1.6rem] border border-[rgba(42,98,87,0.14)] bg-white p-5 shadow-[var(--shadow-card)] sm:p-6">{renderBusinessSummary("owner")}</div><label className="inline-flex items-start gap-3 rounded-2xl border border-[var(--border)] bg-[rgba(247,244,239,0.5)] p-4"><input type="checkbox" checked={ownerInformationConfirmed} onChange={(event) => setOwnerInformationConfirmed(event.target.checked)} className="mt-1 h-4 w-4 accent-[var(--primary)]" /><span className="text-sm font-medium">{locale === "it" ? "Confermo che questi dati dell'attività siano corretti." : "I confirm these business details are correct."}</span></label><button type="button" onClick={() => moveToWizardStep("review")} className="w-fit text-sm font-medium text-[var(--muted)] underline underline-offset-4">{locale === "it" ? "Qualcosa non va? Chiedi al partner di modificare" : "Something wrong? Ask the partner to edit"}</button></div> : null}
+        {wizardStep === "owner-review" ? <div className="grid gap-6"><div><p className="section-kicker">{ownerFlowCopy.ownerConfirmation}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{ownerName ? `${locale === "it" ? "Ciao" : "Hi"} ${ownerName.split(" ")[0]}` : locale === "it" ? "Ciao" : "Hi"}</h1><p className="mt-3 max-w-xl text-[var(--muted)]">{ownerFlowCopy.ownerPrepared}</p></div>{renderOwnerConfirmationSummary()}<label className="owner-confirmation-checkbox"><input type="checkbox" checked={ownerInformationConfirmed} onChange={(event) => setOwnerInformationConfirmed(event.target.checked)} className="mt-1 h-5 w-5 shrink-0 accent-[var(--primary)]" /><span>{locale === "it" ? "Confermo che questi dati dell'attività sono corretti." : "I confirm that these business details are correct."}</span></label><button type="button" onClick={() => moveToWizardStep("review")} className="owner-confirmation-help">{locale === "it" ? "Qualcosa non va? Chiedi al partner di modificare" : "Something looks wrong? Ask the partner to edit"}</button></div> : null}
 
         {wizardStep === "agreement" ? <div className="grid gap-5"><div><p className="section-kicker">{locale === "it" ? "Termini e autorizzazione" : "Terms and authorisation"}</p><h1 className="font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? "Conferma prima di firmare" : "Confirm before signing"}</h1><p className="mt-3 text-[var(--muted)]">{locale === "it" ? "Leggi i punti principali, apri i documenti se vuoi e accetta per continuare." : "Read the key points, open the documents if you wish, and accept to continue."}</p></div><div className="rounded-2xl bg-[rgba(247,244,239,0.68)] p-5"><p><strong>{copy.yourListing}</strong> — {businessName}</p><p className="mt-3"><strong>{copy.firstYear}:</strong> {firstYearPriceLabel}</p><p className="mt-2"><strong>{locale === "it" ? "Rinnovo:" : "Renewal:"}</strong> {renewalPriceLabel} · {copy.renewalNotAutomatic}</p></div><div className="grid gap-3">{[copy.summaryAuthorized, copy.summaryPublish, copy.summaryPrice, copy.summaryRenewal].map((item) => <p key={item} className="rounded-xl border border-[var(--border)] p-3 text-sm"><IconCircleCheckFilled size={16} className="mr-2 inline text-[var(--primary)]" />{item}</p>)}</div><div className="flex flex-wrap gap-3"><Link href={termsLink.href} target="_blank" className="btn-secondary">{termsLink.label}</Link><Link href={privacyLink.href} target="_blank" className="btn-secondary">{privacyLink.label}</Link></div><label className="inline-flex items-start gap-3 rounded-2xl border border-[var(--border)] p-4"><input type="checkbox" checked={agreementAccepted} onChange={(event) => setAgreementAccepted(event.target.checked)} className="mt-1 h-4 w-4 accent-[var(--primary)]" /><span>{copy.termsAcceptancePrefix} {termsLink.label}{copy.termsAcceptanceSuffix}</span></label></div> : null}
 
@@ -2770,7 +2958,7 @@ export function PublishForm({
         {wizardStep === "owner" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep("about")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
         {wizardStep === "about" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep("hours")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
         {wizardStep === "hours" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep("photos")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
-        {wizardStep === "photos" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep("review")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Anteprima scheda" : "Preview listing"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
+        {wizardStep === "photos" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep("review")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Rivedi l'attività" : "Review business"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
         {wizardStep === "duplicate" ? <>{activeDuplicateMatches.length ? <button type="button" disabled={actionPending} onClick={() => moveToWizardStep("duplicate-blocked")} className="btn-secondary disabled:opacity-50">{copy.duplicateSameBusiness}</button> : null}<button type="button" disabled={actionPending} onClick={() => { setDuplicateDecision("new"); moveToWizardStep(isPartnerFlow ? "handoff" : "owner-review"); }} className="btn-primary disabled:opacity-50">{actionPending ? (locale === "it" ? "Controllo..." : "Checking...") : copy.duplicateNewBusiness}</button></> : null}
         {wizardStep === "owner-review" ? <button type="button" disabled={!ownerInformationConfirmed || draftSavePending || actionPending} onClick={() => requestDraftSave("autosave", false, "agreement")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : locale === "it" ? "Continua" : "Continue"}</button> : null}
         {wizardStep === "agreement" ? <button type="button" disabled={!agreementAccepted || draftSavePending || actionPending} onClick={() => requestDraftSave("autosave", false, "signature")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : locale === "it" ? "Continua alla firma" : "Continue to signature"}</button> : null}
