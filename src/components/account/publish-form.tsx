@@ -1916,13 +1916,6 @@ export function PublishForm({
   }, [state.error]);
 
   useEffect(() => {
-    startTransition(() => {
-      setDuplicateDecision("");
-      setDuplicateRejected(false);
-    });
-  }, [duplicateCheckMessage, activeDuplicateMatches.length]);
-
-  useEffect(() => {
     if (activeDuplicateMatches.length) {
       duplicateNoticeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       duplicateNoticeRef.current?.focus();
