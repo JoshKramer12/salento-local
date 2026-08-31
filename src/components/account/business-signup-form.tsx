@@ -129,8 +129,8 @@ export function BusinessSignupForm({
   const liveEmailError =
     email.trim() && !emailValidationPattern.test(email.trim().toLowerCase())
       ? locale === "it"
-        ? "Inserisci un'email valida."
-        : "Enter a valid email address."
+        ? "Inserisci un indirizzo email valido."
+        : "Please enter a valid email address."
       : "";
   const emailErrorMessage = state.fieldErrors?.email || liveEmailError;
   const hasEmailError = Boolean(emailErrorMessage);

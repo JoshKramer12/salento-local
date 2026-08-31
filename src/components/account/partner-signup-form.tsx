@@ -289,8 +289,8 @@ export function PartnerSignupForm({
   const liveEmailError =
     email.trim() && !emailValidationPattern.test(email.trim().toLowerCase())
       ? locale === "it"
-        ? "Inserisci un'email valida."
-        : "Enter a valid email address."
+        ? "Inserisci un indirizzo email valido."
+        : "Please enter a valid email address."
       : "";
   const livePhoneError =
     phone.trim() && !isPossiblePhoneNumber(phone, defaultCountry)

@@ -48,6 +48,69 @@ export function emptyToUndefined(value: string) {
   return trimmed ? trimmed : undefined;
 }
 
+export type BirthdayValidationError = "invalid_birth_date" | "underage";
+
+function isLeapYear(year: number) {
+  return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+}
+
+function getDaysInMonth(year: number, month: number) {
+  if (month === 2) {
+    return isLeapYear(year) ? 29 : 28;
+  }
+
+  return [4, 6, 9, 11].includes(month) ? 30 : 31;
+}
+
+/**
+ * Validates the date as entered instead of relying on JavaScript's date
+ * normalization, which would turn values such as 2025-02-29 into March 1.
+ */
+export function validateBirthday(
+  value: string,
+  now: Date = new Date(),
+): BirthdayValidationError | null {
+  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (!match) {
+    return "invalid_birth_date";
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  if (
+    year < 1 ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > getDaysInMonth(year, month)
+  ) {
+    return "invalid_birth_date";
+  }
+
+  const currentYear = now.getUTCFullYear();
+  const currentMonth = now.getUTCMonth() + 1;
+  const currentDay = now.getUTCDate();
+
+  if (
+    year > currentYear ||
+    (year === currentYear &&
+      (month > currentMonth || (month === currentMonth && day > currentDay)))
+  ) {
+    return "invalid_birth_date";
+  }
+
+  const age = currentYear - year;
+  const hasReachedBirthdayThisYear =
+    month < currentMonth || (month === currentMonth && day <= currentDay);
+
+  return age > 18 || (age === 18 && hasReachedBirthdayThisYear)
+    ? null
+    : "underage";
+}
+
 export function parsePhotoUrls(value: string) {
   const urls = value
     .split(/\r?\n/)
@@ -397,8 +460,15 @@ export const localPartnerOnboardingSchema = z.object({
   birthDate: z
     .string()
     .trim()
-    .refine((value) => !Number.isNaN(Date.parse(value)), {
-      message: "invalid_birth_date",
+    .superRefine((value, ctx) => {
+      const validationError = validateBirthday(value);
+
+      if (validationError) {
+        ctx.addIssue({
+          code: "custom",
+          message: validationError,
+        });
+      }
     }),
   heardAbout: z.enum(partnerHeardAboutValues),
   heardAboutOther: z.string().trim().max(300).optional(),

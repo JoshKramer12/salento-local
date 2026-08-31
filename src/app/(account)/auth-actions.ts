@@ -19,6 +19,7 @@ import {
   getRequestClientAddress,
 } from "@/lib/security-rate-limit";
 import {
+  type BirthdayValidationError,
   completeProfileSchema,
   getStringValue,
   loginSchema,
@@ -27,6 +28,9 @@ import {
   normalizeUsername,
   signupSchema,
 } from "@/lib/validation";
+import {
+  getBirthdayValidationMessage,
+} from "@/lib/signup-validation-messages";
 
 export type FormState = {
   error?: string;
@@ -56,7 +60,6 @@ const formCopy = {
   en: {
     duplicateEmail: "That email is already being used.",
     duplicateUsername: "That username is already taken.",
-    invalidBirthday: "Birthday is invalid.",
     invalidEmail: "Please enter a valid email address.",
     invalidEmailOrPassword: "The email address or password is incorrect.",
     invalidCredentials: "Invalid email, username, or password.",
@@ -79,7 +82,6 @@ const formCopy = {
   it: {
     duplicateEmail: "Questa email e gia in uso.",
     duplicateUsername: "Questo username e gia occupato.",
-    invalidBirthday: "La data di nascita non è valida.",
     invalidEmail: "Inserisci un indirizzo email valido.",
     invalidEmailOrPassword: "L'indirizzo email o la password non sono corretti.",
     invalidCredentials: "Email, username o password non validi.",
@@ -105,12 +107,30 @@ function getLocaleFromForm(formData: FormData): Locale {
   return getStringValue(formData.get("locale")) === "en" ? "en" : "it";
 }
 
-function buildFieldErrors(fields: string[], locale: Locale) {
+function getBirthdayValidationError(
+  issues: Array<{ message: string; path: PropertyKey[] }>,
+): BirthdayValidationError | undefined {
+  const message = issues.find((issue) => issue.path[0] === "birthDate")?.message;
+
+  return message === "underage" || message === "invalid_birth_date"
+    ? message
+    : undefined;
+}
+
+function buildFieldErrors(
+  fields: string[],
+  locale: Locale,
+  birthdayValidationError?: BirthdayValidationError,
+) {
   const map: Record<string, string> = {
     baseTownOrArea: formCopy[locale].unknownTown,
-    birthDate: formCopy[locale].invalidBirthday,
+    birthDate: getBirthdayValidationMessage(
+      locale,
+      birthdayValidationError ?? "invalid_birth_date",
+    ),
     businessTermsAccepted: formCopy[locale].missingBusinessTerms,
     confirmPassword: formCopy[locale].passwordMismatch,
+    email: formCopy[locale].invalidEmail,
     firstName: formCopy[locale].invalidForm,
     heardAbout: formCopy[locale].invalidForm,
     identifier: formCopy[locale].invalidForm,
@@ -466,12 +486,19 @@ export async function signupAction(
     }
 
     const uniqueInvalidFields = [...new Set(invalidFields)];
-    const hasInvalidBirthday = uniqueInvalidFields.includes("birthDate");
+    const birthdayValidationError =
+      parsedPartnerProfile && !parsedPartnerProfile.success
+        ? getBirthdayValidationError(parsedPartnerProfile.error.issues)
+        : undefined;
+    const hasInvalidBirthday = Boolean(birthdayValidationError);
 
     return {
       error:
         hasInvalidBirthday
-          ? formCopy[locale].invalidBirthday
+          ? getBirthdayValidationMessage(
+              locale,
+              birthdayValidationError ?? "invalid_birth_date",
+            )
           : missingBusinessTerms && uniqueInvalidFields.length === 1
           ? formCopy[locale].missingBusinessTerms
           : missingPartnerTerms && uniqueInvalidFields.length === 1
@@ -479,7 +506,11 @@ export async function signupAction(
             : passwordMismatch && uniqueInvalidFields.length === 1
               ? formCopy[locale].passwordMismatch
               : formCopy[locale].invalidForm,
-      fieldErrors: buildFieldErrors(uniqueInvalidFields, locale),
+      fieldErrors: buildFieldErrors(
+        uniqueInvalidFields,
+        locale,
+        birthdayValidationError,
+      ),
       signupValues,
     };
   }
