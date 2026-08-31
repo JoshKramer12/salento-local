@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   beginPaymentQrAttempt,
   buildPaymentQrDestination,
+  ensurePaymentQrActionResult,
   finishPaymentQrAttempt,
   getPaymentQrOpeningError,
   preparePaymentQrNavigation,
@@ -85,4 +86,30 @@ test("a repeated click cannot start a duplicate preparation, and a failed attemp
   finishPaymentQrAttempt(gate);
 
   assert.equal(beginPaymentQrAttempt(gate), true);
+});
+
+test("payment action results cannot silently omit both destination and error", () => {
+  const invalidReasons: string[] = [];
+  const result = ensurePaymentQrActionResult({
+    locale: "en",
+    onInvalidResult: (reason) => invalidReasons.push(reason),
+    result: { duplicateMatches: [{ id: "existing-business" }] },
+  });
+
+  assert.equal(result.paymentDestination, undefined);
+  assert.equal(result.error, getPaymentQrOpeningError("en"));
+  assert.deepEqual(invalidReasons, ["ambiguous"]);
+});
+
+test("payment action results cannot return a destination and error together", () => {
+  const result = ensurePaymentQrActionResult({
+    locale: "it",
+    result: {
+      error: "provider failure",
+      paymentDestination: "/publish/payment?submission=invalid",
+    },
+  });
+
+  assert.equal(result.paymentDestination, undefined);
+  assert.equal(result.error, "provider failure");
 });

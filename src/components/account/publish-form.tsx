@@ -57,7 +57,6 @@ import {
   buildSelectedAddressFromStoredFields,
   buildStreetAddressLine,
   isValidSelectedAddress,
-  normalizeAddressSelectionValue,
   type SelectedAddress,
 } from "@/lib/address-selection";
 import type { Locale } from "@/lib/i18n";
@@ -72,6 +71,7 @@ import {
   finishPaymentQrAttempt,
   getPaymentQrOpeningError,
 } from "@/lib/payment-qr-navigation";
+import { duplicateResponseMatchesSubmittedValues } from "@/lib/publish-flow";
 
 const initialState: FormState = {};
 
@@ -263,10 +263,6 @@ function buildPhoneValue(parts: PhoneParts) {
   }
 
   return `${dialCodeByCountry.get(parts.country) ?? "+39"} ${localNumber}`.trim();
-}
-
-function normalizePhoneComparison(value: string) {
-  return value.replace(/\D+/g, "");
 }
 
 function normalizeEditablePhoneNumberInput(value: string) {
@@ -1474,17 +1470,11 @@ export function PublishForm({
   });
 
   function duplicateResponseMatchesCurrentValues(nextSubmission: SubmissionFormValues) {
-    const currentAddressValue = isValidSelectedAddress(selectedAddress)
-      ? selectedAddress.formattedAddress
-      : address;
-
-    return (
-      nextSubmission.businessName.trim() === businessName.trim() &&
-      normalizeAddressSelectionValue(nextSubmission.address) ===
-        normalizeAddressSelectionValue(currentAddressValue) &&
-      normalizePhoneComparison(nextSubmission.phone) ===
-        normalizePhoneComparison(businessPhone)
-    );
+    return duplicateResponseMatchesSubmittedValues(nextSubmission, {
+      address,
+      businessName,
+      phone: businessPhone,
+    });
   }
 
   function getPostDuplicateCheckStep(): WizardStep {

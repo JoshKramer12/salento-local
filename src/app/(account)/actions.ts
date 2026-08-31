@@ -83,6 +83,7 @@ import {
   getStatusAfterSubmit,
 } from "@/lib/payment";
 import {
+  ensurePaymentQrActionResult,
   getPaymentQrOpeningError,
   preparePaymentQrNavigation,
 } from "@/lib/payment-qr-navigation";
@@ -1263,10 +1264,32 @@ export async function saveBusinessSubmissionAction(
   formData: FormData,
 ): Promise<FormState> {
   const locale = getLocaleFromForm(formData);
-  const isPaymentSubmission = getStringValue(formData.get("intent")) === "submit";
+  const requestedIntent = getStringValue(formData.get("intent"));
+  const requestedPaymentMethod = getStringValue(formData.get("paymentMethod"));
+  const isPaymentSubmission =
+    requestedIntent === "submit" &&
+    (requestedPaymentMethod === "ONLINE" || requestedPaymentMethod === "BANK_TRANSFER");
 
   try {
-    return await saveBusinessSubmission(previousState, formData);
+    const result = await saveBusinessSubmission(previousState, formData);
+
+    if (!isPaymentSubmission) {
+      return result;
+    }
+
+    return ensurePaymentQrActionResult({
+      locale,
+      onInvalidResult: (reason) => {
+        console.error("[publish:payment-action-contract]", {
+          duplicateDecision: getStringValue(formData.get("duplicateDecision")),
+          duplicateMatchCount: result.duplicateMatches?.length ?? 0,
+          paymentMethod: requestedPaymentMethod,
+          reason,
+          submissionId: getStringValue(formData.get("submissionId")),
+        });
+      },
+      result,
+    });
   } catch (error) {
     // redirect() deliberately throws an internal control-flow value. It must
     // reach Next.js unchanged or the form appears to do nothing.
@@ -1274,7 +1297,15 @@ export async function saveBusinessSubmissionAction(
       throw error;
     }
 
-    console.error("[publish:save-submission]", error);
+    console.error(
+      "[publish:save-submission]",
+      {
+        paymentMethod: requestedPaymentMethod || null,
+        stage: isPaymentSubmission ? "payment-submission" : "draft-or-validation",
+        submissionId: getStringValue(formData.get("submissionId")) || null,
+      },
+      error,
+    );
 
     return {
       error:
