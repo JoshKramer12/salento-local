@@ -897,6 +897,7 @@ export function PublishForm({
   const [duplicateRejected, setDuplicateRejected] = useState(false);
   const [wizardStep, setWizardStep] = useState<WizardStep>(() => getResumeWizardStep(initialSubmissionValues));
   const offerInputRefs = useRef<Array<HTMLInputElement | null>>([]);
+  const photoInputRefs = useRef<Partial<Record<PhotoSlot, HTMLInputElement | null>>>({});
   const formRef = useRef<HTMLFormElement | null>(null);
   const intentInputRef = useRef<HTMLInputElement | null>(null);
   const paymentMethodInputRef = useRef<HTMLInputElement | null>(null);
@@ -1060,10 +1061,14 @@ export function PublishForm({
             "Il link o QR definitivo potra essere collegato qui in una fase successiva.",
           paymentReference: "Riferimento pagamento",
           photoError: "Caricamento non riuscito. Riprova con un'altra foto.",
+          photoChoose: "Tocca per caricare una foto",
+          photoChooseHint: "Scegli dalla libreria foto o dalla fotocamera.",
           photoHint:
             "Tocca per scegliere una foto dal telefono. Salviamo il file e poi lo colleghiamo alla scheda.",
           photoOptional: "Foto extra",
           photoAdd: "Aggiungi un'altra foto",
+          photoRemove: "Rimuovi",
+          photoReplace: "Sostituisci foto",
           photos: "Foto",
           photosBody:
             "Servono almeno una foto esterna e una interna. Ora il getter può caricarle direttamente dal telefono.",
@@ -1249,10 +1254,14 @@ export function PublishForm({
             "The final payment link or QR code can connect here in a later step.",
           paymentReference: "Payment reference",
           photoError: "Upload failed. Please try another photo.",
+          photoChoose: "Tap to upload a photo",
+          photoChooseHint: "Choose from your photo library or camera.",
           photoHint:
             "Tap to choose a photo from the phone. We upload it first, then attach it to the submission.",
           photoOptional: "Extra photo",
           photoAdd: "Add another photo",
+          photoRemove: "Remove",
+          photoReplace: "Replace photo",
           photos: "Photos",
           photosBody:
             "At least one exterior and one interior photo are required. The getter can upload them directly from the phone here.",
@@ -2054,6 +2063,16 @@ export function PublishForm({
     }
   }
 
+  function removePhoto(slot: PhotoSlot) {
+    setUploadError("");
+    setPreviewUrlForSlot(slot, null);
+    setPhotos((current) => ({ ...current, [slot]: "" }));
+
+    if (photoInputRefs.current[slot]) {
+      photoInputRefs.current[slot].value = "";
+    }
+  }
+
   function validateAddressSelection() {
     if (!address.trim()) {
       return false;
@@ -2405,16 +2424,18 @@ export function PublishForm({
       ) : null}
 
       {collectionIndex >= 0 ? (
-        <nav aria-label={locale === "it" ? "Avanzamento raccolta dati" : "Collection progress"} className="publish-form-progress card overflow-hidden p-4 sm:p-5">
-          <div className="flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent)]">
-            <span>{locale === "it" ? "Raccolta dati" : "Collecting details"}</span>
-            <span>{collectionIndex + 1} / {collectionSteps.length}</span>
-          </div>
-          <ol className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-6">
+        <nav aria-label={locale === "it" ? "Avanzamento raccolta dati" : "Collection progress"} className="publish-step-progress">
+          <ol className="publish-step-progress__list">
             {collectionSteps.map((step, index) => (
-              <li key={step.key} className="min-w-0">
-                <button type="button" onClick={() => moveToWizardStep(step.key)} className={`w-full rounded-xl px-2 py-2 text-xs font-medium ${index <= collectionIndex ? "bg-[var(--primary)] text-white" : "bg-[color:rgba(42,98,87,0.08)] text-[var(--muted)]"}`}>
-                  <span className="sr-only">{index + 1}: </span>{step.label}
+              <li key={step.key} className="publish-step-progress__item">
+                <button
+                  type="button"
+                  onClick={() => moveToWizardStep(step.key)}
+                  aria-current={index === collectionIndex ? "step" : undefined}
+                  className={`publish-step-progress__button ${index === collectionIndex ? "publish-step-progress__button--active" : ""}`}
+                >
+                  <span className="publish-step-progress__number" aria-hidden="true">{index + 1}</span>
+                  <span className="publish-step-progress__label">{step.label}</span>
                 </button>
               </li>
             ))}
@@ -2619,7 +2640,110 @@ export function PublishForm({
           </div>
         ) : null}
 
-        {wizardStep === "photos" ? <div className="grid gap-5"><div><p className="section-kicker">6. {locale === "it" ? "Foto" : "Photos"}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? "Aggiungi qualche foto" : "Add some photos"}</h1><p className="mt-3 text-sm text-[var(--muted)]">{locale === "it" ? "Buone foto aiutano le persone a capire il posto prima di visitarlo." : "Good photos help people understand the business before they visit."}</p></div><div className="grid gap-4 sm:grid-cols-2">{visiblePhotoSlots.map((slot) => { const required = slot === "exterior" || slot === "interior"; const label = slot === "exterior" ? copy.exteriorPhoto : slot === "interior" ? copy.interiorPhoto : `${copy.photoOptional} ${slot.replace("extra", "")}`; const image = previewUrls[slot] || photos[slot]; return <label key={slot} className="overflow-hidden rounded-2xl border border-dashed border-[rgba(42,98,87,0.28)] bg-[rgba(247,244,239,0.55)] p-4"><span className="font-medium text-[var(--foreground)]">{label}{required ? " *" : ""}</span><span className="mt-2 block text-sm text-[var(--muted)]">{slot === "exterior" ? (locale === "it" ? "Mostra l'ingresso o la facciata." : "Show the entrance or storefront.") : slot === "interior" ? (locale === "it" ? "Mostra l'atmosfera del locale." : "Show what the space feels like.") : copy.photoHint}</span>{image ? <img src={image} alt="" className="mt-3 h-40 w-full rounded-xl object-cover" /> : null}<input type="file" accept="image/*" onChange={(event) => handlePhotoChange(slot, event.target.files?.[0])} className="mt-4 block w-full text-sm" />{uploadingSlots[slot] ? <span className="mt-2 block text-sm text-[var(--muted)]">{copy.photoUploading}</span> : null}</label>; })}</div>{visibleExtraPhotoCount < optionalPhotoSlots.length ? <button type="button" onClick={() => setVisibleExtraPhotoCount((count) => count + 1)} className="btn-secondary w-fit"><IconPlus size={18} /> {copy.photoAdd}</button> : null}<FieldError message={uploadError} /></div> : null}
+        {wizardStep === "photos" ? (
+          <div className="grid gap-5">
+            <div>
+              <p className="section-kicker">6. {locale === "it" ? "Foto" : "Photos"}</p>
+              <h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">
+                {locale === "it" ? "Aggiungi qualche foto" : "Add some photos"}
+              </h1>
+              <p className="mt-3 text-sm text-[var(--muted)]">
+                {locale === "it"
+                  ? "Buone foto aiutano le persone a capire il posto prima di visitarlo."
+                  : "Good photos help people understand the business before they visit."}
+              </p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {visiblePhotoSlots.map((slot) => {
+                const required = slot === "exterior" || slot === "interior";
+                const label = slot === "exterior"
+                  ? copy.exteriorPhoto
+                  : slot === "interior"
+                    ? copy.interiorPhoto
+                    : `${copy.photoOptional} ${slot.replace("extra", "")}`;
+                const description = slot === "exterior"
+                  ? locale === "it"
+                    ? "Mostra l'ingresso o la facciata."
+                    : "Show the entrance or storefront."
+                  : slot === "interior"
+                    ? locale === "it"
+                      ? "Mostra l'atmosfera del locale."
+                      : "Show what the space feels like."
+                    : copy.photoHint;
+                const image = previewUrls[slot] || photos[slot];
+                const inputId = `submission-photo-${slot}`;
+                const isUploading = Boolean(uploadingSlots[slot]);
+
+                return (
+                  <article key={slot} className="photo-upload-card">
+                    <div>
+                      <p className="photo-upload-card__title">{label}{required ? " *" : ""}</p>
+                      <p className="photo-upload-card__description">{description}</p>
+                    </div>
+                    <input
+                      ref={(node) => { photoInputRefs.current[slot] = node; }}
+                      id={inputId}
+                      type="file"
+                      accept="image/*"
+                      disabled={isUploading}
+                      aria-label={`${label}${required ? " (required)" : ""}`}
+                      className="peer sr-only"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        event.target.value = "";
+                        void handlePhotoChange(slot, file);
+                      }}
+                    />
+                    {image ? (
+                      <>
+                        <div className="photo-upload-card__preview">
+                          <img src={image} alt={label} />
+                        </div>
+                        <div className="photo-upload-card__actions">
+                          <label htmlFor={inputId} className="photo-upload-card__replace" aria-disabled={isUploading}>
+                            <IconCamera size={18} aria-hidden="true" />
+                            {copy.photoReplace}
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => removePhoto(slot)}
+                            disabled={isUploading}
+                            className="photo-upload-card__remove"
+                          >
+                            <IconTrash size={17} aria-hidden="true" />
+                            {copy.photoRemove}
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <label htmlFor={inputId} className="photo-upload-card__empty" aria-disabled={isUploading}>
+                        <span className="photo-upload-card__empty-icon" aria-hidden="true">
+                          <IconPhoto size={30} strokeWidth={1.8} />
+                          <IconPlus size={16} />
+                        </span>
+                        <span className="photo-upload-card__empty-title">
+                          {isUploading ? copy.photoUploading : copy.photoChoose}
+                        </span>
+                        <span className="photo-upload-card__empty-hint">{copy.photoChooseHint}</span>
+                      </label>
+                    )}
+                    {isUploading ? <span className="photo-upload-card__uploading" role="status">{copy.photoUploading}</span> : null}
+                  </article>
+                );
+              })}
+            </div>
+            {visibleExtraPhotoCount < optionalPhotoSlots.length ? (
+              <button
+                type="button"
+                onClick={() => setVisibleExtraPhotoCount((count) => count + 1)}
+                className="photo-upload-card__add btn-secondary w-fit"
+              >
+                <IconPlus size={18} aria-hidden="true" /> {copy.photoAdd}
+              </button>
+            ) : null}
+            <FieldError message={uploadError} />
+          </div>
+        ) : null}
 
         {wizardStep === "review" ? <div className="grid gap-6"><div><p className="section-kicker">{locale === "it" ? "Revisione" : "Review"}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? "Ottimo lavoro" : "Nice work"}</h1><p className="mt-3 text-[var(--muted)]">{locale === "it" ? "Hai raccolto tutto per" : "You've collected everything for"} <strong>{businessName}</strong>.</p></div><div className="rounded-[1.6rem] border border-[rgba(42,98,87,0.14)] bg-white p-5 shadow-[var(--shadow-card)] sm:p-6">{renderBusinessSummary()}</div><div className="flex flex-wrap gap-3"><button type="button" disabled={actionPending} onClick={() => moveToWizardStep("business")} className="btn-secondary disabled:cursor-wait disabled:opacity-50">{locale === "it" ? "Modifica qualcosa" : "Edit something"}</button><button type="button" disabled={actionPending} onClick={checkForExistingBusinesses} className="btn-primary disabled:cursor-wait disabled:opacity-50">{actionPending ? (locale === "it" ? "Controllo..." : "Checking...") : isPartnerFlow ? (locale === "it" ? "Consegna il telefono al titolare →" : "Hand phone to owner →") : locale === "it" ? "Continua" : "Continue"}</button></div></div> : null}
 
