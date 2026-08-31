@@ -67,6 +67,11 @@ import { LISTING_OFFER, LISTING_SIGNER_ROLE_VALUES, resolveContractualEmail } fr
 import type { PhoneCountryOption } from "@/lib/phone-country-options";
 import { getCategoryLabel } from "@/lib/site";
 import { normalizeSubmissionSocialInput } from "@/lib/business-links";
+import {
+  beginPaymentQrAttempt,
+  finishPaymentQrAttempt,
+  getPaymentQrOpeningError,
+} from "@/lib/payment-qr-navigation";
 
 const initialState: FormState = {};
 
@@ -1874,14 +1879,23 @@ export function PublishForm({
   }, [state.notice]);
 
   useEffect(() => {
-    if (!paymentOpeningMethod || actionPending || !state.error) {
+    if (!paymentOpeningMethod || actionPending) {
       return;
     }
 
-    setPaymentOpeningMethod(null);
-    paymentOpeningRef.current = false;
-    setDraftNotice(state.error);
-  }, [actionPending, paymentOpeningMethod, state.error]);
+    if (state.paymentDestination) {
+      finishPaymentQrAttempt(paymentOpeningRef);
+      startTransition(() => setPaymentOpeningMethod(null));
+      router.push(state.paymentDestination);
+      return;
+    }
+
+    finishPaymentQrAttempt(paymentOpeningRef);
+    startTransition(() => {
+      setPaymentOpeningMethod(null);
+      setDraftNotice(state.error || getPaymentQrOpeningError(locale));
+    });
+  }, [actionPending, locale, paymentOpeningMethod, router, state.error, state.paymentDestination]);
 
   useEffect(() => {
     if (!state.error || !awaitingDraftResponseRef.current) {
@@ -2249,11 +2263,10 @@ export function PublishForm({
   }
 
   function continueWithPaymentMethod(method: PaymentMethod) {
-    if (!formRef.current || actionPending || paymentOpeningRef.current) {
+    if (!formRef.current || actionPending || !beginPaymentQrAttempt(paymentOpeningRef)) {
       return;
     }
 
-    paymentOpeningRef.current = true;
     setPaymentMethod(method);
     setPaymentOpeningMethod(method);
     setDraftNotice("");

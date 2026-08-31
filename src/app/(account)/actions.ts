@@ -82,11 +82,19 @@ import {
   getStatusAfterPayment,
   getStatusAfterSubmit,
 } from "@/lib/payment";
+import {
+  getPaymentQrOpeningError,
+  preparePaymentQrNavigation,
+} from "@/lib/payment-qr-navigation";
 import { prisma } from "@/lib/prisma";
 import { getSafeInternalRedirect } from "@/lib/redirects";
 import {
   consumeSecurityRateLimit,
 } from "@/lib/security-rate-limit";
+import {
+  ensureStripeBankTransferIntent,
+  ensureStripeCheckoutSession,
+} from "@/lib/stripe-checkout";
 import { publishSubmissionAfterPayment } from "@/lib/submission-publication";
 import {
   buildVerificationExpiry,
@@ -170,6 +178,7 @@ export type FormState = {
   fieldErrors?: Record<string, string>;
   invalidFields?: string[];
   notice?: string;
+  paymentDestination?: string;
   signupValues?: {
     baseTownOrArea?: string;
     businessTermsAccepted: boolean;
@@ -1271,10 +1280,10 @@ export async function saveBusinessSubmissionAction(
       error:
         locale === "it"
           ? isPaymentSubmission
-            ? "Non siamo riusciti ad aprire il pagamento. Riprova tra un momento."
+            ? getPaymentQrOpeningError("it")
             : "Non siamo riusciti a salvare la bozza. Riprova tra un momento."
           : isPaymentSubmission
-            ? "We couldn't open the payment option. Please try again in a moment."
+            ? getPaymentQrOpeningError("en")
             : "We couldn't save the draft. Please try again in a moment.",
     };
   }
@@ -1905,6 +1914,46 @@ async function saveBusinessSubmission(
     whatsapp: normalizedWhatsapp,
   };
 
+  async function preparePaymentDestination(id: string, amountOwedCents: number) {
+    const paymentSubmission = parsed.data;
+    const paymentMethod = paymentSubmission?.paymentMethod;
+
+    if (!paymentSubmission || (paymentMethod !== "ONLINE" && paymentMethod !== "BANK_TRANSFER")) {
+      throw new Error("The selected payment method cannot open a QR payment flow.");
+    }
+
+    return preparePaymentQrNavigation({
+      method: paymentMethod,
+      prepareBankTransfer: () =>
+        ensureStripeBankTransferIntent({
+          submission: {
+            amountOwedCents,
+            businessName: paymentSubmission.businessName,
+            email: publicEmail,
+            id,
+            ownerEmail: paymentSubmission.ownerEmail,
+            ownerName: paymentSubmission.ownerName,
+            ownerPhone: paymentSubmission.ownerPhone,
+            userId: viewer.id,
+          },
+          viewer: { email: viewer.email, id: viewer.id, role: viewer.role },
+        }),
+      prepareOnline: () =>
+        ensureStripeCheckoutSession({
+          submission: {
+            amountOwedCents,
+            businessName: paymentSubmission.businessName,
+            email: publicEmail,
+            id,
+            ownerEmail: paymentSubmission.ownerEmail,
+            userId: viewer.id,
+          },
+          viewer: { email: viewer.email, id: viewer.id, role: viewer.role },
+        }),
+      submissionId: id,
+    });
+  }
+
   if (submissionId) {
     const updatedSubmission = await prisma.businessSubmission.update({
       where: {
@@ -1912,58 +1961,27 @@ async function saveBusinessSubmission(
       },
       data: baseSubmissionData,
       select: {
+        amountOwedCents: true,
         id: true,
         status: true,
       },
     });
 
     if (wantsPaymentStep) {
-      if (parsed.data.paymentMethod === "BANK_TRANSFER") {
-        const existingBankTransferPayment = await prisma.payment.findFirst({
-          where: {
-            businessSubmissionId: updatedSubmission.id,
-            method: "BANK_TRANSFER",
-          },
-          orderBy: {
-            createdAt: "desc",
-          },
-          select: {
-            id: true,
-          },
-        });
-
-        if (existingBankTransferPayment) {
-          await prisma.payment.update({
-            where: {
-              id: existingBankTransferPayment.id,
-            },
-            data: {
-              amountCents: DEFAULT_LISTING_PRICE_CENTS,
-              bankTransferReference: null,
-              partnerUserId: getPartnerUserIdForSubmission(viewer),
-              status: "AWAITING_BANK_TRANSFER",
-            },
-          });
-        } else {
-          await prisma.payment.create({
-            data: {
-              amountCents: DEFAULT_LISTING_PRICE_CENTS,
-              bankTransferReference: null,
-              businessSubmissionId: updatedSubmission.id,
-              method: "BANK_TRANSFER",
-              partnerUserId: getPartnerUserIdForSubmission(viewer),
-              status: "AWAITING_BANK_TRANSFER",
-              userId: viewer.id,
-            },
-          });
-        }
-      }
-
       await ensurePendingPartnerCommissionForSubmission({
         businessSubmissionId: updatedSubmission.id,
       });
 
-      redirect(`/publish/payment?submission=${encodeURIComponent(updatedSubmission.id)}`);
+      return {
+        paymentDestination: await preparePaymentDestination(
+          updatedSubmission.id,
+          updatedSubmission.amountOwedCents,
+        ),
+        submission: {
+          ...rawSubmission,
+          id: updatedSubmission.id,
+        },
+      };
     }
 
     revalidatePath("/dashboard");
@@ -2005,35 +2023,21 @@ async function saveBusinessSubmission(
       },
     });
 
-    if (wantsPaymentStep && parsed.data.paymentMethod === "BANK_TRANSFER") {
-      await prisma.payment.create({
-        data: {
-          amountCents: DEFAULT_LISTING_PRICE_CENTS,
-          bankTransferReference: null,
-          businessSubmissionId: createdSubmission.id,
-          method: "BANK_TRANSFER",
-          partnerUserId: getPartnerUserIdForSubmission(viewer),
-          status: "AWAITING_BANK_TRANSFER",
-          userId: viewer.id,
-        },
-      });
-
-      await prisma.businessSubmission.update({
-        where: {
-          id: createdSubmission.id,
-        },
-        data: {
-          bankTransferReference: null,
-        },
-      });
-    }
-
     if (wantsPaymentStep) {
       await ensurePendingPartnerCommissionForSubmission({
         businessSubmissionId: createdSubmission.id,
       });
 
-      redirect(`/publish/payment?submission=${encodeURIComponent(createdSubmission.id)}`);
+      return {
+        paymentDestination: await preparePaymentDestination(
+          createdSubmission.id,
+          DEFAULT_LISTING_PRICE_CENTS,
+        ),
+        submission: {
+          ...rawSubmission,
+          id: createdSubmission.id,
+        },
+      };
     }
 
     revalidatePath("/dashboard");
