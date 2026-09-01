@@ -11,7 +11,7 @@ import { AuthError } from "next-auth";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { buildPaymentStatusForMethod } from "@/lib/account";
+import { buildPaymentStatusForMethod, isDraftLikeSubmission } from "@/lib/account";
 import {
   CLAIM_VERIFICATION_EXPIRY_MINUTES,
   CLAIM_VERIFICATION_RESEND_COOLDOWN_MINUTES,
@@ -2130,39 +2130,75 @@ async function saveBusinessSubmission(
   }
 }
 
-export async function deleteDraftSubmissionAction(formData: FormData) {
-  const viewer = await requireCompletedViewer();
+export type DeleteDraftSubmissionResult = {
+  error?: string;
+  success?: true;
+};
+
+export async function deleteDraftSubmissionAction(
+  formData: FormData,
+): Promise<DeleteDraftSubmissionResult> {
+  const locale = getLocaleFromForm(formData);
   const submissionId = getStringValue(formData.get("submissionId")).trim();
-  const returnPath = getStringValue(formData.get("returnPath")).trim() || "/dashboard";
 
   if (!submissionId) {
-    return;
+    return {
+      error:
+        locale === "it"
+          ? "Non troviamo più questa bozza. Aggiorna la pagina e riprova."
+          : "We couldn't find this draft. Refresh the page and try again.",
+    };
   }
 
-  const draft = await prisma.businessSubmission.findUnique({
-    where: {
-      id: submissionId,
-    },
-    select: {
-      status: true,
-      userId: true,
-    },
-  });
+  try {
+    const viewer = await requireCompletedViewer();
+    const draft = await prisma.businessSubmission.findUnique({
+      where: {
+        id: submissionId,
+      },
+      select: {
+        id: true,
+        paymentMethod: true,
+        paymentStatus: true,
+        status: true,
+        userId: true,
+      },
+    });
 
-  if (!draft || draft.userId !== viewer.id || draft.status !== "DRAFT") {
-    return;
+    if (!draft || draft.userId !== viewer.id || !isDraftLikeSubmission(draft)) {
+      return {
+        error:
+          locale === "it"
+            ? "Questa bozza non è più disponibile per l'eliminazione. Aggiorna la pagina e riprova."
+            : "This draft is no longer available to delete. Refresh the page and try again.",
+      };
+    }
+
+    await prisma.businessSubmission.delete({
+      where: {
+        id: draft.id,
+      },
+    });
+
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/businesses");
+
+    return { success: true };
+  } catch (error) {
+    // Authentication redirects must keep their normal control flow.
+    if (isNextRedirect(error)) {
+      throw error;
+    }
+
+    console.error("[submission:delete-draft]", { submissionId }, error);
+
+    return {
+      error:
+        locale === "it"
+          ? "Non siamo riusciti a eliminare la bozza. Riprova tra un momento."
+          : "We couldn't delete the draft. Please try again in a moment.",
+    };
   }
-
-  await prisma.businessSubmission.delete({
-    where: {
-      id: submissionId,
-    },
-  });
-
-  revalidatePath("/dashboard");
-  revalidatePath("/dashboard/businesses");
-
-  redirect(returnPath);
 }
 
 export async function completeLocalPartnerOnboardingAction(

@@ -1,13 +1,12 @@
 import type { UserRole } from "@prisma/client";
 import type Stripe from "stripe";
 
-import { getCurrentLocale } from "@/lib/locale";
 import {
   buildStripeCheckoutMetadata,
   getAppUrl,
   getListingPayerEmail,
+  getOwnerStripeCheckoutCopy,
   getPartnerUserIdForSubmission,
-  getReviewAfterPaymentCopy,
   getStripeEuBankTransferCountry,
 } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
@@ -85,9 +84,9 @@ export async function ensureStripeCheckoutSession(params: {
   submission: CheckoutSubmission;
   viewer: CheckoutViewer;
 }) {
-  const locale = await getCurrentLocale();
   const stripe = getStripe();
   const appUrl = getAppUrl();
+  const ownerCheckoutCopy = getOwnerStripeCheckoutCopy(params.submission.businessName);
   const customerEmail = getListingPayerEmail({
     ownerEmail: params.submission.ownerEmail,
     submissionUserId: params.submission.userId,
@@ -142,11 +141,8 @@ export async function ensureStripeCheckoutSession(params: {
         price_data: {
           currency: "eur",
           product_data: {
-            description: getReviewAfterPaymentCopy(locale),
-            name:
-              locale === "it"
-                ? `Scheda Salento Local: ${params.submission.businessName}`
-                : `Salento Local listing: ${params.submission.businessName}`,
+            description: ownerCheckoutCopy.description,
+            name: ownerCheckoutCopy.name,
           },
           unit_amount: params.submission.amountOwedCents,
         },

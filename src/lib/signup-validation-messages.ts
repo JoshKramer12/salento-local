@@ -7,11 +7,11 @@ const birthdayValidationMessages: Record<
 > = {
   en: {
     invalid_birth_date: "Please enter a valid birthday.",
-    underage: "You must be 18 or older to join Salento Local.",
+    underage: "You must be at least 18 years old to create an account.",
   },
   it: {
     invalid_birth_date: "Inserisci una data di nascita valida.",
-    underage: "Devi avere almeno 18 anni per unirti a Salento Local.",
+    underage: "Devi avere almeno 18 anni per creare un account.",
   },
 };
 

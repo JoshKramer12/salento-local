@@ -12,6 +12,7 @@ import { signIn, signOut } from "@/lib/auth";
 import { requireViewer } from "@/lib/auth-guards";
 import type { Locale } from "@/lib/i18n";
 import { recordCurrentLegalAcceptances } from "@/lib/legal-consent";
+import { createCompletePartnerSignup } from "@/lib/partner-signup-account";
 import { prisma } from "@/lib/prisma";
 import { getSafeInternalRedirect } from "@/lib/redirects";
 import {
@@ -249,134 +250,6 @@ export async function loginAction(
   return {};
 }
 
-export async function partnerSignupAction(
-  _previousState: FormState,
-  formData: FormData,
-): Promise<FormState> {
-  const locale = getLocaleFromForm(formData);
-  const firstName = getStringValue(formData.get("firstName")).trim();
-  const lastName = getStringValue(formData.get("lastName")).trim();
-  const email = normalizeEmail(getStringValue(formData.get("email")));
-  const rawUsername = getStringValue(formData.get("username"));
-  const username = normalizeUsername(rawUsername);
-  const password = getStringValue(formData.get("password"));
-  const confirmPassword = getStringValue(formData.get("confirmPassword"));
-  const partnerTermsAccepted = getStringValue(formData.get("partnerTermsAccepted")) === "on";
-  const redirectTo = getSafeInternalRedirect(getStringValue(formData.get("redirectTo")));
-  const signupValues = {
-    businessTermsAccepted: false,
-    email,
-    firstName,
-    lastName,
-    partnerTermsAccepted,
-    username: rawUsername,
-  };
-  const fieldErrors: string[] = [];
-
-  if (!firstName || firstName.length > 80) fieldErrors.push("firstName");
-  if (!lastName || lastName.length > 80) fieldErrors.push("lastName");
-  if (confirmPassword !== password) fieldErrors.push("confirmPassword");
-  if (!partnerTermsAccepted) fieldErrors.push("partnerTermsAccepted");
-
-  const parsed = signupSchema.safeParse({
-    email,
-    password,
-    username,
-  });
-
-  if (!parsed.success) {
-    fieldErrors.push(...parsed.error.issues.map((issue) => String(issue.path[0] ?? "form")));
-  }
-
-  if (fieldErrors.length) {
-    return {
-      error:
-        fieldErrors.length === 1 && fieldErrors[0] === "partnerTermsAccepted"
-          ? formCopy[locale].missingPartnerTerms
-          : fieldErrors.length === 1 && fieldErrors[0] === "confirmPassword"
-            ? formCopy[locale].passwordMismatch
-            : formCopy[locale].invalidForm,
-      fieldErrors: buildFieldErrors([...new Set(fieldErrors)], locale),
-      signupValues,
-    };
-  }
-
-  const requestHeaders = await headers();
-  const clientAddress = getRequestClientAddress(requestHeaders);
-  const signupLimit = await consumeSecurityRateLimit({
-    clientAddress,
-    limit: 5,
-    namespace: "partner-signup",
-    subject: email,
-    windowMs: 60 * 60 * 1000,
-  });
-
-  if (!signupLimit.allowed) {
-    return {
-      error: formCopy[locale].invalidForm,
-      signupValues,
-    };
-  }
-
-  const existing = await prisma.user.findFirst({
-    where: {
-      OR: [{ email }, { username }],
-    },
-    select: { email: true, username: true },
-  });
-
-  if (existing?.email === email) {
-    return {
-      error: formCopy[locale].duplicateEmail,
-      fieldErrors: { email: formCopy[locale].duplicateEmail },
-      signupValues,
-    };
-  }
-
-  if (existing?.username === username) {
-    return {
-      error: formCopy[locale].duplicateUsername,
-      fieldErrors: { username: formCopy[locale].duplicateUsername },
-      signupValues,
-    };
-  }
-
-  if (!canUsePrimaryAdminUsername(null, username)) {
-    return {
-      error: formCopy[locale].reservedAdminUsername,
-      fieldErrors: { username: formCopy[locale].reservedAdminUsername },
-      signupValues,
-    };
-  }
-
-  const passwordHash = await bcrypt.hash(password, 12);
-  const user = await prisma.user.create({
-    data: {
-      email,
-      name: `${firstName} ${lastName}`,
-      passwordHash,
-      profileCompleted: true,
-      role: "GETTER",
-      username,
-    },
-  });
-
-  await recordCurrentLegalAcceptances({
-    acceptanceContext: "PARTNER_SIGNUP",
-    audience: "partner",
-    locale,
-    userId: user.id,
-  });
-
-  await signIn("credentials", {
-    identifier: email,
-    password,
-    redirectTo: redirectTo ?? "/partner/start",
-  });
-
-  return {};
-}
-
 export async function deleteAccountAction(formData: FormData) {
   const viewer = await requireViewer();
   const confirmation = getStringValue(formData.get("confirmation"));
@@ -404,6 +277,8 @@ export async function signupAction(
   const confirmPassword = getStringValue(formData.get("confirmPassword"));
   const rawPassword = getStringValue(formData.get("password"));
   const rawEmail = getStringValue(formData.get("email"));
+  const firstName = getStringValue(formData.get("firstName")).trim();
+  const lastName = getStringValue(formData.get("lastName")).trim();
   const rawUsername = getStringValue(formData.get("username"));
   const requestedUsername = normalizeUsername(rawUsername);
   const signupValues = {
@@ -412,6 +287,7 @@ export async function signupAction(
     birthDate: getStringValue(formData.get("birthDate")),
     confirmPassword,
     email: rawEmail,
+    firstName,
     heardAbout: getStringValue(formData.get("heardAbout")).trim(),
     heardAboutOther: getStringValue(formData.get("heardAboutOther")).trim(),
     hometownTownId: getStringValue(formData.get("hometownTownId")).trim(),
@@ -419,6 +295,7 @@ export async function signupAction(
     partnerTermsAccepted: getStringValue(formData.get("partnerTermsAccepted")) === "on",
     password: rawPassword,
     username: rawUsername,
+    lastName,
     whatsapp: getStringValue(formData.get("whatsapp")),
   };
   const parsed = signupSchema.safeParse({
@@ -457,6 +334,9 @@ export async function signupAction(
     requestedRole === "GETTER" && (!hometownTownId || !hometown);
   const invalidHeardAboutOther =
     requestedRole === "GETTER" && rawHeardAbout === "other" && !rawHeardAboutOther;
+  const invalidPartnerIdentity =
+    requestedRole === "GETTER" &&
+    (!firstName || firstName.length > 80 || !lastName || lastName.length > 80);
 
   if (
     !parsed.success ||
@@ -465,6 +345,8 @@ export async function signupAction(
     passwordMismatch ||
     (requestedRole === "GETTER" &&
       (!parsedPartnerProfile?.success || invalidPartnerTown || invalidHeardAboutOther))
+      ||
+      invalidPartnerIdentity
   ) {
     const invalidFields = parsed.success
       ? []
@@ -483,6 +365,8 @@ export async function signupAction(
 
       if (invalidPartnerTown) invalidFields.push("baseTownOrArea");
       if (invalidHeardAboutOther) invalidFields.push("heardAbout");
+      if (!firstName || firstName.length > 80) invalidFields.push("firstName");
+      if (!lastName || lastName.length > 80) invalidFields.push("lastName");
     }
 
     const uniqueInvalidFields = [...new Set(invalidFields)];
@@ -578,55 +462,50 @@ export async function signupAction(
   });
 
   await prisma.$transaction(async (tx) => {
-    const user = await tx.user.create({
-      data: {
-        email: parsed.data.email,
-        passwordHash,
-        profileCompleted: true,
-        role,
-        username: parsed.data.username,
-      },
-    });
-
     if (role === "GETTER" && parsedPartnerProfile?.success && hometown) {
       const heardAboutValue =
         parsedPartnerProfile.data.heardAbout === "other"
           ? `other:${rawHeardAboutOther}`
           : parsedPartnerProfile.data.heardAbout;
-
-      await tx.localPartnerProfile.create({
-        data: {
+      await createCompletePartnerSignup(
+        {
           baseTownOrArea: hometown.name,
-          billingAddress: "",
-          birthDate: new Date(parsedPartnerProfile.data.birthDate),
-          completedAt: new Date(),
-          fullName: "",
+          birthDate: parsedPartnerProfile.data.birthDate,
+          email: parsed.data.email,
+          firstName,
           heardAbout: heardAboutValue,
-          legalFullName: "",
+          lastName,
+          locale,
+          passwordHash,
           phone: parsedPartnerProfile.data.phone,
-          preferredLanguage: locale,
-          taxIdOrVatNumber: "",
-          understandsDirectPayment: true,
-          understandsNoCash: true,
-          understandsNoNegotiation: true,
-          understandsNoPricing: true,
-          user: {
-            connect: { id: user.id },
-          },
-          whatsapp: parsedPartnerProfile.data.whatsapp?.trim() || null,
+          username: parsed.data.username,
+          whatsapp: parsedPartnerProfile.data.whatsapp,
+        },
+        {
+          createProfile: (data) => tx.localPartnerProfile.create({ data }),
+          createUser: (data) => tx.user.create({ data }),
+          recordLegalAcceptance: (userId) =>
+            recordCurrentLegalAcceptances({
+              acceptanceContext: "PARTNER_SIGNUP",
+              audience: "partner",
+              db: tx,
+              locale,
+              userId,
+            }),
+        },
+      );
+    } else {
+      const user = await tx.user.create({
+        data: {
+          email: parsed.data.email,
+          passwordHash,
+          profileCompleted: true,
+          role,
+          username: parsed.data.username,
         },
       });
 
-      await recordCurrentLegalAcceptances({
-        acceptanceContext: "PARTNER_SIGNUP",
-        audience: "partner",
-        db: tx,
-        locale,
-        userId: user.id,
-      });
-    }
-
-    if (role === "BUSINESS_OWNER") {
+      if (role === "BUSINESS_OWNER") {
       await recordCurrentLegalAcceptances({
         acceptanceContext: "BUSINESS_SIGNUP",
         audience: "business",
@@ -634,6 +513,7 @@ export async function signupAction(
         locale,
         userId: user.id,
       });
+      }
     }
   });
 

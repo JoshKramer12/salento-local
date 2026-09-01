@@ -106,6 +106,8 @@ export function PartnerSignupForm({
     phoneCountryOptions[0]?.code ??
     "IT") as CountryCode;
   const [email, setEmail] = useState(state.signupValues?.email ?? "");
+  const [firstName, setFirstName] = useState(state.signupValues?.firstName ?? "");
+  const [lastName, setLastName] = useState(state.signupValues?.lastName ?? "");
   const [username, setUsername] = useState(state.signupValues?.username ?? "");
   const [password, setPassword] = useState(state.signupValues?.password ?? "");
   const [confirmPassword, setConfirmPassword] = useState(
@@ -132,12 +134,15 @@ export function PartnerSignupForm({
     locale === "it"
       ? {
           birthDate: "Data di nascita",
+          ageRequirement: "Devi avere almeno 18 anni per creare un account.",
           cta: "Crea account partner",
           email: "Email",
+          firstName: "Nome",
           helper: "Hai gia un account?",
           hometown: "Citta di origine",
           howHeard: "Come hai conosciuto Salento Local?",
           login: "Accedi",
+          lastName: "Cognome",
           other: "Altro",
           otherPlaceholder: "Raccontacelo",
           password: "Password",
@@ -170,12 +175,15 @@ export function PartnerSignupForm({
         }
       : {
           birthDate: "Birth date",
+          ageRequirement: "You must be 18 or older to join.",
           cta: "Create partner account",
           email: "Email",
+          firstName: "First name",
           helper: "Already have an account?",
           hometown: "Hometown",
           howHeard: "How did you hear about Salento Local?",
           login: "Log in",
+          lastName: "Last name",
           other: "Other",
           otherPlaceholder: "Tell us more",
           password: "Password",
@@ -233,6 +241,8 @@ export function PartnerSignupForm({
 
   const restoreSignupValues = useEffectEvent((signupValues: NonNullable<FormState["signupValues"]>) => {
     setEmail(signupValues.email ?? "");
+    setFirstName(signupValues.firstName ?? "");
+    setLastName(signupValues.lastName ?? "");
     setUsername(signupValues.username ?? "");
     setPassword(signupValues.password ?? "");
     setConfirmPassword(signupValues.confirmPassword ?? "");
@@ -320,6 +330,34 @@ export function PartnerSignupForm({
         </p>
         <p className="mt-2 text-sm text-[var(--muted)]">{copy.stepOneBody}</p>
       </div>
+
+      <label className="field-label">
+        <span>{copy.firstName}</span>
+        <input
+          name="firstName"
+          autoComplete="given-name"
+          value={firstName}
+          onChange={(event) => setFirstName(event.target.value)}
+          className="input-field"
+        />
+        {state.fieldErrors?.firstName ? (
+          <span className="text-sm text-[var(--accent)]">{state.fieldErrors.firstName}</span>
+        ) : null}
+      </label>
+
+      <label className="field-label">
+        <span>{copy.lastName}</span>
+        <input
+          name="lastName"
+          autoComplete="family-name"
+          value={lastName}
+          onChange={(event) => setLastName(event.target.value)}
+          className="input-field"
+        />
+        {state.fieldErrors?.lastName ? (
+          <span className="text-sm text-[var(--accent)]">{state.fieldErrors.lastName}</span>
+        ) : null}
+      </label>
 
       <label className="field-label">
         <span>{copy.email}</span>
@@ -484,6 +522,7 @@ export function PartnerSignupForm({
       <div className="grid gap-5 sm:grid-cols-2">
         <label className="field-label">
           <span>{copy.birthDate}</span>
+          <span className="text-sm text-[var(--muted)]">{copy.ageRequirement}</span>
           <SegmentedDateInput
             locale={locale}
             name="birthDate"

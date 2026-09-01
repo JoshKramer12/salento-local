@@ -120,6 +120,16 @@ export function getReviewAfterPaymentCopy(locale: Locale) {
     : "Your listing will be published after payment has been confirmed.";
 }
 
+// The QR card-payment flow is handed to the business owner in Italian. Keep
+// this separate from the website locale so Stripe Checkout cannot inherit an
+// English browser cookie while its own Checkout locale is Italian.
+export function getOwnerStripeCheckoutCopy(businessName: string) {
+  return {
+    description: "La tua attività verrà pubblicata dopo la conferma del pagamento.",
+    name: `Pubblicazione su Salento Local: ${businessName}`,
+  };
+}
+
 export function formatPaymentAmount(amountCents: number, locale: Locale) {
   return formatCurrencyFromCents(amountCents, locale);
 }

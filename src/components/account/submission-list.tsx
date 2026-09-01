@@ -2,9 +2,9 @@ import type { PaymentMethod, PaymentStatus } from "@prisma/client";
 
 import {
   confirmBankTransferReceivedAction,
-  deleteDraftSubmissionAction,
   publishSubmissionAction,
 } from "@/app/(account)/actions";
+import { DraftDeleteButton } from "@/components/account/draft-delete-button";
 import { HardNavigationLink } from "@/components/hard-navigation-link";
 import {
   getSubmissionPaymentSummary,
@@ -54,7 +54,6 @@ export function SubmissionList({
           continueEditing: "Continua modifica",
           continuePayment: "Vai al pagamento",
           date: "Data",
-          delete: "Elimina bozza",
           empty: "Non ci sono ancora segnalazioni da mostrare.",
           markCommissionPaid: "Segna commissione come pagata",
           method: "Metodo",
@@ -75,7 +74,6 @@ export function SubmissionList({
           continueEditing: "Continue editing",
           continuePayment: "Go to payment",
           date: "Date",
-          delete: "Delete draft",
           empty: "There are no submissions to show yet.",
           markCommissionPaid: "Mark commission as paid",
           method: "Method",
@@ -205,13 +203,11 @@ export function SubmissionList({
                 </HardNavigationLink>
               ) : null}
               {isDraft ? (
-                <form action={deleteDraftSubmissionAction}>
-                  <input type="hidden" name="submissionId" value={submission.id} />
-                  <input type="hidden" name="returnPath" value={returnPath} />
-                  <button type="submit" className="btn-secondary">
-                    {copy.delete}
-                  </button>
-                </form>
+                <DraftDeleteButton
+                  businessName={submission.businessName}
+                  locale={locale}
+                  submissionId={submission.id}
+                />
               ) : null}
               {submission.paymentStatus === "PAID" ? (
                 <HardNavigationLink

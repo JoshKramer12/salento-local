@@ -13,6 +13,7 @@ import { canAccessSubmissionReceipt, resolveReceiptRecipient } from "@/lib/recei
 import {
   getBankTransferDetails,
   getListingPayerEmail,
+  getOwnerStripeCheckoutCopy,
   getStripeEuBankTransferCountry,
   isCommissionEligible,
 } from "@/lib/payment";
@@ -153,6 +154,13 @@ test("direct publishers can use their own authenticated email as the listing pay
     }),
     "owner@example.com",
   );
+});
+
+test("owner Stripe Checkout copy remains Italian independently of the website locale", () => {
+  assert.deepEqual(getOwnerStripeCheckoutCopy("Pasticceria Rossi"), {
+    description: "La tua attività verrà pubblicata dopo la conferma del pagamento.",
+    name: "Pubblicazione su Salento Local: Pasticceria Rossi",
+  });
 });
 
 test("receipt access allows the submitting owner, linked partner, and admin only", () => {

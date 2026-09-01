@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -6,6 +7,7 @@ import {
   signupAction,
 } from "@/app/(account)/auth-actions";
 import { getBirthdayValidationMessage } from "@/lib/signup-validation-messages";
+import { createCompletePartnerSignup } from "@/lib/partner-signup-account";
 import {
   localPartnerOnboardingSchema,
   signupSchema,
@@ -21,6 +23,33 @@ function createSignupFormData(email: string, locale: "en" | "it" = "en") {
   formData.set("locale", locale);
   formData.set("password", "ValidPassword1!");
   formData.set("username", "valid-user");
+  return formData;
+}
+
+function createPartnerSignupFormData(overrides: Record<string, string> = {}) {
+  const values = {
+    accountType: "GETTER",
+    baseTownOrArea: "Lecce",
+    birthDate: "2000-08-31",
+    email: "partner@example.com",
+    firstName: "Ada",
+    heardAbout: "friend-family",
+    lastName: "Lovelace",
+    locale: "en",
+    partnerTermsAccepted: "on",
+    password: "ValidPassword1!",
+    phone: "+39 333 1234567",
+    username: "ada-lovelace",
+    whatsapp: "+39 333 1234567",
+    ...overrides,
+  };
+  const formData = new FormData();
+
+  for (const [key, value] of Object.entries(values)) {
+    formData.set(key, value);
+  }
+
+  formData.set("confirmPassword", values.password);
   return formData;
 }
 
@@ -79,7 +108,7 @@ test("birthday validation accepts real calendar dates and valid leap days", () =
   assert.equal(validateBirthday("2024-02-29", stableToday), "underage");
 });
 
-test("birthday validation rejects malformed, future, and impossible calendar dates", () => {
+test("future and nonexistent birthdays are rejected as invalid dates", () => {
   for (const birthday of [
     "",
     "2000-2-29",
@@ -98,7 +127,7 @@ test("birthday validation rejects malformed, future, and impossible calendar dat
   }
 });
 
-test("birthday validation enforces the 18+ threshold on the actual birthday", () => {
+test("exactly 18 is accepted and under-18 birthdays are rejected", () => {
   assert.equal(validateBirthday("2008-08-31", stableToday), null);
   assert.equal(validateBirthday("2008-09-01", stableToday), "underage");
   assert.equal(validateBirthday("2010-08-31", stableToday), "underage");
@@ -139,7 +168,7 @@ test("birthday validation messages distinguish an invalid date from being undera
   );
   assert.equal(
     getBirthdayValidationMessage("en", "underage"),
-    "You must be 18 or older to join Salento Local.",
+    "You must be at least 18 years old to create an account.",
   );
   assert.equal(
     getBirthdayValidationMessage("it", "invalid_birth_date"),
@@ -147,6 +176,107 @@ test("birthday validation messages distinguish an invalid date from being undera
   );
   assert.equal(
     getBirthdayValidationMessage("it", "underage"),
-    "Devi avere almeno 18 anni per unirti a Salento Local.",
+    "Devi avere almeno 18 anni per creare un account.",
   );
+});
+
+test("under-18 Partner signup receives the specific 18+ account-creation error", async () => {
+  const result = await signupAction(
+    {},
+    createPartnerSignupFormData({ birthDate: "2010-08-31" }),
+  );
+
+  assert.equal(result.error, "You must be at least 18 years old to create an account.");
+  assert.equal(
+    result.fieldErrors?.birthDate,
+    "You must be at least 18 years old to create an account.",
+  );
+});
+
+test("Partner signup cannot complete without birthday, phone, or town", async () => {
+  const cases = [
+    { field: "birthDate", values: { birthDate: "" } },
+    { field: "phone", values: { phone: "", whatsapp: "" } },
+    { field: "baseTownOrArea", values: { baseTownOrArea: "" } },
+  ];
+
+  for (const { field, values } of cases) {
+    const result = await signupAction({}, createPartnerSignupFormData(values));
+
+    assert.ok(result.error, field);
+    assert.ok(result.fieldErrors?.[field], field);
+  }
+});
+
+test("an incomplete early Partner signup returns before any account is created", async () => {
+  const result = await signupAction(
+    {},
+    createPartnerSignupFormData({
+      baseTownOrArea: "",
+      birthDate: "",
+      phone: "",
+      whatsapp: "",
+    }),
+  );
+
+  assert.equal(result.error, "Please enter a valid birthday.");
+  assert.equal(result.signupValues?.email, "partner@example.com");
+  assert.ok(result.fieldErrors?.birthDate);
+  assert.ok(result.fieldErrors?.phone);
+  assert.ok(result.fieldErrors?.baseTownOrArea);
+});
+
+test("a complete valid Partner signup creates its account, profile, and legal acceptance together", async () => {
+  let createdProfile: Record<string, unknown> | undefined;
+  let createdUser: Record<string, unknown> | undefined;
+  const legalAcceptanceUserIds: string[] = [];
+
+  await createCompletePartnerSignup(
+    {
+      baseTownOrArea: "Lecce",
+      birthDate: "2000-08-31",
+      email: "partner@example.com",
+      firstName: "Ada",
+      heardAbout: "friend-family",
+      lastName: "Lovelace",
+      locale: "en",
+      passwordHash: "hashed-password",
+      phone: "+39 333 1234567",
+      username: "ada-lovelace",
+      whatsapp: "+39 333 1234567",
+    },
+    {
+      createProfile: async (data) => {
+        createdProfile = data;
+      },
+      createUser: async (data) => {
+        createdUser = data;
+        return { id: "partner-user-id" };
+      },
+      recordLegalAcceptance: async (userId) => {
+        legalAcceptanceUserIds.push(userId);
+      },
+    },
+  );
+
+  assert.deepEqual(createdUser, {
+    email: "partner@example.com",
+    name: "Ada Lovelace",
+    passwordHash: "hashed-password",
+    profileCompleted: true,
+    role: "GETTER",
+    username: "ada-lovelace",
+  });
+  assert.equal(createdProfile?.userId, "partner-user-id");
+  assert.equal(createdProfile?.baseTownOrArea, "Lecce");
+  assert.equal(createdProfile?.fullName, "Ada Lovelace");
+  assert.equal(createdProfile?.birthDate instanceof Date, true);
+  assert.deepEqual(legalAcceptanceUserIds, ["partner-user-id"]);
+});
+
+test("the Birthday step explains the 18+ requirement in both supported locales", () => {
+  const source = readFileSync("src/components/account/partner-signup-form.tsx", "utf8");
+
+  assert.match(source, /You must be 18 or older to join\./);
+  assert.match(source, /Devi avere almeno 18 anni per creare un account\./);
 });

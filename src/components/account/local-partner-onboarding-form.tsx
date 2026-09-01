@@ -141,6 +141,7 @@ export function LocalPartnerOnboardingForm({
     locale === "it"
       ? {
           birthDate: "Data di nascita",
+          ageRequirement: "Devi avere almeno 18 anni per creare un account.",
           detailsCta: "Continua",
           finishBody:
             "Stripe ha ancora bisogno di alcune informazioni prima di abilitare i pagamenti.",
@@ -177,6 +178,7 @@ export function LocalPartnerOnboardingForm({
         }
       : {
           birthDate: "Birth date",
+          ageRequirement: "You must be 18 or older to join.",
           detailsCta: "Continue",
           finishBody: "Stripe still needs some information before payouts can be enabled.",
           finishTitle: "Finish setting up your payouts",
@@ -376,7 +378,8 @@ export function LocalPartnerOnboardingForm({
       </div>
 
       <label className="field-label">
-        <span>{copy.birthDate}</span>
+          <span>{copy.birthDate}</span>
+          <span className="text-sm text-[var(--muted)]">{copy.ageRequirement}</span>
         <SegmentedDateInput
           locale={locale}
           name="birthDate"

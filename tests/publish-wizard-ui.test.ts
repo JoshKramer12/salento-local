@@ -45,6 +45,27 @@ test("the partner-to-owner flow keeps distinct review, handoff, and owner confir
   assert.match(publishForm, /moveToWizardStep\(step as WizardStep\)/);
 });
 
+test("partner review makes submitted photos large enough to inspect and keeps the handoff action right aligned", () => {
+  assert.match(publishForm, /renderBusinessSummary\("partner-review"\)/);
+  assert.match(publishForm, /partner-review-photos/);
+  assert.match(publishForm, /h-24 w-24 shrink-0 rounded-2xl object-cover sm:h-28 sm:w-28/);
+  assert.match(publishForm, /flex flex-wrap justify-end gap-3[\s\S]*Hand phone to owner/);
+});
+
+test("duplicate decisions come before the back and save navigation row", () => {
+  const duplicateFooterStart = publishForm.indexOf("duplicate-wizard-footer__decisions");
+  const duplicateFooter = publishForm.slice(
+    duplicateFooterStart,
+    publishForm.indexOf('wizardStep === "owner-review"', duplicateFooterStart),
+  );
+
+  assert.ok(duplicateFooterStart >= 0);
+  assert.ok(duplicateFooter.indexOf("copy.duplicateNewBusiness") < duplicateFooter.indexOf("copy.duplicateSameBusiness"));
+  assert.match(duplicateFooter, /duplicate-wizard-footer__navigation flex w-full flex-nowrap items-center justify-between gap-3/);
+  assert.match(duplicateFooter, /<IconArrowLeft size=\{18\} aria-hidden="true" \/>/);
+  assert.match(duplicateFooter, /<IconDeviceFloppy size=\{18\} aria-hidden="true" \/>/);
+});
+
 test("owner confirmation retains compact details, accessible disclosure, and confirmation gating", () => {
   assert.match(publishForm, /const \[ownerDetailsExpanded, setOwnerDetailsExpanded\] = useState\(false\)/);
   assert.match(publishForm, /aria-expanded=\{ownerDetailsExpanded\}/);
@@ -62,4 +83,15 @@ test("owner-only progress follows confirmation, agreement, signature, and paymen
   assert.match(publishForm, /const ownerProgressIndex = ownerSteps\.findIndex\(\(step\) => step\.key === wizardStep\)/);
   assert.match(publishForm, /owner-flow-progress__step--active/);
   assert.match(publishForm, /owner-flow-progress__step--complete/);
+});
+
+test("every Save & exit control uses the established secondary button treatment", () => {
+  assert.match(
+    publishForm,
+    /requestDraftSave\("manual", true\)\} className="btn-secondary disabled:cursor-wait disabled:opacity-50"/,
+  );
+  assert.doesNotMatch(
+    publishForm,
+    /ownerFlowStep && !specialFooterStep \? "px-2 py-2 text-sm font-medium text-\[var\(--muted\)\] underline underline-offset-4"/,
+  );
 });
