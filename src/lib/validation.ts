@@ -472,7 +472,14 @@ export const localPartnerOnboardingSchema = z.object({
     }),
   heardAbout: z.enum(partnerHeardAboutValues),
   heardAboutOther: z.string().trim().max(300).optional(),
-  phone: z.string().trim().min(5).max(40),
+  phone: z
+    .string()
+    .trim()
+    .min(5)
+    .max(40)
+    .refine((value) => isPossiblePhoneNumber(value), {
+      message: "invalid_phone",
+    }),
   whatsapp: optionalPhoneSchema.optional(),
 });
 

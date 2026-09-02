@@ -11,8 +11,10 @@ import {
   completeLocalPartnerOnboardingAction,
   type FormState,
 } from "@/app/(account)/actions";
+import { completePartnerSignupAction } from "@/app/(account)/auth-actions";
 import { SegmentedDateInput } from "@/components/account/segmented-date-input";
 import { FormSubmitButton } from "@/components/form-submit-button";
+import { HardNavigationLink } from "@/components/hard-navigation-link";
 import type { Locale } from "@/lib/i18n";
 import type { PhoneCountryOption } from "@/lib/phone-country-options";
 
@@ -25,6 +27,7 @@ type PhoneParts = {
 };
 
 type LocalPartnerOnboardingFormProps = {
+  backHref?: string;
   locale: Locale;
   needsDetails: boolean;
   phoneCountryOptions: PhoneCountryOption[];
@@ -42,6 +45,7 @@ type LocalPartnerOnboardingFormProps = {
     setupState?: "action-required" | "ready" | "restricted" | "setup-incomplete" | "setup-not-started";
   } | null;
   returnTo: string;
+  signupMode?: boolean;
   towns: Array<{
     id: string;
     name: string;
@@ -114,15 +118,20 @@ function normalizeHeardAboutValue(value: string | null | undefined) {
 }
 
 export function LocalPartnerOnboardingForm({
+  backHref,
   locale,
   needsDetails,
   phoneCountryOptions,
   profile,
   payoutSetup,
   returnTo,
+  signupMode = false,
   towns,
 }: LocalPartnerOnboardingFormProps) {
-  const [state, action] = useActionState(completeLocalPartnerOnboardingAction, initialState);
+  const submitAction = signupMode
+    ? completePartnerSignupAction
+    : completeLocalPartnerOnboardingAction;
+  const [state, action] = useActionState(submitAction, initialState);
   const defaultCountry = (phoneCountryOptions.find((option) => option.code === "IT")?.code ??
     phoneCountryOptions[0]?.code ??
     "IT") as CountryCode;
@@ -141,6 +150,8 @@ export function LocalPartnerOnboardingForm({
     locale === "it"
       ? {
           birthDate: "Data di nascita",
+          back: "Indietro",
+          createAccount: "Crea account",
           detailsCta: "Continua",
           finishBody:
             "Stripe ha ancora bisogno di alcune informazioni prima di abilitare i pagamenti.",
@@ -152,6 +163,7 @@ export function LocalPartnerOnboardingForm({
           other: "Altro",
           otherPlaceholder: "Raccontacelo",
           pending: "Salvataggio...",
+          creatingAccount: "Creazione account...",
           phone: "WhatsApp / numero di telefono",
           phoneCode: "Prefisso internazionale",
           phoneNumber: "Numero di telefono",
@@ -177,6 +189,8 @@ export function LocalPartnerOnboardingForm({
         }
       : {
           birthDate: "Birth date",
+          back: "Back",
+          createAccount: "Create account",
           detailsCta: "Continue",
           finishBody: "Stripe still needs some information before payouts can be enabled.",
           finishTitle: "Finish setting up your payouts",
@@ -187,6 +201,7 @@ export function LocalPartnerOnboardingForm({
           other: "Other",
           otherPlaceholder: "Tell us more",
           pending: "Saving...",
+          creatingAccount: "Creating account...",
           phone: "WhatsApp / phone number",
           phoneCode: "Country code",
           phoneNumber: "Phone number",
@@ -418,14 +433,19 @@ export function LocalPartnerOnboardingForm({
 
       {state.error ? <p className="text-sm text-[var(--accent)]">{state.error}</p> : null}
 
-      <div className="flex flex-wrap gap-3">
+      <div className="flex items-center justify-between gap-3">
+        {signupMode && backHref ? (
+          <HardNavigationLink href={backHref} className="btn-secondary">
+            {copy.back}
+          </HardNavigationLink>
+        ) : null}
         <FormSubmitButton
-          className="btn-primary w-full sm:w-auto"
-          pendingLabel={copy.pending}
+          className={signupMode ? "btn-primary flex-1 sm:flex-none" : "btn-primary w-full sm:w-auto"}
+          pendingLabel={signupMode ? copy.creatingAccount : copy.pending}
           name="intent"
           value="save"
         >
-          {copy.detailsCta}
+          {signupMode ? copy.createAccount : copy.detailsCta}
         </FormSubmitButton>
       </div>
     </form>

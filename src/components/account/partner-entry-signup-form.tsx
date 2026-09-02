@@ -11,15 +11,26 @@ import type { Locale } from "@/lib/i18n";
 
 const initialState: FormState = {};
 
-export function PartnerEntrySignupForm({ locale }: { locale: Locale }) {
+type PartnerEntrySignupFormProps = {
+  initialValues?: {
+    email: string;
+    firstName: string;
+    lastName: string;
+    partnerTermsAccepted: boolean;
+    username: string;
+  } | null;
+  locale: Locale;
+};
+
+export function PartnerEntrySignupForm({ initialValues, locale }: PartnerEntrySignupFormProps) {
   const [state, action] = useActionState(partnerSignupAction, initialState);
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [email, setEmail] = useState("");
-  const [username, setUsername] = useState("");
+  const [firstName, setFirstName] = useState(initialValues?.firstName ?? "");
+  const [lastName, setLastName] = useState(initialValues?.lastName ?? "");
+  const [email, setEmail] = useState(initialValues?.email ?? "");
+  const [username, setUsername] = useState(initialValues?.username ?? "");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(initialValues?.partnerTermsAccepted ?? false);
   const restoreSignupValues = useEffectEvent((signupValues: NonNullable<FormState["signupValues"]>) => {
     setFirstName(signupValues.firstName ?? "");
     setLastName(signupValues.lastName ?? "");
@@ -39,13 +50,13 @@ export function PartnerEntrySignupForm({ locale }: { locale: Locale }) {
       ? {
           already: "Hai gia un account?",
           confirmPassword: "Conferma password",
-          create: "Crea account Partner",
+          create: "Avanti",
           email: "Email",
           firstName: "Nome",
           lastName: "Cognome",
           login: "Accedi",
           password: "Password",
-          pending: "Creazione account...",
+          pending: "Continuo...",
           termsHint: "Apri i documenti in una nuova scheda per non perdere i dati inseriti.",
           username: "Username",
           usernameHint: "Scegli uno username unico da usare per accedere al tuo account.",
@@ -53,13 +64,13 @@ export function PartnerEntrySignupForm({ locale }: { locale: Locale }) {
       : {
           already: "Already have an account?",
           confirmPassword: "Confirm password",
-          create: "Create partner account",
+          create: "Next",
           email: "Email",
           firstName: "First name",
           lastName: "Last name",
           login: "Log in",
           password: "Password",
-          pending: "Creating account...",
+          pending: "Continuing...",
           termsHint: "Open the documents in a new tab so you do not lose your details.",
           username: "Username",
           usernameHint: "Choose a unique username to use when logging in to your account.",

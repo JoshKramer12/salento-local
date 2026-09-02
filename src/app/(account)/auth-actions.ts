@@ -1,8 +1,9 @@
 "use server";
 
 import bcrypt from "bcryptjs";
+import { Prisma } from "@prisma/client";
 import { AuthError } from "next-auth";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import {
@@ -12,6 +13,13 @@ import { signIn, signOut } from "@/lib/auth";
 import { requireViewer } from "@/lib/auth-guards";
 import type { Locale } from "@/lib/i18n";
 import { recordCurrentLegalAcceptances } from "@/lib/legal-consent";
+import {
+  createCompletePartnerSignup,
+  openPartnerSignupHandoff,
+  sealPartnerSignupHandoff,
+  validatePartnerSignupEntry,
+  type PartnerSignupEntry,
+} from "@/lib/partner-signup-flow";
 import { prisma } from "@/lib/prisma";
 import { getSafeInternalRedirect } from "@/lib/redirects";
 import {
@@ -75,6 +83,7 @@ const formCopy = {
       "Use at least 8 characters, including 1 uppercase letter, 1 number, and 1 special character.",
     passwordMismatch: "The passwords do not match.",
     reservedAdminUsername: "That username is reserved.",
+    signupExpired: "Your signup details expired. Please start again.",
     unknownTown: "Please choose a valid town.",
     usernameRule:
       "Use 3 to 30 lowercase letters, numbers, dots, dashes, or underscores.",
@@ -97,14 +106,72 @@ const formCopy = {
       "Usa almeno 8 caratteri, con 1 lettera maiuscola, 1 numero e 1 carattere speciale.",
     passwordMismatch: "Le password non coincidono.",
     reservedAdminUsername: "Questo username e riservato.",
+    signupExpired: "I dati di registrazione sono scaduti. Ricomincia la registrazione.",
     unknownTown: "Seleziona un comune valido.",
     usernameRule:
       "Usa da 3 a 30 caratteri minuscoli: lettere, numeri, punti, trattini o underscore.",
   },
 } satisfies Record<Locale, Record<string, string>>;
 
+const partnerSignupHandoffCookie = "salento-local-partner-signup";
+const partnerSignupHandoffMaxAge = 15 * 60;
+
 function getLocaleFromForm(formData: FormData): Locale {
   return getStringValue(formData.get("locale")) === "en" ? "en" : "it";
+}
+
+function getPartnerSignupHandoffSecret() {
+  const secret = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET;
+  return secret?.trim() || null;
+}
+
+async function getPendingPartnerSignup(): Promise<PartnerSignupEntry | null> {
+  const secret = getPartnerSignupHandoffSecret();
+  if (!secret) return null;
+
+  const cookieStore = await cookies();
+  const value = cookieStore.get(partnerSignupHandoffCookie)?.value;
+  return value ? openPartnerSignupHandoff(value, secret) : null;
+}
+
+async function storePendingPartnerSignup(entry: PartnerSignupEntry) {
+  const secret = getPartnerSignupHandoffSecret();
+  if (!secret) {
+    throw new Error("Partner signup handoff is not configured.");
+  }
+
+  const cookieStore = await cookies();
+  cookieStore.set(partnerSignupHandoffCookie, sealPartnerSignupHandoff(entry, secret), {
+    httpOnly: true,
+    maxAge: partnerSignupHandoffMaxAge,
+    path: "/partner/join",
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+  });
+}
+
+async function clearPendingPartnerSignup() {
+  const cookieStore = await cookies();
+  cookieStore.set(partnerSignupHandoffCookie, "", {
+    httpOnly: true,
+    maxAge: 0,
+    path: "/partner/join",
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+  });
+}
+
+export async function getPendingPartnerSignupForPage() {
+  const entry = await getPendingPartnerSignup();
+  if (!entry) return null;
+
+  return {
+    email: entry.email,
+    firstName: entry.firstName,
+    lastName: entry.lastName,
+    partnerTermsAccepted: entry.partnerTermsAccepted,
+    username: entry.username,
+  };
 }
 
 function getBirthdayValidationError(
@@ -254,11 +321,10 @@ export async function partnerSignupAction(
   formData: FormData,
 ): Promise<FormState> {
   const locale = getLocaleFromForm(formData);
-  const firstName = getStringValue(formData.get("firstName")).trim();
-  const lastName = getStringValue(formData.get("lastName")).trim();
+  const firstName = getStringValue(formData.get("firstName"));
+  const lastName = getStringValue(formData.get("lastName"));
   const email = normalizeEmail(getStringValue(formData.get("email")));
   const rawUsername = getStringValue(formData.get("username"));
-  const username = normalizeUsername(rawUsername);
   const password = getStringValue(formData.get("password"));
   const confirmPassword = getStringValue(formData.get("confirmPassword"));
   const partnerTermsAccepted = getStringValue(formData.get("partnerTermsAccepted")) === "on";
@@ -271,32 +337,28 @@ export async function partnerSignupAction(
     partnerTermsAccepted,
     username: rawUsername,
   };
-  const fieldErrors: string[] = [];
 
-  if (!firstName || firstName.length > 80) fieldErrors.push("firstName");
-  if (!lastName || lastName.length > 80) fieldErrors.push("lastName");
-  if (confirmPassword !== password) fieldErrors.push("confirmPassword");
-  if (!partnerTermsAccepted) fieldErrors.push("partnerTermsAccepted");
-
-  const parsed = signupSchema.safeParse({
+  const validation = validatePartnerSignupEntry({
     email,
+    firstName,
+    lastName,
+    locale,
+    partnerTermsAccepted,
     password,
-    username,
+    confirmPassword,
+    redirectTo,
+    username: rawUsername,
   });
 
-  if (!parsed.success) {
-    fieldErrors.push(...parsed.error.issues.map((issue) => String(issue.path[0] ?? "form")));
-  }
-
-  if (fieldErrors.length) {
+  if (!validation.entry) {
     return {
       error:
-        fieldErrors.length === 1 && fieldErrors[0] === "partnerTermsAccepted"
+        validation.termsMissing && validation.fields.length === 1
           ? formCopy[locale].missingPartnerTerms
-          : fieldErrors.length === 1 && fieldErrors[0] === "confirmPassword"
+          : validation.passwordMismatch && validation.fields.length === 1
             ? formCopy[locale].passwordMismatch
             : formCopy[locale].invalidForm,
-      fieldErrors: buildFieldErrors([...new Set(fieldErrors)], locale),
+      fieldErrors: buildFieldErrors(validation.fields, locale),
       signupValues,
     };
   }
@@ -307,7 +369,7 @@ export async function partnerSignupAction(
     clientAddress,
     limit: 5,
     namespace: "partner-signup",
-    subject: email,
+    subject: validation.entry.email,
     windowMs: 60 * 60 * 1000,
   });
 
@@ -320,12 +382,12 @@ export async function partnerSignupAction(
 
   const existing = await prisma.user.findFirst({
     where: {
-      OR: [{ email }, { username }],
+      OR: [{ email: validation.entry.email }, { username: validation.entry.username }],
     },
     select: { email: true, username: true },
   });
 
-  if (existing?.email === email) {
+  if (existing?.email === validation.entry.email) {
     return {
       error: formCopy[locale].duplicateEmail,
       fieldErrors: { email: formCopy[locale].duplicateEmail },
@@ -333,7 +395,7 @@ export async function partnerSignupAction(
     };
   }
 
-  if (existing?.username === username) {
+  if (existing?.username === validation.entry.username) {
     return {
       error: formCopy[locale].duplicateUsername,
       fieldErrors: { username: formCopy[locale].duplicateUsername },
@@ -341,7 +403,7 @@ export async function partnerSignupAction(
     };
   }
 
-  if (!canUsePrimaryAdminUsername(null, username)) {
+  if (!canUsePrimaryAdminUsername(null, validation.entry.username)) {
     return {
       error: formCopy[locale].reservedAdminUsername,
       fieldErrors: { username: formCopy[locale].reservedAdminUsername },
@@ -349,29 +411,174 @@ export async function partnerSignupAction(
     };
   }
 
-  const passwordHash = await bcrypt.hash(password, 12);
-  const user = await prisma.user.create({
-    data: {
-      email,
-      name: `${firstName} ${lastName}`,
-      passwordHash,
-      profileCompleted: true,
-      role: "GETTER",
-      username,
+  await storePendingPartnerSignup(validation.entry);
+  redirect("/partner/join/details");
+
+  return {};
+}
+
+export async function completePartnerSignupAction(
+  _previousState: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const locale = getLocaleFromForm(formData);
+  const entry = await getPendingPartnerSignup();
+
+  if (!entry) {
+    return { error: formCopy[locale].signupExpired };
+  }
+
+  const entryValidation = validatePartnerSignupEntry({
+    ...entry,
+    confirmPassword: entry.password,
+  });
+  if (!entryValidation.entry) {
+    await clearPendingPartnerSignup();
+    return { error: formCopy[locale].signupExpired };
+  }
+  const signupEntry = entryValidation.entry;
+
+  const parsed = localPartnerOnboardingSchema.safeParse({
+    baseTownOrArea: getStringValue(formData.get("baseTownOrArea")),
+    birthDate: getStringValue(formData.get("birthDate")),
+    heardAbout: getStringValue(formData.get("heardAbout")),
+    heardAboutOther: getStringValue(formData.get("heardAboutOther")),
+    phone: getStringValue(formData.get("phone")),
+    whatsapp: getStringValue(formData.get("whatsapp")),
+  });
+
+  if (!parsed.success) {
+    const invalidFields = parsed.error.issues.map((issue) => String(issue.path[0] ?? "form"));
+    const birthdayValidationError = getBirthdayValidationError(parsed.error.issues);
+    return {
+      error: birthdayValidationError
+        ? getBirthdayValidationMessage(locale, birthdayValidationError)
+        : formCopy[locale].invalidForm,
+      fieldErrors: buildFieldErrors(
+        [...new Set(invalidFields)],
+        locale,
+        birthdayValidationError,
+      ),
+    };
+  }
+
+  const hometownTownId = getStringValue(formData.get("hometownTownId")).trim();
+  const hometown = hometownTownId
+    ? await prisma.town.findUnique({
+        where: { id: hometownTownId },
+        select: { name: true },
+      })
+    : null;
+
+  if (!hometown) {
+    return {
+      error: formCopy[locale].unknownTown,
+      fieldErrors: { baseTownOrArea: formCopy[locale].unknownTown },
+    };
+  }
+
+  if (parsed.data.heardAbout === "other" && !parsed.data.heardAboutOther?.trim()) {
+    return {
+      error: formCopy[locale].invalidForm,
+      fieldErrors: { heardAbout: formCopy[locale].invalidForm },
+    };
+  }
+
+  const existing = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { email: signupEntry.email },
+        { username: signupEntry.username },
+      ],
     },
+    select: { email: true, username: true },
   });
 
-  await recordCurrentLegalAcceptances({
-    acceptanceContext: "PARTNER_SIGNUP",
-    audience: "partner",
-    locale,
-    userId: user.id,
-  });
+  if (existing?.email === signupEntry.email) {
+    return {
+      error: formCopy[locale].duplicateEmail,
+      fieldErrors: { email: formCopy[locale].duplicateEmail },
+    };
+  }
 
+  if (existing?.username === signupEntry.username) {
+    return {
+      error: formCopy[locale].duplicateUsername,
+      fieldErrors: { username: formCopy[locale].duplicateUsername },
+    };
+  }
+
+  if (!canUsePrimaryAdminUsername(null, signupEntry.username)) {
+    return {
+      error: formCopy[locale].reservedAdminUsername,
+      fieldErrors: { username: formCopy[locale].reservedAdminUsername },
+    };
+  }
+
+  const heardAbout =
+    parsed.data.heardAbout === "other"
+      ? `other:${parsed.data.heardAboutOther?.trim() || ""}`
+      : parsed.data.heardAbout;
+  const passwordHash = await bcrypt.hash(signupEntry.password, 12);
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await createCompletePartnerSignup(
+        {
+          baseTownOrArea: hometown.name,
+          birthDate: parsed.data.birthDate,
+          email: signupEntry.email,
+          firstName: signupEntry.firstName,
+          heardAbout,
+          lastName: signupEntry.lastName,
+          locale: signupEntry.locale,
+          passwordHash,
+          phone: parsed.data.phone,
+          username: signupEntry.username,
+          whatsapp: parsed.data.whatsapp,
+        },
+        {
+          createProfile: (data) => tx.localPartnerProfile.create({ data }),
+          createUser: (data) => tx.user.create({ data }),
+          recordLegalAcceptance: (userId) =>
+            recordCurrentLegalAcceptances({
+              acceptanceContext: "PARTNER_SIGNUP",
+              audience: "partner",
+              db: tx,
+              locale: signupEntry.locale,
+              userId,
+            }),
+        },
+      );
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      const duplicate = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { email: signupEntry.email },
+            { username: signupEntry.username },
+          ],
+        },
+        select: { email: true, username: true },
+      });
+      const duplicateField =
+        duplicate?.email === signupEntry.email ? "email" : "username";
+      const duplicateMessage =
+        duplicateField === "email"
+          ? formCopy[locale].duplicateEmail
+          : formCopy[locale].duplicateUsername;
+      return { error: duplicateMessage, fieldErrors: { [duplicateField]: duplicateMessage } };
+    }
+
+    throw error;
+  }
+
+  await clearPendingPartnerSignup();
   await signIn("credentials", {
-    identifier: email,
-    password,
-    redirectTo: redirectTo ?? "/partner/start",
+    identifier: signupEntry.email,
+    password: signupEntry.password,
+    redirectTo: signupEntry.redirectTo ?? "/partner/start",
   });
 
   return {};
