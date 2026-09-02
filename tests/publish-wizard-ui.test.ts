@@ -45,14 +45,14 @@ test("the partner-to-owner flow keeps distinct review, handoff, and owner confir
   assert.match(publishForm, /moveToWizardStep\(step as WizardStep\)/);
 });
 
-test("partner review makes submitted photos large enough to inspect and keeps the handoff action right aligned", () => {
+test("partner review uses larger, undistorted submitted photo previews and keeps the handoff action right aligned", () => {
   assert.match(publishForm, /renderBusinessSummary\("partner-review"\)/);
   assert.match(publishForm, /partner-review-photos/);
-  assert.match(publishForm, /h-24 w-24 shrink-0 rounded-2xl object-cover sm:h-28 sm:w-28/);
+  assert.match(publishForm, /h-36 w-36 shrink-0 rounded-2xl object-cover sm:h-40 sm:w-40/);
   assert.match(publishForm, /flex flex-wrap justify-end gap-3[\s\S]*Hand phone to owner/);
 });
 
-test("duplicate decisions come before the back and save navigation row", () => {
+test("duplicate decisions are full-width, larger actions before the back and save navigation row", () => {
   const duplicateFooterStart = publishForm.indexOf("duplicate-wizard-footer__decisions");
   const duplicateFooter = publishForm.slice(
     duplicateFooterStart,
@@ -61,9 +61,31 @@ test("duplicate decisions come before the back and save navigation row", () => {
 
   assert.ok(duplicateFooterStart >= 0);
   assert.ok(duplicateFooter.indexOf("copy.duplicateNewBusiness") < duplicateFooter.indexOf("copy.duplicateSameBusiness"));
+  assert.match(duplicateFooter, /duplicate-wizard-footer__decisions grid w-full gap-3/);
+  assert.match(duplicateFooter, /btn-primary min-h-12 w-full disabled:opacity-50/);
+  assert.match(duplicateFooter, /btn-secondary min-h-12 w-full disabled:opacity-50/);
   assert.match(duplicateFooter, /duplicate-wizard-footer__navigation flex w-full flex-nowrap items-center justify-between gap-3/);
   assert.match(duplicateFooter, /<IconArrowLeft size=\{18\} aria-hidden="true" \/>/);
   assert.match(duplicateFooter, /<IconDeviceFloppy size=\{18\} aria-hidden="true" \/>/);
+});
+
+test("add another photo uses the full available width without changing photo input behavior", () => {
+  assert.match(publishForm, /photo-upload-card__add btn-secondary w-full/);
+  assert.match(publishForm, /setVisibleExtraPhotoCount\(\(count\) => count \+ 1\)/);
+});
+
+test("agreement and signature place their primary continuations before Back and Save & exit", () => {
+  const specialFooterStart = publishForm.indexOf("special-wizard-footer__primary");
+  const specialFooter = publishForm.slice(
+    specialFooterStart,
+    publishForm.indexOf('</> : <>', specialFooterStart),
+  );
+
+  assert.ok(specialFooterStart >= 0);
+  assert.match(specialFooter, /special-wizard-footer__primary btn-primary min-h-12 w-full/);
+  assert.ok(specialFooter.indexOf("Continue to signature") < specialFooter.indexOf("special-wizard-footer__navigation"));
+  assert.ok(specialFooter.indexOf("Continue to payment") < specialFooter.indexOf("special-wizard-footer__navigation"));
+  assert.match(specialFooter, /special-wizard-footer__navigation flex w-full flex-nowrap items-center justify-between gap-3/);
 });
 
 test("owner confirmation retains compact details, accessible disclosure, and confirmation gating", () => {

@@ -45,8 +45,9 @@ import {
   normalizeSubmissionSocialValue,
 } from "@/lib/business-links";
 import {
-  areBusinessNamesCrediblySimilar,
-  getSignificantBusinessNameTokens,
+  getBusinessNameCandidateSearchTerms,
+  getBusinessNameMatchStrength,
+  isBusinessNameDuplicateSignal,
   normalizeDuplicateBusinessName,
   normalizeDuplicatePhone,
   normalizedAddressValuesMatch,
@@ -442,7 +443,7 @@ async function findPotentialDuplicateBusinesses(input: {
   const normalizedName = normalizeDuplicateBusinessName(input.businessName);
   const normalizedAddress = normalizeAddressSelectionValue(input.address);
   const normalizedPhone = normalizeDuplicatePhone(input.phone);
-  const significantNameTokens = getSignificantBusinessNameTokens(input.businessName);
+  const nameCandidateSearchTerms = getBusinessNameCandidateSearchTerms(input.businessName);
   const streetAddress = buildStreetAddressLine({
     formattedAddress: input.address,
     route: input.route ?? null,
@@ -466,7 +467,7 @@ async function findPotentialDuplicateBusinesses(input: {
     });
   }
 
-  for (const token of significantNameTokens.slice(0, 3)) {
+  for (const token of nameCandidateSearchTerms) {
     localClauses.push({
       name: {
         contains: token,
@@ -562,6 +563,7 @@ async function findPotentialDuplicateBusinesses(input: {
       name: true,
       phone: true,
       slug: true,
+      townId: true,
       town: {
         select: {
           name: true,
@@ -573,11 +575,6 @@ async function findPotentialDuplicateBusinesses(input: {
 
   return businesses
     .map((business) => {
-      const matchReasons: DuplicateBusinessMatch["matchReasons"] = [];
-      if (areBusinessNamesCrediblySimilar(input.businessName, business.name)) {
-        matchReasons.push("name");
-      }
-
       const businessAddressNormalized = normalizeAddressSelectionValue(business.address);
       const businessStreetAddressNormalized = normalizeAddressSelectionValue(
         buildStreetAddressLine({
@@ -587,21 +584,37 @@ async function findPotentialDuplicateBusinesses(input: {
         }),
       );
 
-      if (
+      const addressMatches =
         (input.addressPlaceId && business.addressPlaceId === input.addressPlaceId) ||
         normalizedAddressValuesMatch(
           [normalizedAddress, normalizedStreetAddress],
           [businessAddressNormalized, businessStreetAddressNormalized],
-        )
-      ) {
-        matchReasons.push("address");
-      }
+        );
 
-      if (
+      const phoneMatches = Boolean(
         normalizedPhone &&
         business.phone &&
         normalizeDuplicatePhone(business.phone) === normalizedPhone
+      );
+      const nameMatchStrength = getBusinessNameMatchStrength(input.businessName, business.name);
+      const matchReasons: DuplicateBusinessMatch["matchReasons"] = [];
+
+      if (
+        isBusinessNameDuplicateSignal({
+          addressMatches,
+          matchStrength: nameMatchStrength,
+          phoneMatches,
+          sameTown: business.townId === input.townId,
+        })
       ) {
+        matchReasons.push("name");
+      }
+
+      if (addressMatches) {
+        matchReasons.push("address");
+      }
+
+      if (phoneMatches) {
         matchReasons.push("phone");
       }
 

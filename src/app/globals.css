@@ -1077,9 +1077,8 @@ button {
     padding-left: 1.25rem;
   }
 
-  /* Duplicate review and agreement are decision points, not collection
-     steps. Give their actions the full content width without changing the
-     accepted collection-step footer layout. */
+  /* Agreement and signature are decision points, not collection steps.
+     Keep the primary action above the persistent navigation row. */
   .special-wizard-footer {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -1088,14 +1087,19 @@ button {
     padding: 0.75rem 1.25rem max(0.75rem, env(safe-area-inset-bottom));
   }
 
-  .special-wizard-footer > button {
+  .special-wizard-footer__primary,
+  .special-wizard-footer__navigation {
+    grid-column: 1 / -1;
+  }
+
+  .special-wizard-footer__primary {
     width: 100%;
     min-width: 0;
     min-height: 2.75rem;
   }
 
-  .special-wizard-footer > button:nth-child(n + 3) {
-    grid-column: 1 / -1;
+  .special-wizard-footer__navigation > button {
+    min-width: 0;
   }
 
   .hours-step {
