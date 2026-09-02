@@ -11,6 +11,7 @@ import type { Locale } from "@/lib/i18n";
 import { LISTING_OFFER, resolveContractualEmail } from "@/lib/listing-offer";
 import { LEGAL_ROUTES } from "@/lib/legal";
 import { getAppUrl } from "@/lib/payment";
+import { sendOwnerAccessInvitationForSubmission } from "@/lib/business-owner-access";
 import { prisma } from "@/lib/prisma";
 
 type ReceiptSubmission = {
@@ -638,24 +639,39 @@ function buildReceiptEmailCopy(params: {
   renewalPrice: string;
   termsUrl: string;
   termsVersion: string;
+  ownerActions?: {
+    manageUrl: string;
+    viewUrl: string;
+  } | null;
 }) {
+  const ownerActions = params.ownerActions
+    ? params.locale === "it"
+      ? `<p style="margin-top:24px"><a href="${params.ownerActions.viewUrl}">Vedi la tua attività</a> · <a href="${params.ownerActions.manageUrl}">Gestisci la tua attività</a></p><p>Con il tuo account puoi aggiornare informazioni, foto e orari.</p>`
+      : `<p style="margin-top:24px"><a href="${params.ownerActions.viewUrl}">View your business</a> · <a href="${params.ownerActions.manageUrl}">Manage your business</a></p><p>Use your account to update information, photos, and opening hours.</p>`
+    : "";
+  const ownerActionsText = params.ownerActions
+    ? params.locale === "it"
+      ? ` Vedi la tua attività: ${params.ownerActions.viewUrl}. Gestisci la tua attività: ${params.ownerActions.manageUrl}.`
+      : ` View your business: ${params.ownerActions.viewUrl}. Manage your business: ${params.ownerActions.manageUrl}.`
+    : "";
   if (params.locale === "it") {
     return {
-      html: `<p>Grazie per aver completato il pagamento della scheda <strong>${params.businessName}</strong>.</p><p><strong>Importo pagato:</strong> ${params.amountPaid}<br /><strong>Data pagamento:</strong> ${params.paidDate}<br /><strong>Periodo scheda:</strong> ${params.listingPeriod}<br /><strong>Rinnovo:</strong> ${params.renewalPrice}/anno, non automatico</p><p>La scheda resta attiva per 12 mesi. Prima della scadenza contatteremo l'attivita: nessun addebito automatico verra eseguito.</p><p><strong>Versione Termini:</strong> ${params.termsVersion}<br /><a href="${params.termsUrl}">Apri i Termini accettati</a></p><p><a href="${params.receiptUrl}">Apri la ricevuta PDF</a></p>${params.contactEmail ? `<p>Email di conferma registrata: <strong>${params.contactEmail}</strong></p>` : ""}`,
+      html: `<p>Grazie per aver completato il pagamento della scheda <strong>${params.businessName}</strong>.</p><p><strong>Importo pagato:</strong> ${params.amountPaid}<br /><strong>Data pagamento:</strong> ${params.paidDate}<br /><strong>Periodo scheda:</strong> ${params.listingPeriod}<br /><strong>Rinnovo:</strong> ${params.renewalPrice}/anno, non automatico</p><p>La scheda resta attiva per 12 mesi. Prima della scadenza contatteremo l'attivita: nessun addebito automatico verra eseguito.</p><p><strong>Versione Termini:</strong> ${params.termsVersion}<br /><a href="${params.termsUrl}">Apri i Termini accettati</a></p><p><a href="${params.receiptUrl}">Apri la ricevuta PDF</a></p>${ownerActions}${params.contactEmail ? `<p>Email di conferma registrata: <strong>${params.contactEmail}</strong></p>` : ""}`,
       subject: `Ricevuta Salento Local ${params.receiptNumber}`,
-      text: `Grazie per aver completato il pagamento della scheda ${params.businessName}. Importo pagato: ${params.amountPaid}. Data pagamento: ${params.paidDate}. Periodo scheda: ${params.listingPeriod}. Rinnovo: ${params.renewalPrice}/anno, non automatico. Versione Termini: ${params.termsVersion}. Termini accettati: ${params.termsUrl}. Ricevuta PDF: ${params.receiptUrl}.${params.contactEmail ? ` Email di conferma registrata: ${params.contactEmail}.` : ""}`,
+      text: `Grazie per aver completato il pagamento della scheda ${params.businessName}. Importo pagato: ${params.amountPaid}. Data pagamento: ${params.paidDate}. Periodo scheda: ${params.listingPeriod}. Rinnovo: ${params.renewalPrice}/anno, non automatico. Versione Termini: ${params.termsVersion}. Termini accettati: ${params.termsUrl}. Ricevuta PDF: ${params.receiptUrl}.${ownerActionsText}${params.contactEmail ? ` Email di conferma registrata: ${params.contactEmail}.` : ""}`,
     };
   }
 
   return {
-    html: `<p>Thank you for completing the payment for <strong>${params.businessName}</strong>.</p><p><strong>Amount paid:</strong> ${params.amountPaid}<br /><strong>Payment date:</strong> ${params.paidDate}<br /><strong>Listing period:</strong> ${params.listingPeriod}<br /><strong>Renewal:</strong> ${params.renewalPrice}/year, not automatic</p><p>Your listing stays active for 12 months. We will contact the business before expiry, and no automatic charge will be made.</p><p><strong>Terms version:</strong> ${params.termsVersion}<br /><a href="${params.termsUrl}">Open the accepted terms</a></p><p><a href="${params.receiptUrl}">Open the PDF receipt</a></p>${params.contactEmail ? `<p>Confirmation email on file: <strong>${params.contactEmail}</strong></p>` : ""}`,
+    html: `<p>Thank you for completing the payment for <strong>${params.businessName}</strong>.</p><p><strong>Amount paid:</strong> ${params.amountPaid}<br /><strong>Payment date:</strong> ${params.paidDate}<br /><strong>Listing period:</strong> ${params.listingPeriod}<br /><strong>Renewal:</strong> ${params.renewalPrice}/year, not automatic</p><p>Your listing stays active for 12 months. We will contact the business before expiry, and no automatic charge will be made.</p><p><strong>Terms version:</strong> ${params.termsVersion}<br /><a href="${params.termsUrl}">Open the accepted terms</a></p><p><a href="${params.receiptUrl}">Open the PDF receipt</a></p>${ownerActions}${params.contactEmail ? `<p>Confirmation email on file: <strong>${params.contactEmail}</strong></p>` : ""}`,
     subject: `Your Salento Local receipt ${params.receiptNumber}`,
-    text: `Thank you for completing the payment for ${params.businessName}. Amount paid: ${params.amountPaid}. Payment date: ${params.paidDate}. Listing period: ${params.listingPeriod}. Renewal: ${params.renewalPrice}/year, not automatic. Terms version: ${params.termsVersion}. Accepted terms: ${params.termsUrl}. PDF receipt: ${params.receiptUrl}.${params.contactEmail ? ` Confirmation email on file: ${params.contactEmail}.` : ""}`,
+    text: `Thank you for completing the payment for ${params.businessName}. Amount paid: ${params.amountPaid}. Payment date: ${params.paidDate}. Listing period: ${params.listingPeriod}. Renewal: ${params.renewalPrice}/year, not automatic. Terms version: ${params.termsVersion}. Accepted terms: ${params.termsUrl}. PDF receipt: ${params.receiptUrl}.${ownerActionsText}${params.contactEmail ? ` Confirmation email on file: ${params.contactEmail}.` : ""}`,
   };
 }
 
 export async function sendReceiptEmail(params: {
   locale: Locale;
+  ownerActions?: { manageUrl: string; viewUrl: string } | null;
   receipt: ReceiptData;
 }) {
   if (
@@ -704,6 +720,7 @@ export async function sendReceiptEmail(params: {
     renewalPrice,
     termsUrl: buildTermsUrl(getAppUrl(), params.receipt.submission.businessTermsVersion),
     termsVersion: params.receipt.submission.businessTermsVersion || LISTING_OFFER.businessTermsVersion,
+    ownerActions: params.ownerActions,
   });
 
   await sendTransactionalEmail({
@@ -741,8 +758,15 @@ export async function sendPurchaseConfirmationForSubmission(params: {
     return false;
   }
 
+  const ownerAccess = await sendOwnerAccessInvitationForSubmission({
+    locale: params.locale,
+    submissionId: params.submissionId,
+  });
   const sent = await sendReceiptEmail({
     locale: params.locale,
+    ownerActions: ownerAccess
+      ? { manageUrl: ownerAccess.manageUrl, viewUrl: ownerAccess.viewUrl }
+      : null,
     receipt,
   });
 

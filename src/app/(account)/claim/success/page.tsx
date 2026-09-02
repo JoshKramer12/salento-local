@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { requireCompletedViewer } from "@/lib/auth-guards";
+import { canManageBusiness } from "@/lib/business-owner-access";
 import { getCurrentLocale } from "@/lib/locale";
 import { prisma } from "@/lib/prisma";
 import { getSingleParam } from "@/lib/site";
@@ -27,13 +28,17 @@ export default async function ClaimSuccessPage({
       slug: businessSlug,
     },
     select: {
+      id: true,
       name: true,
       ownerUserId: true,
       slug: true,
     },
   });
 
-  if (!business || business.ownerUserId !== viewer.id) {
+  if (
+    !business ||
+    !(await canManageBusiness({ businessId: business.id, userId: viewer.id }))
+  ) {
     redirect("/dashboard/businesses");
   }
 

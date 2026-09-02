@@ -34,6 +34,7 @@ import {
   normalizeAddressSelectionValue,
 } from "@/lib/address-selection";
 import { signIn } from "@/lib/auth";
+import { canManageBusiness } from "@/lib/business-owner-access";
 import {
   requireAdminViewer,
   requireCompletedViewer,
@@ -2796,6 +2797,26 @@ export async function verifyBusinessClaimCodeAction(
         verificationStatus: "OWNER_VERIFIED",
       },
     });
+
+    await tx.businessOwnerAccess.upsert({
+      where: {
+        businessId_email: {
+          businessId: claim.business.id,
+          email: normalizeEmail(viewer.email),
+        },
+      },
+      create: {
+        activatedAt: new Date(),
+        businessId: claim.business.id,
+        email: normalizeEmail(viewer.email),
+        userId: viewer.id,
+      },
+      update: {
+        activatedAt: new Date(),
+        userId: viewer.id,
+        verifiedAt: new Date(),
+      },
+    });
   });
 
   revalidatePath("/dashboard");
@@ -2930,7 +2951,10 @@ export async function updateOwnedBusinessProfileAction(
     };
   }
 
-  if (business.ownerUserId !== viewer.id && viewer.role !== "ADMIN") {
+  if (
+    viewer.role !== "ADMIN" &&
+    !(await canManageBusiness({ businessId: business.id, userId: viewer.id }))
+  ) {
     return {
       error: formCopy[locale].notAllowed,
     };

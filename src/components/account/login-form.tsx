@@ -6,6 +6,7 @@ import { loginAction, type FormState } from "@/app/(account)/auth-actions";
 import { FormSubmitButton } from "@/components/form-submit-button";
 import { HardNavigationLink } from "@/components/hard-navigation-link";
 import type { Locale } from "@/lib/i18n";
+import { ForgotPasswordLink } from "@/components/account/password-reset-forms";
 
 const initialState: FormState = {};
 
@@ -59,6 +60,7 @@ export function LoginForm({
             <span className="text-sm text-[var(--accent)]">{state.fieldErrors.identifier}</span>
           ) : null}
         </label>
+        <div className="-mt-1"><ForgotPasswordLink locale={locale} /></div>
         <label className="field-label">
           <span>{copy.password}</span>
           <input name="password" type="password" className="input-field" />

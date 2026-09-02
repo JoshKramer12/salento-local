@@ -5,6 +5,7 @@ import { HardNavigationLink } from "@/components/hard-navigation-link";
 import { LoginForm } from "@/components/account/login-form";
 import { getViewer } from "@/lib/auth-guards";
 import { getCurrentLocale } from "@/lib/locale";
+import { getSafeInternalRedirect } from "@/lib/redirects";
 import { getSingleParam } from "@/lib/site";
 
 type LoginPageProps = {
@@ -16,16 +17,17 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const viewer = await getViewer();
   const resolvedSearchParams = await searchParams;
   const redirectTo = getSingleParam(resolvedSearchParams.redirectTo);
+  const safeRedirectTo = getSafeInternalRedirect(redirectTo);
   const claimBusinessFlow = redirectTo?.startsWith("/claim?business=") ?? false;
 
   if (viewer && (!claimBusinessFlow || viewer.role === "BUSINESS_OWNER")) {
     redirect(
       viewer.profileCompleted
-        ? claimBusinessFlow && redirectTo
-          ? redirectTo
+        ? safeRedirectTo
+          ? safeRedirectTo
           : "/dashboard"
-        : claimBusinessFlow && redirectTo
-          ? `/complete-profile?redirectTo=${encodeURIComponent(redirectTo)}`
+        : safeRedirectTo
+          ? `/complete-profile?redirectTo=${encodeURIComponent(safeRedirectTo)}`
           : "/complete-profile",
     );
   }
@@ -40,6 +42,8 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           eyebrow: claimBusinessFlow ? "Rivendica scheda" : "Account Salento Local",
           signedInWrongAccount:
             "Sei gia dentro con un account che non puo rivendicare attivita. Esci e continua con un account attivita.",
+          manageExisting: "Vuoi gestire un'attività già presente?",
+          manageExistingLink: "Invia un link di accesso",
           signupHelper: "Non hai ancora un account attivita?",
           signupLabel: "Crea account attivita",
           title: claimBusinessFlow ? "Accedi con il tuo account attivita" : "Accedi",
@@ -52,6 +56,8 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           eyebrow: claimBusinessFlow ? "Claim listing" : "Salento Local account",
           signedInWrongAccount:
             "You are already signed in with an account that cannot claim businesses. Log out and continue with a business account.",
+          manageExisting: "Need to manage a business already on Salento Local?",
+          manageExistingLink: "Send an access link",
           signupHelper: "Need a business account?",
           signupLabel: "Create business account",
           title: claimBusinessFlow ? "Log in with your business account" : "Log in",
@@ -108,6 +114,12 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
                 signupHref={claimBusinessFlow ? businessSignupHref : undefined}
                 signupLabel={claimBusinessFlow ? copy.signupLabel : undefined}
               />
+              <p className="mt-5 text-sm text-[var(--muted)]">
+                {copy.manageExisting}{" "}
+                <HardNavigationLink href="/manage-business" className="font-medium text-[var(--primary)]">
+                  {copy.manageExistingLink}
+                </HardNavigationLink>
+              </p>
             </>
           )}
         </section>

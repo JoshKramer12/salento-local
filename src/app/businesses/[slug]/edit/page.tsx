@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { OwnedBusinessEditForm } from "@/components/account/owned-business-edit-form";
 import { requireCompletedViewer } from "@/lib/auth-guards";
+import { canManageBusiness } from "@/lib/business-owner-access";
 import { getCurrentLocale } from "@/lib/locale";
 import { prisma } from "@/lib/prisma";
 
@@ -47,7 +48,10 @@ export default async function EditBusinessPage({ params }: EditBusinessPageProps
     redirect("/dashboard/businesses");
   }
 
-  if (business.ownerUserId !== viewer.id && viewer.role !== "ADMIN") {
+  if (
+    viewer.role !== "ADMIN" &&
+    !(await canManageBusiness({ businessId: business.id, userId: viewer.id }))
+  ) {
     redirect(`/businesses/${slug}`);
   }
 

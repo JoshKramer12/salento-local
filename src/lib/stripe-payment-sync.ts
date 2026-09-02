@@ -8,6 +8,7 @@ import { sendPurchaseConfirmationForSubmission } from "@/lib/receipts";
 import { runThrottledServerTask } from "@/lib/server-throttle";
 import { getStripe } from "@/lib/stripe";
 import { publishSubmissionAfterPayment } from "@/lib/submission-publication";
+import { ensureOwnerAccessForPublishedSubmission } from "@/lib/business-owner-access";
 
 type SyncResult = {
   paymentReceived: boolean;
@@ -144,11 +145,18 @@ async function finalizeStripeManagedPayment(params: {
 
       publishedBusinessSlug = publishedBusiness?.slug ?? "";
       publishedTownSlug = publishedBusiness?.town.slug ?? "";
-      return;
+    } else {
+      publishedBusinessSlug = submission.createdBusiness?.slug ?? "";
+      publishedTownSlug = submission.createdBusiness?.town.slug ?? "";
     }
 
-    publishedBusinessSlug = submission.createdBusiness?.slug ?? "";
-    publishedTownSlug = submission.createdBusiness?.town.slug ?? "";
+    // This runs in the same authoritative payment transaction as publication.
+    // It is safe on webhook retries and also backfills access for a published
+    // submission whose earlier processing stopped before this feature existed.
+    await ensureOwnerAccessForPublishedSubmission({
+      db: tx,
+      submissionId: params.businessSubmissionId,
+    });
   });
 
   if (params.revalidatePaths !== false) {

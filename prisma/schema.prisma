@@ -273,9 +273,11 @@ model User {
   profileCompleted Boolean              @default(false)
   accounts         Account[]
   sessions         Session[]
+  passwordResetTokens PasswordResetToken[]
   submissions      BusinessSubmission[]
   claims           BusinessClaim[]
   ownedBusinesses  Business[]
+  businessOwnerAccesses BusinessOwnerAccess[]
   payments         Payment[]            @relation("SubmissionPayer")
   partnerPayments  Payment[]            @relation("SubmissionPartner")
   partnerCommissions PartnerCommission[]
@@ -387,6 +389,7 @@ model Business {
   reviews          Review[]
   feedback         ListingFeedback[]
   claims           BusinessClaim[]
+  ownerAccesses    BusinessOwnerAccess[]
   payments         Payment[]
   partnerCommissions PartnerCommission[]
   sources          BusinessSource[]
@@ -399,6 +402,55 @@ model Business {
   @@index([isLikelyClosed, categoryId, isFeatured, reviewCount, rating, name])
   @@index([isLikelyClosed, localityId, isFeatured, reviewCount, rating, name])
   @@index([ownerUserId, updatedAt])
+}
+
+// A verified business-owner email is retained independently from the account
+// that eventually signs in with it. This supports delayed activation, secure
+// recovery, and more than one business per owner without making an invitation
+// link the source of truth for access.
+model BusinessOwnerAccess {
+  id               String   @id @default(cuid())
+  businessId       String
+  email            String
+  userId           String?
+  sourceSubmissionId String? @unique
+  verifiedAt       DateTime @default(now())
+  activatedAt      DateTime?
+  business         Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user             User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  invitations      BusinessOwnerAccessInvitation[]
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([businessId, email])
+  @@unique([businessId, userId])
+  @@index([email, userId])
+}
+
+model BusinessOwnerAccessInvitation {
+  id                    String   @id @default(cuid())
+  businessOwnerAccessId String
+  tokenHash             String   @unique
+  expiresAt             DateTime
+  usedAt                DateTime?
+  revokedAt             DateTime?
+  businessOwnerAccess   BusinessOwnerAccess @relation(fields: [businessOwnerAccessId], references: [id], onDelete: Cascade)
+  createdAt             DateTime @default(now())
+
+  @@index([businessOwnerAccessId, expiresAt])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  revokedAt DateTime?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([userId, expiresAt])
 }
 
 model Locality {

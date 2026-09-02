@@ -39,7 +39,10 @@ export default async function DashboardBusinessesPage({
       where: showAll
         ? undefined
         : {
-            ownerUserId: viewer.id,
+            OR: [
+              { ownerUserId: viewer.id },
+              { ownerAccesses: { some: { userId: viewer.id } } },
+            ],
           },
       include: {
         category: {
