@@ -28,6 +28,50 @@ export function getOwnerAccessUrl(token: string, appUrl = getAppUrl()) {
   return `${appUrl.replace(/\/+$/, "")}/owner-access/${encodeURIComponent(token)}`;
 }
 
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[character] ?? character);
+}
+
+/**
+ * The paid-listing email is intentionally built separately from access-token
+ * creation. Tokens remain opaque, while this copy can be reused by the
+ * authoritative payment finalizer and tested without sending email.
+ */
+export function buildOwnerListingEmailCopy(params: {
+  businessName: string;
+  locale: "en" | "it";
+  manageUrl: string;
+  ownerName: string;
+  receiptUrl: string;
+  viewUrl: string;
+}) {
+  const businessName = escapeHtml(params.businessName.trim());
+  const firstName = escapeHtml(params.ownerName.trim().split(/\s+/)[0] || "");
+  const manageUrl = escapeHtml(params.manageUrl);
+  const receiptUrl = escapeHtml(params.receiptUrl);
+  const viewUrl = escapeHtml(params.viewUrl);
+
+  if (params.locale === "it") {
+    return {
+      html: `<div style="margin:0;padding:32px 16px;background:#f4ede3;color:#243b34;font-family:Arial,Helvetica,sans-serif"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr><td align="center"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:600px;background:#fffdf9;border:1px solid #e5d9cc;border-radius:18px;overflow:hidden"><tr><td style="padding:30px 32px 18px;font-family:Georgia,'Times New Roman',serif;font-size:25px;font-weight:bold;color:#243b34">Salento Local</td></tr><tr><td style="padding:10px 32px 34px;font-size:16px;line-height:1.6"><p style="margin:0 0 18px">Ciao${firstName ? ` ${firstName}` : ""},</p><p style="margin:0 0 18px">La tua attività, <strong>${businessName}</strong>, è ora su Salento Local.</p><p style="margin:0 0 26px">La scheda è stata creata con l'aiuto di un Partner Salento Local. Da qui puoi consultarla pubblicamente e gestirla in modo sicuro.</p><p style="margin:0 0 14px"><a href="${viewUrl}" style="display:inline-block;background:#2a6257;border-radius:9px;color:#ffffff;padding:13px 20px;text-decoration:none;font-weight:bold">Visualizza la tua attività</a></p><p style="margin:0 0 26px"><a href="${manageUrl}" style="color:#a95738;text-decoration:underline;font-weight:bold">Gestisci la tua attività</a></p><p style="margin:0 0 20px;color:#50625c;font-size:14px">Crea il tuo account o accedi utilizzando questo indirizzo email per aggiornare le informazioni della tua attività, le foto, gli orari e gli altri dettagli.</p><p style="margin:0;color:#50625c;font-size:13px">La ricevuta del pagamento è allegata a questa email. Puoi anche <a href="${receiptUrl}" style="color:#2a6257">aprirla online</a>.</p></td></tr></table></td></tr></table></div>`,
+      subject: "La tua attività è ora su Salento Local",
+      text: `Ciao${firstName ? ` ${firstName}` : ""},\n\nLa tua attività, ${params.businessName.trim()}, è ora su Salento Local. La scheda è stata creata con l'aiuto di un Partner Salento Local.\n\nVisualizza la tua attività: ${params.viewUrl}\nGestisci la tua attività: ${params.manageUrl}\n\nCrea il tuo account o accedi utilizzando questo indirizzo email per aggiornare le informazioni della tua attività, le foto, gli orari e gli altri dettagli.\n\nRicevuta: ${params.receiptUrl}`,
+    };
+  }
+
+  return {
+    html: `<div style="margin:0;padding:32px 16px;background:#f4ede3;color:#243b34;font-family:Arial,Helvetica,sans-serif"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr><td align="center"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:600px;background:#fffdf9;border:1px solid #e5d9cc;border-radius:18px;overflow:hidden"><tr><td style="padding:30px 32px 18px;font-family:Georgia,'Times New Roman',serif;font-size:25px;font-weight:bold;color:#243b34">Salento Local</td></tr><tr><td style="padding:10px 32px 34px;font-size:16px;line-height:1.6"><p style="margin:0 0 18px">Hello${firstName ? ` ${firstName}` : ""},</p><p style="margin:0 0 18px">Your business, <strong>${businessName}</strong>, is now on Salento Local.</p><p style="margin:0 0 26px">Your listing was created with the help of a Salento Local Partner. You can now view it and manage it securely.</p><p style="margin:0 0 14px"><a href="${viewUrl}" style="display:inline-block;background:#2a6257;border-radius:9px;color:#ffffff;padding:13px 20px;text-decoration:none;font-weight:bold">View your business</a></p><p style="margin:0 0 26px"><a href="${manageUrl}" style="color:#a95738;text-decoration:underline;font-weight:bold">Manage your business</a></p><p style="margin:0 0 20px;color:#50625c;font-size:14px">Create an account or sign in with this email address to update your business information, photos, opening hours, and other details.</p><p style="margin:0;color:#50625c;font-size:13px">Your payment receipt is attached. You can also <a href="${receiptUrl}" style="color:#2a6257">open it online</a>.</p></td></tr></table></td></tr></table></div>`,
+    subject: "Your business is now on Salento Local",
+    text: `Hello${firstName ? ` ${firstName}` : ""},\n\nYour business, ${params.businessName.trim()}, is now on Salento Local. Your listing was created with the help of a Salento Local Partner.\n\nView your business: ${params.viewUrl}\nManage your business: ${params.manageUrl}\n\nCreate an account or sign in with this email address to update your business information, photos, opening hours, and other details.\n\nReceipt: ${params.receiptUrl}`,
+  };
+}
+
 export async function ensureOwnerAccessForPublishedSubmission(params: {
   db?: OwnerAccessDb;
   submissionId: string;
@@ -277,11 +321,17 @@ export async function sendOwnerAccessInvitationForSubmission(params: {
   });
   if (!business) return null;
 
+  const submission = await prisma.businessSubmission.findUnique({
+    where: { id: params.submissionId },
+    select: { ownerName: true },
+  });
+
   const invitation = await createOwnerAccessInvitation({ accessId: access.id });
   const appUrl = getAppUrl();
   return {
     businessName: business.name,
     manageUrl: getOwnerAccessUrl(invitation.token, appUrl),
+    ownerName: submission?.ownerName ?? "",
     recipient: access.email,
     viewUrl: `${appUrl}/businesses/${encodeURIComponent(business.slug)}`,
   };

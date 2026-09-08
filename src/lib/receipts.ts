@@ -8,10 +8,13 @@ import {
   sendTransactionalEmail,
 } from "@/lib/email";
 import type { Locale } from "@/lib/i18n";
-import { LISTING_OFFER, resolveContractualEmail } from "@/lib/listing-offer";
+import { LISTING_OFFER } from "@/lib/listing-offer";
 import { LEGAL_ROUTES } from "@/lib/legal";
 import { getAppUrl } from "@/lib/payment";
-import { sendOwnerAccessInvitationForSubmission } from "@/lib/business-owner-access";
+import {
+  buildOwnerListingEmailCopy,
+  sendOwnerAccessInvitationForSubmission,
+} from "@/lib/business-owner-access";
 import { prisma } from "@/lib/prisma";
 
 type ReceiptSubmission = {
@@ -59,6 +62,13 @@ export type ReceiptData = {
   receiptNumber: string;
   receiptUrl: string;
   submission: ReceiptSubmission;
+};
+
+type PurchaseConfirmationDependencies = {
+  getReceiptData: typeof getReceiptData;
+  markPurchaseConfirmationSent: (submissionId: string) => Promise<unknown>;
+  sendOwnerAccessInvitationForSubmission: typeof sendOwnerAccessInvitationForSubmission;
+  sendReceiptEmail: typeof sendReceiptEmail;
 };
 
 type SignaturePoint = {
@@ -671,11 +681,17 @@ function buildReceiptEmailCopy(params: {
 
 export async function sendReceiptEmail(params: {
   locale: Locale;
-  ownerActions?: { manageUrl: string; viewUrl: string } | null;
+  ownerActions?: {
+    manageUrl: string;
+    ownerName: string;
+    viewUrl: string;
+  } | null;
+  recipientEmail?: string | null;
   receipt: ReceiptData;
 }) {
+  const recipientEmail = params.recipientEmail?.trim() || params.receipt.recipientEmail;
   if (
-    !params.receipt.recipientEmail ||
+    !recipientEmail ||
     (!hasResendConfiguration() && !hasSmtpConfiguration())
   ) {
     return false;
@@ -708,20 +724,29 @@ export async function sendReceiptEmail(params: {
     locale: params.locale,
     receipt: params.receipt,
   });
-  const emailCopy = buildReceiptEmailCopy({
-    amountPaid,
-    businessName: params.receipt.submission.businessName,
-    contactEmail: params.receipt.submission.contractualEmail || params.receipt.recipientEmail,
-    listingPeriod,
-    locale: params.locale,
-    paidDate,
-    receiptUrl: params.receipt.receiptUrl,
-    receiptNumber: params.receipt.receiptNumber,
-    renewalPrice,
-    termsUrl: buildTermsUrl(getAppUrl(), params.receipt.submission.businessTermsVersion),
-    termsVersion: params.receipt.submission.businessTermsVersion || LISTING_OFFER.businessTermsVersion,
-    ownerActions: params.ownerActions,
-  });
+  const emailCopy = params.ownerActions
+    ? buildOwnerListingEmailCopy({
+        businessName: params.receipt.submission.businessName,
+        locale: params.locale,
+        manageUrl: params.ownerActions.manageUrl,
+        ownerName: params.ownerActions.ownerName,
+        receiptUrl: params.receipt.receiptUrl,
+        viewUrl: params.ownerActions.viewUrl,
+      })
+    : buildReceiptEmailCopy({
+        amountPaid,
+        businessName: params.receipt.submission.businessName,
+        contactEmail: params.receipt.submission.contractualEmail || recipientEmail,
+        listingPeriod,
+        locale: params.locale,
+        paidDate,
+        receiptUrl: params.receipt.receiptUrl,
+        receiptNumber: params.receipt.receiptNumber,
+        renewalPrice,
+        termsUrl: buildTermsUrl(getAppUrl(), params.receipt.submission.businessTermsVersion),
+        termsVersion: params.receipt.submission.businessTermsVersion || LISTING_OFFER.businessTermsVersion,
+        ownerActions: null,
+      });
 
   await sendTransactionalEmail({
     attachments: [
@@ -737,7 +762,7 @@ export async function sendReceiptEmail(params: {
     html: emailCopy.html,
     subject: emailCopy.subject,
     text: emailCopy.text,
-    to: params.receipt.recipientEmail,
+    to: recipientEmail,
   });
 
   return true;
@@ -747,41 +772,61 @@ export async function sendPurchaseConfirmationForSubmission(params: {
   appUrl?: string | null;
   locale: Locale;
   submissionId: string;
-}) {
-  const receipt = await getReceiptData({
+}, dependencies: Partial<PurchaseConfirmationDependencies> = {}) {
+  const getReceipt = dependencies.getReceiptData ?? getReceiptData;
+  const createOwnerAccess =
+    dependencies.sendOwnerAccessInvitationForSubmission ??
+    sendOwnerAccessInvitationForSubmission;
+  const sendEmail = dependencies.sendReceiptEmail ?? sendReceiptEmail;
+  const markPurchaseConfirmationSent =
+    dependencies.markPurchaseConfirmationSent ??
+    ((submissionId: string) => prisma.businessSubmission.update({
+      where: { id: submissionId },
+      data: { purchaseConfirmationSentAt: new Date() },
+    }));
+
+  const receipt = await getReceipt({
     allowInternal: true,
     appUrl: params.appUrl,
     submissionId: params.submissionId,
   });
 
-  if (!receipt?.recipientEmail || receipt.submission.purchaseConfirmationSentAt) {
+  if (
+    !receipt ||
+    receipt.submission.purchaseConfirmationSentAt ||
+    receipt.submission.ownerHasNoEmail ||
+    !receipt.submission.ownerEmail.trim()
+  ) {
     return false;
   }
 
-  const ownerAccess = await sendOwnerAccessInvitationForSubmission({
+  const ownerAccess = await createOwnerAccess({
     locale: params.locale,
     submissionId: params.submissionId,
   });
-  const sent = await sendReceiptEmail({
+  if (!ownerAccess) {
+    throw new Error("owner_listing_access_not_created");
+  }
+
+  const sent = await sendEmail({
     locale: params.locale,
-    ownerActions: ownerAccess
-      ? { manageUrl: ownerAccess.manageUrl, viewUrl: ownerAccess.viewUrl }
-      : null,
+    ownerActions: {
+      manageUrl: ownerAccess.manageUrl,
+      ownerName: ownerAccess.ownerName,
+      viewUrl: ownerAccess.viewUrl,
+    },
+    recipientEmail: ownerAccess.recipient,
     receipt,
   });
 
   if (!sent) {
-    return false;
+    // Returning success here would acknowledge the Stripe webhook despite no
+    // delivery attempt. Throw so the webhook can retry after configuration is
+    // restored; `purchaseConfirmationSentAt` remains unset until a send works.
+    throw new Error("owner_listing_email_not_sent");
   }
 
-  await prisma.businessSubmission.update({
-    where: {
-      id: params.submissionId,
-    },
-    data: {
-      purchaseConfirmationSentAt: new Date(),
-    },
-  });
+  await markPurchaseConfirmationSent(params.submissionId);
 
   return true;
 }
