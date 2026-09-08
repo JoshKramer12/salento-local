@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 
 import type { Prisma, PrismaClient } from "@prisma/client";
 
@@ -7,6 +7,7 @@ import { getAppUrl } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
 import { hasSmtpConfiguration } from "@/lib/claim-delivery";
 import { normalizeEmail } from "@/lib/validation";
+import { normalizeEnvValue } from "@/lib/env";
 
 type OwnerAccessDb = PrismaClient | Prisma.TransactionClient;
 
@@ -18,6 +19,17 @@ function hashToken(token: string) {
 
 function makeToken() {
   return randomBytes(32).toString("base64url");
+}
+
+function deriveDeliveryToken(invitationId: string) {
+  const secret =
+    normalizeEnvValue(process.env.OWNER_ACCESS_TOKEN_SECRET) ||
+    normalizeEnvValue(process.env.AUTH_SECRET) ||
+    normalizeEnvValue(process.env.NEXTAUTH_SECRET);
+
+  return secret
+    ? createHmac("sha256", secret).update(`owner-access:${invitationId}`).digest("base64url")
+    : null;
 }
 
 export function getOwnerAccessInvitationExpiry(now = new Date()) {
@@ -236,6 +248,53 @@ export async function createOwnerAccessInvitation(params: {
   return { ...invitation, token };
 }
 
+export async function getOrCreateOwnerAccessDeliveryInvitation(params: {
+  accessId: string;
+  db?: OwnerAccessDb;
+  now?: Date;
+}) {
+  const db = params.db ?? prisma;
+  const now = params.now ?? new Date();
+  const activeInvitation = await db.businessOwnerAccessInvitation.findFirst({
+    where: {
+      businessOwnerAccessId: params.accessId,
+      expiresAt: { gt: now },
+      revokedAt: null,
+      usedAt: null,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (activeInvitation) {
+    const reusableToken = deriveDeliveryToken(activeInvitation.id);
+    if (reusableToken && hashToken(reusableToken) === activeInvitation.tokenHash) {
+      return { ...activeInvitation, token: reusableToken };
+    }
+  }
+
+  await db.businessOwnerAccessInvitation.updateMany({
+    where: {
+      businessOwnerAccessId: params.accessId,
+      revokedAt: null,
+      usedAt: null,
+    },
+    data: { revokedAt: now },
+  });
+
+  const id = randomUUID();
+  const token = deriveDeliveryToken(id) ?? makeToken();
+  const invitation = await db.businessOwnerAccessInvitation.create({
+    data: {
+      businessOwnerAccessId: params.accessId,
+      expiresAt: getOwnerAccessInvitationExpiry(now),
+      id,
+      tokenHash: hashToken(token),
+    },
+  });
+
+  return { ...invitation, token };
+}
+
 export async function resolveOwnerAccessInvitation(token: string, db: OwnerAccessDb = prisma) {
   if (!token || token.length < 20) return { status: "invalid" as const, invitation: null };
 
@@ -326,7 +385,7 @@ export async function sendOwnerAccessInvitationForSubmission(params: {
     select: { ownerName: true },
   });
 
-  const invitation = await createOwnerAccessInvitation({ accessId: access.id });
+  const invitation = await getOrCreateOwnerAccessDeliveryInvitation({ accessId: access.id });
   const appUrl = getAppUrl();
   return {
     businessName: business.name,

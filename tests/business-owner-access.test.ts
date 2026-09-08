@@ -5,6 +5,7 @@ import {
   buildOwnerListingEmailCopy,
   canManageBusiness,
   ensureOwnerAccessForPublishedSubmission,
+  getOrCreateOwnerAccessDeliveryInvitation,
   getOwnerAccessInvitationExpiry,
   getOwnerAccessUrl,
 } from "@/lib/business-owner-access";
@@ -226,4 +227,49 @@ test("owner links are opaque, internal, and short lived", () => {
     getOwnerAccessUrl("secure-token", "https://example.test/"),
     "https://example.test/owner-access/secure-token",
   );
+});
+
+test("owner-email retries reuse the same secure invitation and message payload", async () => {
+  const previousSecret = process.env.AUTH_SECRET;
+  process.env.AUTH_SECRET = "test-owner-access-secret";
+  let storedInvitation: Record<string, unknown> | null = null;
+  let createCount = 0;
+  const db = {
+    businessOwnerAccessInvitation: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        createCount += 1;
+        storedInvitation = {
+          ...data,
+          createdAt: new Date("2026-09-08T12:00:00.000Z"),
+          revokedAt: null,
+          usedAt: null,
+        };
+        return storedInvitation;
+      },
+      findFirst: async () => storedInvitation,
+      updateMany: async () => ({ count: 0 }),
+    },
+  };
+
+  try {
+    const first = await getOrCreateOwnerAccessDeliveryInvitation({
+      accessId: "access_123",
+      db: db as never,
+      now: new Date("2026-09-08T12:00:00.000Z"),
+    });
+    const retry = await getOrCreateOwnerAccessDeliveryInvitation({
+      accessId: "access_123",
+      db: db as never,
+      now: new Date("2026-09-08T12:01:00.000Z"),
+    });
+
+    assert.equal(createCount, 1);
+    assert.equal(retry.id, first.id);
+    assert.equal(retry.token, first.token);
+    assert.equal(retry.tokenHash, first.tokenHash);
+    assert.ok(!retry.token.includes(`${retry.id}`));
+  } finally {
+    if (previousSecret === undefined) delete process.env.AUTH_SECRET;
+    else process.env.AUTH_SECRET = previousSecret;
+  }
 });

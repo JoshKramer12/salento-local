@@ -80,7 +80,11 @@ export function createSmtpTransport(env: RuntimeEnv = process.env) {
 }
 
 export function hasResendConfiguration(env: RuntimeEnv = process.env) {
-  return Boolean(trimEnvValue(env.RESEND_API_KEY) && getTransactionalFrom(env));
+  return Boolean(trimEnvValue(env.RESEND_API_KEY) && trimEnvValue(env.RESEND_FROM));
+}
+
+export function getTransactionalEmailProvider(env: RuntimeEnv = process.env) {
+  return hasResendConfiguration(env) ? "resend" as const : "smtp" as const;
 }
 
 function getResendClient(env: RuntimeEnv = process.env) {
@@ -97,6 +101,7 @@ type TransactionalEmailParams = {
   attachments?: TransactionalAttachment[];
   headers?: Record<string, string>;
   html: string;
+  idempotencyKey?: string;
   subject: string;
   text: string;
   to: string;
@@ -125,7 +130,7 @@ export async function sendTransactionalEmail(
   params: TransactionalEmailParams,
   env: RuntimeEnv = process.env,
 ) {
-  if (hasResendConfiguration(env)) {
+  if (getTransactionalEmailProvider(env) === "resend") {
     const resend = getResendClient(env);
     const options = buildTransactionalMailOptions(
       {
@@ -133,28 +138,32 @@ export async function sendTransactionalEmail(
       },
       env,
     );
-    const result = await resend.emails.send({
-      attachments: params.attachments?.map((attachment) => ({
-        content:
-          typeof attachment.content === "string"
-            ? attachment.content
-            : attachment.content.toString("base64"),
-        filename: attachment.filename,
-      })),
-      from: options.from,
-      headers: options.headers,
-      html: params.html,
-      replyTo: options.replyTo,
-      subject: params.subject,
-      text: params.text,
-      to: [params.to],
-    });
+    const result = await resend.emails.send(
+      {
+        attachments: params.attachments?.map((attachment) => ({
+          content:
+            typeof attachment.content === "string"
+              ? attachment.content
+              : attachment.content.toString("base64"),
+          filename: attachment.filename,
+        })),
+        from: options.from,
+        headers: options.headers,
+        html: params.html,
+        replyTo: options.replyTo,
+        subject: params.subject,
+        text: params.text,
+        to: [params.to],
+      },
+      params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : undefined,
+    );
 
     if (result.error) {
       throw new Error(result.error.message || "resend_send_failed");
     }
 
     return {
+      messageId: result.data?.id ?? null,
       provider: "resend" as const,
       success: true,
     };
@@ -168,13 +177,19 @@ export async function sendTransactionalEmail(
     env,
   );
 
-  await transporter.sendMail({
+  const result = await transporter.sendMail({
     ...options,
     attachments: params.attachments?.map((attachment) => ({
       content: attachment.content,
       contentType: attachment.contentType,
       filename: attachment.filename,
     })),
+    headers: {
+      ...options.headers,
+      ...(params.idempotencyKey
+        ? { "Resend-Idempotency-Key": params.idempotencyKey }
+        : {}),
+    },
     html: params.html,
     subject: params.subject,
     text: params.text,
@@ -182,6 +197,7 @@ export async function sendTransactionalEmail(
   });
 
   return {
+    messageId: result.messageId || null,
     provider: "smtp" as const,
     success: true,
   };

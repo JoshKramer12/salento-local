@@ -760,6 +760,9 @@ export async function sendReceiptEmail(params: {
       "X-Transactional-Message": "receipt",
     },
     html: emailCopy.html,
+    idempotencyKey: params.ownerActions
+      ? `owner-listing/${params.receipt.submission.id}`
+      : undefined,
     subject: emailCopy.subject,
     text: emailCopy.text,
     to: recipientEmail,

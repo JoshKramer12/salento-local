@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { ensurePartnerCommissionForSubmission, reversePartnerCommissionForPayment } from "@/lib/partner-ledger";
+import { reversePartnerCommissionForPayment } from "@/lib/partner-ledger";
 import { getStripe } from "@/lib/stripe";
-import { markStripePaymentRefunded, syncStripePaymentFromWebhook } from "@/lib/stripe-payment-sync";
+import { markStripePaymentRefunded } from "@/lib/stripe-payment-sync";
+import { processPaidSubmissionWebhook } from "@/lib/stripe-payment-webhook";
 import {
   beginStripeWebhookProcessing,
   completeStripeWebhookProcessing,
@@ -62,21 +63,17 @@ export async function POST(request: Request) {
       }
 
       const amountPaidCents = session.amount_total ?? 0;
-      await syncStripePaymentFromWebhook({
+      await processPaidSubmissionWebhook({
         amountPaidCents,
         businessId,
         businessSubmissionId,
         currency: session.currency,
+        eventType: event.type,
         method: "STRIPE_CHECKOUT",
         paymentIntentId:
           typeof session.payment_intent === "string" ? session.payment_intent : null,
         sessionId: session.id,
         stripeEventId: event.id,
-      });
-      await ensurePartnerCommissionForSubmission({
-        businessSubmissionId,
-        sourceEventId: event.id,
-        sourceEventType: event.type,
       });
       await completeStripeWebhookProcessing({
         id: webhookLog.id,
@@ -98,19 +95,15 @@ export async function POST(request: Request) {
         return NextResponse.json({ received: true });
       }
 
-      await syncStripePaymentFromWebhook({
+      await processPaidSubmissionWebhook({
         amountPaidCents: paymentIntent.amount_received || paymentIntent.amount || 0,
         businessId: paymentIntent.metadata?.businessId?.trim() || null,
         businessSubmissionId,
         currency: paymentIntent.currency,
+        eventType: event.type,
         method: "BANK_TRANSFER",
         paymentIntentId: paymentIntent.id,
         stripeEventId: event.id,
-      });
-      await ensurePartnerCommissionForSubmission({
-        businessSubmissionId,
-        sourceEventId: event.id,
-        sourceEventType: event.type,
       });
       await completeStripeWebhookProcessing({
         id: webhookLog.id,
@@ -170,8 +163,13 @@ export async function POST(request: Request) {
       status: "SKIPPED",
     });
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "webhook_processing_failed";
+    console.error("[stripe-webhook] processing failed", {
+      errorMessage,
+      eventType: event.type,
+    });
     await completeStripeWebhookProcessing({
-      errorMessage: error instanceof Error ? error.message : "webhook_processing_failed",
+      errorMessage,
       id: webhookLog.id,
       status: "FAILED",
     });

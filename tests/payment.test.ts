@@ -26,6 +26,7 @@ import {
   resolvePartnerOnboardingReturnTo,
 } from "@/lib/partner-connect";
 import { buildStripeCheckoutSuccessUrl } from "@/lib/stripe-checkout";
+import { syncStripePaymentFromReceiptAccess } from "@/lib/stripe-payment-sync";
 
 test("bank transfer reference uses the SL prefix", () => {
   assert.equal(buildBankTransferReference("clx12345678"), "SL-12345678");
@@ -146,6 +147,110 @@ test("receipt QR URLs are absolute and preserve the Checkout session", () => {
     ),
     "https://web-production-6f26e.up.railway.app/api/receipts/submission_123?session=cs_test_123",
   );
+});
+
+test("a browser redirect before the webhook finalizes a paid Checkout Session", async () => {
+  const finalized: unknown[] = [];
+  const result = await syncStripePaymentFromReceiptAccess(
+    {
+      checkoutSessionId: "cs_test_paid",
+      submissionId: "submission_123",
+    },
+    {
+      findPaidPayment: async () => null,
+      finalizePayment: async (params) => {
+        finalized.push(params);
+        return {
+          paymentReceived: true,
+          publishedBusinessSlug: "masseria-del-sole",
+          publishedTownSlug: "lecce",
+        };
+      },
+      retrieveCheckoutSession: async () => ({
+        amount_total: 10000,
+        currency: "eur",
+        id: "cs_test_paid",
+        metadata: {
+          businessId: "business_123",
+          businessSubmissionId: "submission_123",
+        },
+        payment_intent: "pi_test_paid",
+        payment_status: "paid",
+      }),
+    },
+  );
+
+  assert.deepEqual(result, { paymentReceived: true, status: "paid" });
+  assert.equal(finalized.length, 1);
+});
+
+test("a redirect after the webhook and a refresh use the persisted paid session", async () => {
+  let stripeRequests = 0;
+  let finalizations = 0;
+  const dependencies = {
+    findPaidPayment: async () => ({ id: "payment_123" }),
+    finalizePayment: async () => {
+      finalizations += 1;
+      return {
+        paymentReceived: true,
+        publishedBusinessSlug: "",
+        publishedTownSlug: "",
+      };
+    },
+    retrieveCheckoutSession: async () => {
+      stripeRequests += 1;
+      throw new Error("Stripe should not be queried");
+    },
+  };
+
+  const first = await syncStripePaymentFromReceiptAccess(
+    { checkoutSessionId: "cs_test_paid", submissionId: "submission_123" },
+    dependencies,
+  );
+  const refreshed = await syncStripePaymentFromReceiptAccess(
+    { checkoutSessionId: "cs_test_paid", submissionId: "submission_123" },
+    dependencies,
+  );
+
+  assert.deepEqual(first, { paymentReceived: true, status: "paid" });
+  assert.deepEqual(refreshed, first);
+  assert.equal(stripeRequests, 0);
+  assert.equal(finalizations, 0);
+});
+
+test("invalid or manipulated Checkout receipt access never produces false success", async () => {
+  let finalizations = 0;
+  const mismatch = await syncStripePaymentFromReceiptAccess(
+    { checkoutSessionId: "cs_test_other", submissionId: "submission_123" },
+    {
+      findPaidPayment: async () => null,
+      finalizePayment: async () => {
+        finalizations += 1;
+        throw new Error("must not finalize");
+      },
+      retrieveCheckoutSession: async () => ({
+        amount_total: 10000,
+        currency: "eur",
+        id: "cs_test_other",
+        metadata: { businessSubmissionId: "another_submission" },
+        payment_intent: "pi_test_other",
+        payment_status: "paid",
+      }),
+    },
+  );
+  const unavailable = await syncStripePaymentFromReceiptAccess(
+    { checkoutSessionId: "invalid", submissionId: "submission_123" },
+    {
+      findPaidPayment: async () => null,
+      retrieveCheckoutSession: async () => {
+        throw new Error("invalid session");
+      },
+    },
+  );
+
+  assert.deepEqual(mismatch, { paymentReceived: false, status: "mismatch" });
+  assert.deepEqual(unavailable, { paymentReceived: false, status: "pending" });
+  assert.equal(finalizations, 0);
 });
 
 test("Stripe Checkout never uses a Local Partner's email as the listing payer", () => {

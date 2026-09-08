@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { sendVerificationCode } from "@/lib/claim-delivery";
+import { getTransactionalEmailProvider } from "@/lib/email";
 
 const envKeys = [
   "NODE_ENV",
+  "RESEND_API_KEY",
+  "RESEND_FROM",
   "SMTP_HOST",
   "SMTP_PORT",
   "SMTP_USER",
@@ -15,6 +18,21 @@ const envKeys = [
   "TWILIO_FROM_PHONE",
   "TWILIO_VERIFY_SERVICE_SID",
 ] as const;
+
+test("Resend HTTPS delivery takes priority when legacy SMTP is also configured", () => {
+  assert.equal(
+    getTransactionalEmailProvider({
+      RESEND_API_KEY: "test-api-key",
+      RESEND_FROM: "Salento Local <onboarding@resend.dev>",
+      SMTP_FROM: "sender@example.com",
+      SMTP_HOST: "smtp.gmail.com",
+      SMTP_PASS: "test-password",
+      SMTP_PORT: "465",
+      SMTP_USER: "sender@example.com",
+    }),
+    "resend",
+  );
+});
 
 function withTempEnv(overrides: Partial<Record<(typeof envKeys)[number], string | undefined>>) {
   const envStore = process.env as Record<string, string | undefined>;

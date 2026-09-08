@@ -1,10 +1,10 @@
 import { revalidatePath } from "next/cache";
 import type { PaymentRecordMethod } from "@prisma/client";
+import type Stripe from "stripe";
 
 import { ensurePendingPartnerCommissionForSubmission } from "@/lib/partner-ledger";
 import { getStatusAfterPayment, resolvePaymentMethodRecord } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
-import { sendPurchaseConfirmationForSubmission } from "@/lib/receipts";
 import { runThrottledServerTask } from "@/lib/server-throttle";
 import { getStripe } from "@/lib/stripe";
 import { publishSubmissionAfterPayment } from "@/lib/submission-publication";
@@ -15,6 +15,11 @@ type SyncResult = {
   publishedBusinessSlug: string;
   publishedTownSlug: string;
 };
+
+type ReceiptCheckoutSession = Pick<
+  Stripe.Checkout.Session,
+  "amount_total" | "currency" | "id" | "metadata" | "payment_intent" | "payment_status"
+>;
 
 const USER_PAYMENT_SYNC_MIN_INTERVAL_MS = 45 * 1000;
 
@@ -174,10 +179,6 @@ async function finalizeStripeManagedPayment(params: {
 
   await ensurePendingPartnerCommissionForSubmission({
     businessSubmissionId: params.businessSubmissionId,
-  });
-  await sendPurchaseConfirmationForSubmission({
-    locale: "it",
-    submissionId: params.businessSubmissionId,
   });
 
   return {
@@ -356,12 +357,50 @@ export async function syncStripePaymentFromReceiptAccess(params: {
   checkoutSessionId: string;
   revalidatePaths?: boolean;
   submissionId: string;
-}) {
-  const stripe = getStripe();
+}, dependencies: {
+  finalizePayment?: typeof finalizeStripeManagedPayment;
+  findPaidPayment?: (params: {
+    checkoutSessionId: string;
+    submissionId: string;
+  }) => Promise<{ id: string } | null>;
+  retrieveCheckoutSession?: (
+    checkoutSessionId: string,
+  ) => Promise<ReceiptCheckoutSession>;
+} = {}) {
+  const findPaidPayment = dependencies.findPaidPayment ?? (async (lookup) =>
+    prisma.payment.findFirst({
+      where: {
+        businessSubmissionId: lookup.submissionId,
+        status: "PAID",
+        stripeCheckoutSessionId: lookup.checkoutSessionId,
+      },
+      select: { id: true },
+    }));
+  const existingPayment = await findPaidPayment({
+    checkoutSessionId: params.checkoutSessionId,
+    submissionId: params.submissionId,
+  });
+
+  // After the webhook has persisted the payment, the exact Checkout Session
+  // stored with this submission is sufficient bearer proof. This makes receipt
+  // refreshes independent of both Stripe availability and email delivery.
+  if (existingPayment) {
+    return {
+      paymentReceived: true,
+      status: "paid" as const,
+    };
+  }
+
+  const retrieveCheckoutSession = dependencies.retrieveCheckoutSession ??
+    ((checkoutSessionId: string) => getStripe().checkout.sessions.retrieve(
+      checkoutSessionId,
+      {},
+      { maxNetworkRetries: 0, timeout: 10_000 },
+    ));
   let session;
 
   try {
-    session = await stripe.checkout.sessions.retrieve(params.checkoutSessionId);
+    session = await retrieveCheckoutSession(params.checkoutSessionId);
   } catch {
     return {
       paymentReceived: false,
@@ -383,7 +422,8 @@ export async function syncStripePaymentFromReceiptAccess(params: {
     };
   }
 
-  await finalizeStripeManagedPayment({
+  const finalizePayment = dependencies.finalizePayment ?? finalizeStripeManagedPayment;
+  await finalizePayment({
     amountPaidCents: session.amount_total ?? 0,
     businessId: session.metadata?.businessId?.trim() || null,
     businessSubmissionId: params.submissionId,
