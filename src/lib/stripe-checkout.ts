@@ -30,6 +30,15 @@ type CheckoutSubmission = {
   userId: string;
 };
 
+export function buildStripeCheckoutSuccessUrl(params: {
+  appUrl: string;
+  submissionId: string;
+}) {
+  return `${params.appUrl.replace(/\/+$/, "")}/publish/payment/success?submission=${encodeURIComponent(
+    params.submissionId,
+  )}&session={CHECKOUT_SESSION_ID}&locale=it`;
+}
+
 export type StripeBankTransferInstructions = {
   accountHolderName: string;
   amountRemainingCents: number;
@@ -81,11 +90,12 @@ function extractStripeBankTransferInstructions(
 }
 
 export async function ensureStripeCheckoutSession(params: {
+  appUrl?: string | null;
   submission: CheckoutSubmission;
   viewer: CheckoutViewer;
 }) {
   const stripe = getStripe();
-  const appUrl = getAppUrl();
+  const appUrl = params.appUrl?.trim().replace(/\/+$/, "") || getAppUrl();
   const ownerCheckoutCopy = getOwnerStripeCheckoutCopy(params.submission.businessName);
   const customerEmail = getListingPayerEmail({
     ownerEmail: params.submission.ownerEmail,
@@ -158,7 +168,10 @@ export async function ensureStripeCheckoutSession(params: {
       userId: params.submission.userId,
     }),
     mode: "payment",
-    success_url: `${appUrl}/publish/payment/success?submission=${encodeURIComponent(params.submission.id)}&session={CHECKOUT_SESSION_ID}&locale=it`,
+    success_url: buildStripeCheckoutSuccessUrl({
+      appUrl,
+      submissionId: params.submission.id,
+    }),
   });
 
   if (latestPendingPayment) {

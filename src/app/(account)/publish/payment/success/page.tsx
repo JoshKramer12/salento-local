@@ -69,19 +69,26 @@ export default async function PublishPaymentSuccessPage({
     redirect("/");
   }
 
-  const syncResult = checkoutSessionId
-    ? await syncStripePaymentFromReceiptAccess({
-        checkoutSessionId,
-        revalidatePaths: false,
-        submissionId,
-      })
-    : viewer
-      ? await syncStripePaymentForSubmission({
+  let verificationUnavailable = false;
+  let syncResult = null;
+
+  try {
+    syncResult = checkoutSessionId
+      ? await syncStripePaymentFromReceiptAccess({
+          checkoutSessionId,
           revalidatePaths: false,
           submissionId,
-          userId: viewer.id,
         })
-      : null;
+      : viewer
+        ? await syncStripePaymentForSubmission({
+            revalidatePaths: false,
+            submissionId,
+            userId: viewer.id,
+          })
+        : null;
+  } catch {
+    verificationUnavailable = true;
+  }
   const paymentReceived = syncResult?.paymentReceived ?? false;
   const [receipt, submission] = paymentReceived
     ? await Promise.all([
@@ -124,6 +131,8 @@ export default async function PublishPaymentSuccessPage({
         open: "Apri ricevuta PDF",
         pendingBody: "Stripe sta ancora confermando il pagamento. Aggiorna tra qualche istante per visualizzare la ricevuta.",
         pendingTitle: "Stiamo confermando il pagamento",
+        retry: "Riprova la verifica",
+        verificationUnavailable: "Non riusciamo a verificare Stripe in questo momento. Riprova tra qualche istante: non verranno effettuati altri addebiti.",
         receiptBody: "Puoi aprire o scaricare la ricevuta in PDF per i tuoi archivi.",
         receiptSent: "Ricevuta inviata a",
         receiptTitle: "La tua ricevuta è pronta",
@@ -147,6 +156,8 @@ export default async function PublishPaymentSuccessPage({
         open: "Open PDF receipt",
         pendingBody: "Stripe is still confirming the payment. Refresh in a moment to see your receipt.",
         pendingTitle: "We’re confirming your payment",
+        retry: "Retry verification",
+        verificationUnavailable: "We cannot verify Stripe right now. Try again shortly; no additional charge will be made.",
         receiptBody: "You can open or download your receipt as a PDF for your records.",
         receiptSent: "Receipt sent to",
         receiptTitle: "Your receipt is ready",
@@ -165,7 +176,15 @@ export default async function PublishPaymentSuccessPage({
         <section className="card mx-auto max-w-xl p-6 text-center sm:p-8">
           <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[rgba(42,98,87,0.08)] text-[var(--primary)]"><IconInfoCircle size={32} /></span>
           <h1 className="mt-5 font-serif text-3xl text-[var(--foreground)]">{copy.pendingTitle}</h1>
-          <p className="mt-3 leading-7 text-[var(--muted)]">{copy.pendingBody}</p>
+          <p className="mt-3 leading-7 text-[var(--muted)]">{verificationUnavailable ? copy.verificationUnavailable : copy.pendingBody}</p>
+          {checkoutSessionId ? (
+            <Link
+              href={`/publish/payment/success?submission=${encodeURIComponent(submissionId)}&session=${encodeURIComponent(checkoutSessionId)}&locale=${locale}`}
+              className="btn-secondary mt-4"
+            >
+              {copy.retry}
+            </Link>
+          ) : null}
           {viewer?.profileCompleted ? (
             <Link href={`/publish/payment?submission=${encodeURIComponent(submissionId)}`} className="btn-primary mt-6">
               {locale === "it" ? "Torna al pagamento" : "Back to payment"}

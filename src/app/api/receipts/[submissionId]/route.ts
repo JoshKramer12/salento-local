@@ -12,19 +12,22 @@ type RouteContext = {
 };
 
 export async function GET(request: Request, context: RouteContext) {
-  const session = await auth();
-  const viewer = session?.user;
   const { searchParams } = new URL(request.url);
   const checkoutSessionId = searchParams.get("session")?.trim() || null;
   const { submissionId } = await context.params;
+  const viewer = checkoutSessionId ? null : (await auth())?.user;
   let sessionAuthorizedReceiptAccess = false;
 
   if (checkoutSessionId) {
-    const syncResult = await syncStripePaymentFromReceiptAccess({
-      checkoutSessionId,
-      submissionId,
-    });
-    sessionAuthorizedReceiptAccess = syncResult.paymentReceived;
+    try {
+      const syncResult = await syncStripePaymentFromReceiptAccess({
+        checkoutSessionId,
+        submissionId,
+      });
+      sessionAuthorizedReceiptAccess = syncResult.paymentReceived;
+    } catch {
+      return NextResponse.json({ error: "payment_verification_unavailable" }, { status: 503 });
+    }
   }
 
   const receipt = await getReceiptData({

@@ -9,7 +9,7 @@ import {
   getSubmissionPaymentSummary,
   getPaymentStatusLabel,
 } from "@/lib/account";
-import { canAccessSubmissionReceipt, resolveReceiptRecipient } from "@/lib/receipts";
+import { buildReceiptUrl, canAccessSubmissionReceipt, resolveReceiptRecipient } from "@/lib/receipts";
 import {
   getBankTransferDetails,
   getListingPayerEmail,
@@ -25,6 +25,7 @@ import {
   getPartnerPayoutDay,
   resolvePartnerOnboardingReturnTo,
 } from "@/lib/partner-connect";
+import { buildStripeCheckoutSuccessUrl } from "@/lib/stripe-checkout";
 
 test("bank transfer reference uses the SL prefix", () => {
   assert.equal(buildBankTransferReference("clx12345678"), "SL-12345678");
@@ -123,6 +124,27 @@ test("receipt emails prefer the owner email before the business email", () => {
       ownerEmail: "",
     }),
     null,
+  );
+});
+
+test("Stripe Checkout returns the owner to a public, payment-specific success page", () => {
+  assert.equal(
+    buildStripeCheckoutSuccessUrl({
+      appUrl: "https://web-production-6f26e.up.railway.app/",
+      submissionId: "submission_123",
+    }),
+    "https://web-production-6f26e.up.railway.app/publish/payment/success?submission=submission_123&session={CHECKOUT_SESSION_ID}&locale=it",
+  );
+});
+
+test("receipt QR URLs are absolute and preserve the Checkout session", () => {
+  assert.equal(
+    buildReceiptUrl(
+      "submission_123",
+      "cs_test_123",
+      "https://web-production-6f26e.up.railway.app/",
+    ),
+    "https://web-production-6f26e.up.railway.app/api/receipts/submission_123?session=cs_test_123",
   );
 });
 

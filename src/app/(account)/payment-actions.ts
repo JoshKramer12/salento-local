@@ -15,6 +15,8 @@ import { getStringValue } from "@/lib/validation";
 
 export async function startStripeCheckoutAction(formData: FormData) {
   const viewer = await requireCompletedViewer();
+  const requestHeaders = await headers();
+  const appUrl = getOriginFromHeaders(requestHeaders);
   const submissionId = getStringValue(formData.get("submissionId")).trim();
 
   if (!submissionId) {
@@ -53,6 +55,7 @@ export async function startStripeCheckoutAction(formData: FormData) {
   }
 
   const checkoutSession = await ensureStripeCheckoutSession({
+    appUrl,
     submission: {
       amountOwedCents: submission.amountOwedCents,
       businessName: submission.businessName,

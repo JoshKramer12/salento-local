@@ -118,12 +118,12 @@ function buildReceiptFileName(businessName: string, receiptNumber: string) {
   return `${businessSlug}-${receiptNumber.toLowerCase()}.pdf`;
 }
 
-function buildReceiptUrl(
+export function buildReceiptUrl(
   submissionId: string,
   checkoutSessionId: string | null,
   appUrlOverride?: string | null,
 ) {
-  const appUrl = trimValue(appUrlOverride) || getAppUrl();
+  const appUrl = (trimValue(appUrlOverride) || getAppUrl()).replace(/\/+$/, "");
   const query = checkoutSessionId
     ? `?session=${encodeURIComponent(checkoutSessionId)}`
     : "";
