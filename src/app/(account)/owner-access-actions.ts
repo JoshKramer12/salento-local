@@ -11,6 +11,8 @@ import { requireViewer } from "@/lib/auth-guards";
 import {
   attachOwnerAccessToUser,
   createOwnerAccessInvitation,
+  findUserByNormalizedEmail,
+  getOwnerAccountPrefill,
   getOwnerAccessUrl,
   markOwnerAccessInvitationUsed,
   resolveOwnerAccessInvitation,
@@ -86,6 +88,7 @@ export async function createOwnerAccountFromInvitationAction(
   const locale = getLocale(formData);
   const token = getStringValue(formData.get("token"));
   const username = normalizeUsername(getStringValue(formData.get("username")));
+  const name = getStringValue(formData.get("name")).trim();
   const password = getStringValue(formData.get("password"));
   const confirmation = getStringValue(formData.get("confirmPassword"));
   const termsAccepted = getStringValue(formData.get("businessTermsAccepted")) === "on";
@@ -133,17 +136,30 @@ export async function createOwnerAccountFromInvitationAction(
       const current = await resolveOwnerAccessInvitation(token, tx);
       if (current.status !== "active" || !current.invitation) throw new Error("owner_access_invitation_unavailable");
 
-      const duplicate = await tx.user.findFirst({
-        where: { OR: [{ email: parsed.data.email }, { username: parsed.data.username }] },
-        select: { email: true, username: true },
+      const duplicateEmail = await findUserByNormalizedEmail({ db: tx, email: parsed.data.email });
+      if (duplicateEmail) throw new Error("owner_account_exists");
+      const duplicateUsername = await tx.user.findUnique({
+        where: { username: parsed.data.username },
+        select: { id: true },
       });
-      if (duplicate?.email === parsed.data.email) throw new Error("owner_account_exists");
-      if (duplicate?.username === parsed.data.username) throw new Error("owner_username_exists");
+      if (duplicateUsername) throw new Error("owner_username_exists");
+
+      const sourceSubmission = current.invitation.businessOwnerAccess.sourceSubmissionId
+        ? await tx.businessSubmission.findUnique({
+            where: { id: current.invitation.businessOwnerAccess.sourceSubmissionId },
+            select: { ownerName: true },
+          })
+        : null;
+      const accountPrefill = getOwnerAccountPrefill({
+        email: current.invitation.businessOwnerAccess.email,
+        ownerName: sourceSubmission?.ownerName,
+      });
 
       const user = await tx.user.create({
         data: {
-          email: parsed.data.email,
+          email: accountPrefill.email,
           emailVerified: new Date(),
+          name: name || accountPrefill.name || null,
           passwordHash,
           profileCompleted: true,
           role: "BUSINESS_OWNER",

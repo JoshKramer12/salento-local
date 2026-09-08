@@ -45,12 +45,19 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
           return null;
         }
 
-        const lookup = identifier.includes("@")
-          ? { email: normalizeEmail(identifier) }
-          : { username: normalizeUsername(identifier) };
-        const user = await prisma.user.findFirst({
-          where: lookup,
-        });
+        const user = identifier.includes("@")
+          ? await (async () => {
+              const email = normalizeEmail(identifier);
+              const exactMatch = await prisma.user.findUnique({ where: { email } });
+              if (exactMatch) return exactMatch;
+              const matches = await prisma.$queryRaw<Array<{ id: string }>>`
+                SELECT "id" FROM "User" WHERE lower("email") = ${email} LIMIT 1
+              `;
+              return matches[0]
+                ? await prisma.user.findUnique({ where: { id: matches[0].id } })
+                : null;
+            })()
+          : await prisma.user.findFirst({ where: { username: normalizeUsername(identifier) } });
 
         if (!user?.passwordHash) {
           return null;

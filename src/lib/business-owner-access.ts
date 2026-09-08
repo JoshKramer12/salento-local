@@ -21,6 +21,50 @@ function makeToken() {
   return randomBytes(32).toString("base64url");
 }
 
+/**
+ * Owner invitation email addresses are normalized when new data is written.
+ * Older accounts can still contain a differently-cased address, though, so
+ * invitation access must look them up case-insensitively as well.
+ */
+export async function findUserByNormalizedEmail(params: {
+  db?: OwnerAccessDb;
+  email: string;
+}) {
+  const db = params.db ?? prisma;
+  const email = normalizeEmail(params.email);
+  const exactMatch = await db.user.findUnique({
+    where: { email },
+    select: { email: true, id: true },
+  });
+  if (exactMatch) return exactMatch;
+
+  // Prisma's SQLite string filters are case-sensitive. Keep this narrowly
+  // parameterized query here so a legacy `Mario@Example.com` account can use
+  // an invitation addressed to `mario@example.com` without creating a second
+  // account. Test doubles do not need to implement raw queries.
+  if (!("$queryRaw" in db) || typeof db.$queryRaw !== "function") return null;
+
+  const matches = await db.$queryRaw<Array<{ id: string }>>`
+    SELECT "id" FROM "User" WHERE lower("email") = ${email} LIMIT 1
+  `;
+  if (!matches[0]) return null;
+
+  return db.user.findUnique({
+    where: { id: matches[0].id },
+    select: { email: true, id: true },
+  });
+}
+
+export function getOwnerAccountPrefill(params: {
+  email: string;
+  ownerName?: string | null;
+}) {
+  return {
+    email: normalizeEmail(params.email),
+    name: params.ownerName?.trim() ?? "",
+  };
+}
+
 function deriveDeliveryToken(invitationId: string) {
   const secret =
     normalizeEnvValue(process.env.OWNER_ACCESS_TOKEN_SECRET) ||
@@ -108,10 +152,7 @@ export async function ensureOwnerAccessForPublishedSubmission(params: {
   }
 
   const email = normalizeEmail(submission.ownerEmail);
-  const ownerUser = await db.user.findUnique({
-    where: { email },
-    select: { id: true },
-  });
+  const ownerUser = await findUserByNormalizedEmail({ db, email });
   const existing = await db.businessOwnerAccess.findFirst({
     where: {
       OR: [
@@ -303,7 +344,16 @@ export async function resolveOwnerAccessInvitation(token: string, db: OwnerAcces
     include: {
       businessOwnerAccess: {
         include: {
-          business: { select: { name: true, slug: true } },
+          business: {
+            select: {
+              address: true,
+              category: { select: { name: true } },
+              images: { orderBy: { sortOrder: "asc" }, select: { url: true }, take: 1 },
+              name: true,
+              slug: true,
+              town: { select: { name: true } },
+            },
+          },
           user: { select: { id: true } },
         },
       },

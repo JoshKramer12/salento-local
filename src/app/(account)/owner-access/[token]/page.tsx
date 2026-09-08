@@ -5,8 +5,9 @@ import { activateOwnerAccessForCurrentUserAction } from "@/app/(account)/owner-a
 import { signOutAction } from "@/app/(account)/sign-out-action";
 import { OwnerAccountActivationForm, OwnerAccessRequestForm } from "@/components/account/owner-access-forms";
 import { getViewer } from "@/lib/auth-guards";
-import { resolveOwnerAccessInvitation } from "@/lib/business-owner-access";
+import { getOwnerAccountPrefill, resolveOwnerAccessInvitation } from "@/lib/business-owner-access";
 import { getCurrentLocale } from "@/lib/locale";
+import { prisma } from "@/lib/prisma";
 import { getSingleParam } from "@/lib/site";
 
 type OwnerAccessPageProps = {
@@ -29,15 +30,32 @@ export default async function OwnerAccessPage({ params, searchParams }: OwnerAcc
 
   if (resolved.status === "active" && resolved.invitation) {
     const access = resolved.invitation.businessOwnerAccess;
-    if (viewer && viewer.email.toLowerCase() === access.email && access.userId === viewer.id) {
-      redirect(`/businesses/${encodeURIComponent(access.business.slug)}/edit`);
-    }
-    if (viewer && viewer.email.toLowerCase() === access.email) {
+    const ownerSubmission = access.sourceSubmissionId
+      ? await prisma.businessSubmission.findUnique({
+          where: { id: access.sourceSubmissionId },
+          select: { ownerName: true },
+        })
+      : null;
+    const prefill = getOwnerAccountPrefill({ email: access.email, ownerName: ownerSubmission?.ownerName });
+    const contextCard = (
+      <section className="mb-6 overflow-hidden rounded-[1.4rem] border border-[var(--border)] bg-[var(--secondary)]">
+        <div className="flex gap-4 p-4 sm:p-5">
+          {access.business.images[0]?.url ? <img src={access.business.images[0].url} alt="" className="h-16 w-16 shrink-0 rounded-xl object-cover" /> : null}
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent)]">{locale === "it" ? "La tua attività" : "Your business"}</p>
+            <h2 className="mt-1 truncate font-serif text-2xl text-[var(--foreground)]">{access.business.name}</h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">{[access.business.category.name, access.business.town.name, access.business.address].filter(Boolean).join(" · ")}</p>
+          </div>
+        </div>
+      </section>
+    );
+    if (viewer && viewer.email.trim().toLowerCase() === access.email) {
       return (
         <main className="shell px-4 py-12 sm:px-6"><section className="mx-auto max-w-xl card p-6 sm:p-8">
-          <p className="section-kicker mb-3">{copy.eyebrow}</p><h1 className="font-serif text-4xl text-[var(--foreground)]">{access.business.name}</h1>
-          <p className="mt-4 text-[var(--muted)]">{locale === "it" ? "Sei già nell'account giusto. Conferma per aprire la gestione della tua attività." : "You are already signed in to the correct account. Confirm to open your business management."}</p>
-          <form action={activateOwnerAccessForCurrentUserAction} className="mt-7"><input type="hidden" name="locale" value={locale} /><input type="hidden" name="token" value={token} /><button className="btn-primary w-full sm:w-auto">{copy.activate}</button></form>
+          <p className="section-kicker mb-3">{copy.eyebrow}</p><h1 className="font-serif text-4xl text-[var(--foreground)]">{copy.title}</h1>
+          <p className="mt-3 text-[var(--muted)]">{locale === "it" ? "Sei nell'account giusto. Conferma per aprire la gestione della tua attività." : "You are signed in to the correct account. Confirm to open your business management."}</p>
+          <div className="mt-6">{contextCard}</div>
+          <form action={activateOwnerAccessForCurrentUserAction}><input type="hidden" name="locale" value={locale} /><input type="hidden" name="token" value={token} /><button className="btn-primary w-full sm:w-auto">{copy.activate}</button></form>
         </section></main>
       );
     }
@@ -50,7 +68,7 @@ export default async function OwnerAccessPage({ params, searchParams }: OwnerAcc
       redirect(`/login?redirectTo=${encodeURIComponent(`/owner-access/${token}`)}`);
     }
     return (
-      <main className="shell px-4 py-12 sm:px-6"><div className="mx-auto max-w-xl"><p className="section-kicker mb-3">{copy.eyebrow}</p><h1 className="font-serif text-4xl text-[var(--foreground)]">{access.business.name}</h1><p className="mt-4 mb-7 text-[var(--muted)]">{copy.body}</p><OwnerAccountActivationForm email={access.email} locale={locale} token={token} /></div></main>
+      <main className="shell px-4 py-12 sm:px-6"><div className="mx-auto max-w-xl"><p className="section-kicker mb-3">{copy.eyebrow}</p><h1 className="font-serif text-4xl text-[var(--foreground)]">{locale === "it" ? "Benvenuto su Salento Local" : "Welcome to Salento Local"}</h1><p className="mt-2 font-serif text-2xl text-[var(--foreground)]">{locale === "it" ? "Crea il tuo account" : "Create your account"}</p><p className="mt-4 text-[var(--muted)]">{locale === "it" ? "La tua attività è già su Salento Local. Completa il tuo account per gestire e aggiornare la tua pagina." : copy.body}</p><div className="mt-6">{contextCard}</div><OwnerAccountActivationForm email={prefill.email} locale={locale} name={prefill.name} token={token} /></div></main>
     );
   }
 

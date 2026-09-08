@@ -5,6 +5,8 @@ import {
   buildOwnerListingEmailCopy,
   canManageBusiness,
   ensureOwnerAccessForPublishedSubmission,
+  findUserByNormalizedEmail,
+  getOwnerAccountPrefill,
   getOrCreateOwnerAccessDeliveryInvitation,
   getOwnerAccessInvitationExpiry,
   getOwnerAccessUrl,
@@ -158,6 +160,38 @@ test("a paid Partner submission creates pending owner access using the normalize
   assert.equal(access?.email, "mario@example.com");
   assert.equal(access?.userId, null);
   assert.equal(writes.length, 0);
+});
+
+test("owner account setup pre-fills only data already collected for the invited owner", () => {
+  assert.deepEqual(
+    getOwnerAccountPrefill({
+      email: " Mario@Example.COM ",
+      ownerName: " Mario Rossi ",
+    }),
+    { email: "mario@example.com", name: "Mario Rossi" },
+  );
+  assert.deepEqual(
+    getOwnerAccountPrefill({ email: "mario@example.com", ownerName: null }),
+    { email: "mario@example.com", name: "" },
+  );
+});
+
+test("a legacy differently-cased account is found without creating a second owner account", async () => {
+  const rawValues: unknown[] = [];
+  const db = {
+    $queryRaw: async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+      rawValues.push(...values);
+      return [{ id: "owner-1" }];
+    },
+    user: {
+      findUnique: async ({ where }: { where: { email?: string; id?: string } }) =>
+        where.id ? { email: "Mario@Example.com", id: where.id } : null,
+    },
+  };
+
+  const user = await findUserByNormalizedEmail({ db: db as never, email: "mario@example.com" });
+  assert.deepEqual(user, { email: "Mario@Example.com", id: "owner-1" });
+  assert.deepEqual(rawValues, ["mario@example.com"]);
 });
 
 test("an existing account is attached without creating a duplicate user", async () => {
