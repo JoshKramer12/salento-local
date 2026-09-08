@@ -39,6 +39,15 @@ export function buildStripeCheckoutSuccessUrl(params: {
   )}&session={CHECKOUT_SESSION_ID}&locale=it`;
 }
 
+export function buildStripeCheckoutCancelUrl(params: {
+  appUrl: string;
+  submissionId: string;
+}) {
+  return `${params.appUrl.replace(/\/+$/, "")}/publish/payment/cancel?submission=${encodeURIComponent(
+    params.submissionId,
+  )}`;
+}
+
 export type StripeBankTransferInstructions = {
   accountHolderName: string;
   amountRemainingCents: number;
@@ -144,7 +153,10 @@ export async function ensureStripeCheckoutSession(params: {
   }
 
   const checkoutSession = await stripe.checkout.sessions.create({
-    cancel_url: `${appUrl}/publish/payment/cancel?submission=${encodeURIComponent(params.submission.id)}`,
+    cancel_url: buildStripeCheckoutCancelUrl({
+      appUrl,
+      submissionId: params.submission.id,
+    }),
     customer_email: customerEmail,
     line_items: [
       {

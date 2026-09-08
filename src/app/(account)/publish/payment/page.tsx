@@ -34,6 +34,10 @@ import {
   ensureStripeBankTransferIntent,
   ensureStripeCheckoutSession,
 } from "@/lib/stripe-checkout";
+import {
+  buildStripePaymentQrPayload,
+  generateStripePaymentQrDataUrl,
+} from "@/lib/stripe-payment-qr";
 
 type PublishPaymentPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -116,7 +120,6 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
         transferIntro: "Send the payment using the details below. As soon as Stripe confirms the transfer, your listing will be published automatically.", transferUnavailable: "We could not load Stripe's bank transfer instructions. Please refresh the page and try again.", transferWaiting: "We are waiting for Stripe to receive the transfer. Keep this page open or come back later. The listing will publish automatically once payment is confirmed.",
       };
 
-  let checkoutUrl: string | null = null;
   let qrCodeDataUrl: string | null = null;
   let bankTransferInstructionsUrl: string | null = null;
   let bankTransferQrDataUrl: string | null = null;
@@ -139,8 +142,14 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
       submission: { amountOwedCents: submission.amountOwedCents, businessName: submission.businessName, email: submission.email, id: submission.id, ownerEmail: submission.ownerEmail, userId: submission.userId },
       viewer: { email: viewer.email, id: viewer.id, role: viewer.role },
     });
-    checkoutUrl = checkoutSession.url;
-    qrCodeDataUrl = checkoutUrl ? await QRCode.toDataURL(checkoutUrl, { margin: 1, width: 320 }) : null;
+    if (checkoutSession.url) {
+      const paymentQr = buildStripePaymentQrPayload({
+        appUrl,
+        checkoutSessionId: checkoutSession.id,
+        checkoutUrl: checkoutSession.url,
+      });
+      qrCodeDataUrl = await generateStripePaymentQrDataUrl(paymentQr.qrValue);
+    }
   }
 
   if (submission.paymentMethod === "BANK_TRANSFER" && submission.paymentStatus !== "PAID") {
@@ -208,7 +217,7 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
                 </div>
               ) : (
                 <div><div className="border-b border-dashed border-[var(--border)] pb-6"><p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--accent)]">{copy.amountDue}</p><p className="mt-2 font-serif text-5xl text-[var(--foreground)] sm:text-6xl">{formatCurrencyFromCents(submission.amountOwedCents, locale)}</p><p className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-[var(--primary)]"><IconLock size={17} /> {copy.secure}</p></div>
-                  {qrCodeDataUrl ? <div className="flex flex-col items-center py-6 text-center"><p className="max-w-md text-base leading-7 text-[var(--muted)]">{copy.cardQrHint}</p><div className="mt-5 rounded-[1.5rem] border border-[var(--border)] bg-white p-4 shadow-sm"><img src={qrCodeDataUrl} alt={locale === "it" ? "QR del pagamento Stripe" : "QR code for Stripe payment"} className="h-60 w-60 rounded-xl sm:h-64 sm:w-64" /></div><p className="mt-5 inline-flex items-center gap-2 text-sm font-medium text-[var(--foreground)]"><IconDeviceMobile size={19} className="text-[var(--primary)]" /> {copy.cardWaiting}</p></div> : <form action={startStripeCheckoutAction} className="mt-6"><input type="hidden" name="submissionId" value={submission.id} /><FormSubmitButton className="btn-primary flex w-full py-4 text-base">{copy.cardFallback}</FormSubmitButton></form>}
+                  {qrCodeDataUrl ? <div className="flex flex-col items-center py-6 text-center"><p className="max-w-md text-base leading-7 text-[var(--muted)]">{copy.cardQrHint}</p><div className="mt-5 rounded-[1.5rem] border border-[var(--border)] bg-white p-4 shadow-sm"><img src={qrCodeDataUrl} alt={locale === "it" ? "QR del pagamento Stripe" : "QR code for Stripe payment"} className="h-60 w-60" /></div><p className="mt-5 inline-flex items-center gap-2 text-sm font-medium text-[var(--foreground)]"><IconDeviceMobile size={19} className="text-[var(--primary)]" /> {copy.cardWaiting}</p></div> : <form action={startStripeCheckoutAction} className="mt-6"><input type="hidden" name="submissionId" value={submission.id} /><FormSubmitButton className="btn-primary flex w-full py-4 text-base">{copy.cardFallback}</FormSubmitButton></form>}
                   <div className="rounded-[1.25rem] border border-[rgba(42,98,87,0.14)] bg-[rgba(42,98,87,0.05)] p-4 sm:p-5"><div className="flex items-start gap-3"><IconInfoCircle size={24} className="mt-0.5 shrink-0 text-[var(--primary)]" /><div><h2 className="font-bold text-[var(--foreground)]">{copy.next}</h2><p className="mt-1 leading-7 text-[var(--foreground)]">{copy.nextPending}</p></div></div></div>
                 </div>
               )}
