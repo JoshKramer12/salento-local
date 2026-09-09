@@ -35,7 +35,7 @@ export default async function OwnerAccessPage({ params, searchParams }: OwnerAcc
           select: { ownerName: true },
         })
       : null;
-    const prefill = getOwnerAccountPrefill({ email: access.email, ownerName: ownerSubmission?.ownerName });
+    const prefill = getOwnerAccountPrefill({ email: access.email, ownerName: ownerSubmission?.ownerName, phone: access.phone });
     const contextCard = (
       <section className="mb-6 overflow-hidden rounded-[1.4rem] border border-[var(--border)] bg-[var(--secondary)]">
         <div className="flex gap-4 p-4 sm:p-5">
@@ -48,7 +48,10 @@ export default async function OwnerAccessPage({ params, searchParams }: OwnerAcc
         </div>
       </section>
     );
-    if (viewer && viewer.email.trim().toLowerCase() === access.email) {
+    const viewerMatches = access.email
+      ? Boolean(viewer?.email && viewer.email.trim().toLowerCase() === access.email)
+      : Boolean(access.phone && viewer?.phone === access.phone);
+    if (viewerMatches) {
       redirect(`/owner-access/${encodeURIComponent(token)}/complete`);
     }
     if (viewer) {
@@ -60,7 +63,7 @@ export default async function OwnerAccessPage({ params, searchParams }: OwnerAcc
       redirect(`/owner-access/${encodeURIComponent(token)}/login`);
     }
     return (
-      <main className="shell px-4 py-12 sm:px-6"><div className="mx-auto max-w-xl"><p className="section-kicker mb-3">{copy.eyebrow}</p><h1 className="font-serif text-4xl text-[var(--foreground)]">{locale === "it" ? "Benvenuto su Salento Local" : "Welcome to Salento Local"}</h1><p className="mt-2 font-serif text-2xl text-[var(--foreground)]">{locale === "it" ? "Crea il tuo account" : "Create your account"}</p><p className="mt-4 text-[var(--muted)]">{locale === "it" ? "La tua attività è già su Salento Local. Completa il tuo account per gestire e aggiornare la tua pagina." : copy.body}</p><div className="mt-6">{contextCard}</div><OwnerAccountActivationForm email={prefill.email} locale={locale} name={prefill.name} token={token} /></div></main>
+      <main className="shell px-4 py-12 sm:px-6"><div className="mx-auto max-w-xl"><p className="section-kicker mb-3">{copy.eyebrow}</p><h1 className="font-serif text-4xl text-[var(--foreground)]">{locale === "it" ? "Crea il tuo account Salento Local" : "Create your Salento Local account"}</h1><p className="mt-2 font-serif text-2xl text-[var(--foreground)]">{locale === "it" ? `Crea il tuo account per gestire ${access.business.name}.` : `Create your account to manage ${access.business.name}.`}</p><p className="mt-4 text-[var(--muted)]">{locale === "it" ? "La tua attività è già su Salento Local. Completa il tuo account per gestire e aggiornare la tua pagina." : copy.body}</p><div className="mt-6">{contextCard}</div><OwnerAccountActivationForm email={prefill.email} locale={locale} name={prefill.name} phone={prefill.phone} token={token} /></div></main>
     );
   }
 

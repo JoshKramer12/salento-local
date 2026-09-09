@@ -409,7 +409,7 @@ export function buildAdminUserSummary(record: AdminUserOverviewRecord): AdminUse
     commissionSummary: summarizePartnerCommissions(record.partnerCommissions),
     createdAt: record.createdAt,
     displayName,
-    email: record.email,
+    email: record.email ?? "",
     emailVerified: record.emailVerified,
     hasPassword: Boolean(record.passwordHash),
     hometown,

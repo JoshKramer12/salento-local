@@ -40,6 +40,6 @@ export default async function PayoutMethodSetupPage({ params, searchParams }: Pa
     <Image src={selected.logo} alt="" width={160} height={48} className="mt-7 h-12 w-40 object-contain object-left" />
     <h1 className="mt-5 font-serif text-4xl text-[var(--foreground)]">{italian ? "Imposta il tuo pagamento" : "Set up your payout"}</h1>
     <div className="mt-4 grid gap-1 text-sm leading-6 text-[var(--muted)]">{(italian ? selected.it : selected.en).map((item) => <p key={item}>{item}</p>)}</div>
-    <div className="mt-7"><PartnerPayoutMethodForm locale={locale} method={selected.method} returnTo={returnTo} defaultPaypalEmail={profile.user.email} /></div>
+    <div className="mt-7"><PartnerPayoutMethodForm locale={locale} method={selected.method} returnTo={returnTo} defaultPaypalEmail={profile.user.email ?? ""} /></div>
   </section></main>;
 }

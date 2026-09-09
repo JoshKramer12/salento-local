@@ -19,7 +19,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
   if (!invitation || !businessSlug) {
     return NextResponse.redirect(new URL(`/owner-access/${encodeURIComponent(token)}`, request.url));
   }
-  if (normalizeEmail(viewer.email) !== invitation.businessOwnerAccess.email) {
+  const access = invitation.businessOwnerAccess;
+  const identityMatches = access.email
+    ? Boolean(viewer.email && normalizeEmail(viewer.email) === access.email)
+    : Boolean(access.phone && viewer.phone === access.phone);
+  if (!identityMatches) {
     return NextResponse.redirect(new URL(`/owner-access/${encodeURIComponent(token)}?error=wrong-account`, request.url));
   }
 

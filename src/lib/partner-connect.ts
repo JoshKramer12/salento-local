@@ -452,7 +452,7 @@ export async function ensurePartnerStripeAccount(userId: string) {
       },
     },
     country: getSupportedConnectCountry(),
-    email: profile.user.email,
+    email: profile.user.email ?? undefined,
     individual: {
       first_name: firstName || undefined,
       last_name: lastName || undefined,
@@ -592,7 +592,7 @@ export async function syncPartnerStripeAccountStatus(
       if (previousState !== setupState) {
         const locale = profile.preferredLanguage === "en" ? "en" : "it";
         queuePartnerSetupStatusEmail({
-          email: profile.user.email,
+          email: profile.user.email ?? "",
           locale,
           nextState: setupState,
         });

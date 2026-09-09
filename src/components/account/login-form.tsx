@@ -35,8 +35,8 @@ export function LoginForm({
       ? {
           cta: "Accedi",
           helper: "Non hai ancora un account?",
-          identifierHint: invitedEmail ? "Usa l'email che ha ricevuto l'invito." : "Puoi usare la tua email oppure il tuo username.",
-          identifier: invitedEmail ? "Email associata all'attività" : "Email o username",
+          identifierHint: invitedEmail ? "Usa l'email che ha ricevuto l'invito." : "Puoi usare email, numero di telefono o username.",
+          identifier: invitedEmail ? "Email associata all'attività" : "Email, telefono o username",
           password: "Password",
           pending: "Accesso in corso...",
           signup: "Registrati",
@@ -44,8 +44,8 @@ export function LoginForm({
       : {
           cta: "Log in",
           helper: "Need an account?",
-          identifierHint: invitedEmail ? "Use the email address that received the invitation." : "You can use either your email address or your username.",
-          identifier: invitedEmail ? "Email linked to this business" : "Email or username",
+          identifierHint: invitedEmail ? "Use the email address that received the invitation." : "You can use your email address, phone number, or username.",
+          identifier: invitedEmail ? "Email linked to this business" : "Email, phone, or username",
           password: "Password",
           pending: "Signing you in...",
           signup: "Sign up",

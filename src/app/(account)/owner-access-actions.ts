@@ -12,6 +12,7 @@ import {
   attachOwnerAccessToUser,
   createOwnerAccessInvitation,
   findUserByNormalizedEmail,
+  findUserByNormalizedPhone,
   getOwnerAccountPrefill,
   getOwnerAccessUrl,
   markOwnerAccessInvitationUsed,
@@ -23,7 +24,8 @@ import { recordCurrentLegalAcceptances } from "@/lib/legal-consent";
 import { prisma } from "@/lib/prisma";
 import { getAppUrl } from "@/lib/payment";
 import { getRequestClientAddress, consumeSecurityRateLimit } from "@/lib/security-rate-limit";
-import { getStringValue, normalizeEmail, normalizeUsername, signupSchema } from "@/lib/validation";
+import { getStringValue, normalizeEmail, normalizeUsername, signupSchema, usernamePattern } from "@/lib/validation";
+import { isStrongPassword } from "@/lib/password-rules";
 
 export type OwnerAccessFormState = {
   error?: string;
@@ -43,6 +45,7 @@ function copy(locale: Locale) {
         passwordMismatch: "Le password non coincidono.",
         terms: "Leggi e accetta i Termini e Condizioni per le Attività Commerciali.",
         wrongAccount: "Questo link è associato a un'altra email. Accedi con l'account corretto.",
+        phoneExists: "Esiste già un account per questo numero. Accedi per continuare.",
       }
     : {
         accountExists: "An account already exists for this email. Log in to continue.",
@@ -50,6 +53,7 @@ function copy(locale: Locale) {
         passwordMismatch: "The passwords do not match.",
         terms: "Please read and accept the Business Terms & Conditions.",
         wrongAccount: "This link belongs to a different email. Log in with the correct account.",
+        phoneExists: "An account already exists for this phone number. Log in to continue.",
       };
 }
 
@@ -63,7 +67,11 @@ export async function activateOwnerAccessForCurrentUserAction(formData: FormData
     redirect(`/owner-access/${encodeURIComponent(token)}`);
   }
 
-  if (normalizeEmail(viewer.email) !== resolved.invitation.businessOwnerAccess.email) {
+  const access = resolved.invitation.businessOwnerAccess;
+  const identityMatches = access.email
+    ? Boolean(viewer.email && normalizeEmail(viewer.email) === access.email)
+    : Boolean(access.phone && viewer.phone === access.phone);
+  if (!identityMatches) {
     redirect(`/owner-access/${encodeURIComponent(token)}?error=${encodeURIComponent(copy(locale).wrongAccount)}`);
   }
 
@@ -98,17 +106,17 @@ export async function createOwnerAccountFromInvitationAction(
     return { error: locale === "it" ? "Questo link non è più valido. Richiedine uno nuovo." : "This link is no longer valid. Request a new one." };
   }
 
-  const parsed = signupSchema.safeParse({
-    email: resolved.invitation.businessOwnerAccess.email,
-    password,
-    username,
-  });
+  const access = resolved.invitation.businessOwnerAccess;
+  const isPhoneOnly = !access.email && Boolean(access.phone);
+  const parsed = isPhoneOnly
+    ? { success: Boolean(usernamePattern.test(username) && isStrongPassword(password)) }
+    : signupSchema.safeParse({ email: access.email ?? "", password, username });
   if (!parsed.success || !termsAccepted || confirmation !== password) {
     const messages = copy(locale);
     return {
       error: !termsAccepted ? messages.terms : confirmation !== password ? messages.passwordMismatch : messages.invalid,
       fieldErrors: {
-        ...(parsed.success ? {} : Object.fromEntries(parsed.error.issues.map((issue) => [String(issue.path[0]), messages.invalid]))),
+        ...(parsed.success ? {} : { username: messages.invalid, password: messages.invalid }),
         ...(!termsAccepted ? { businessTermsAccepted: messages.terms } : {}),
         ...(confirmation !== password ? { confirmPassword: messages.passwordMismatch } : {}),
       },
@@ -120,26 +128,34 @@ export async function createOwnerAccountFromInvitationAction(
     clientAddress: getRequestClientAddress(requestHeaders),
     limit: 5,
     namespace: "owner-account-activation",
-    subject: parsed.data.email,
+    subject: access.email ?? access.phone ?? "owner-access",
     windowMs: 60 * 60 * 1000,
   });
   if (!limit.allowed) return { error: copy(locale).invalid };
 
-  if (!canUsePrimaryAdminUsername(null, parsed.data.username)) {
+  if (!canUsePrimaryAdminUsername(null, username)) {
     return { error: copy(locale).invalid, fieldErrors: { username: copy(locale).invalid } };
   }
 
-  const passwordHash = await bcrypt.hash(parsed.data.password, 12);
+  const passwordHash = await bcrypt.hash(password, 12);
   let businessSlug = resolved.invitation.businessOwnerAccess.business.slug;
   try {
     await prisma.$transaction(async (tx) => {
       const current = await resolveOwnerAccessInvitation(token, tx);
       if (current.status !== "active" || !current.invitation) throw new Error("owner_access_invitation_unavailable");
 
-      const duplicateEmail = await findUserByNormalizedEmail({ db: tx, email: parsed.data.email });
+      const currentAccess = current.invitation.businessOwnerAccess;
+      if (currentAccess.userId) throw new Error("owner_account_exists");
+      const duplicateEmail = currentAccess.email
+        ? await findUserByNormalizedEmail({ db: tx, email: currentAccess.email })
+        : null;
+      const duplicatePhone = currentAccess.phone
+        ? await findUserByNormalizedPhone({ db: tx, phone: currentAccess.phone })
+        : null;
       if (duplicateEmail) throw new Error("owner_account_exists");
+      if (duplicatePhone) throw new Error("owner_phone_exists");
       const duplicateUsername = await tx.user.findUnique({
-        where: { username: parsed.data.username },
+        where: { username },
         select: { id: true },
       });
       if (duplicateUsername) throw new Error("owner_username_exists");
@@ -151,19 +167,21 @@ export async function createOwnerAccountFromInvitationAction(
           })
         : null;
       const accountPrefill = getOwnerAccountPrefill({
-        email: current.invitation.businessOwnerAccess.email,
+        email: currentAccess.email,
         ownerName: sourceSubmission?.ownerName,
+        phone: currentAccess.phone,
       });
 
       const user = await tx.user.create({
         data: {
-          email: accountPrefill.email,
-          emailVerified: new Date(),
+          email: accountPrefill.email || null,
+          ...(accountPrefill.email ? { emailVerified: new Date() } : {}),
           name: name || accountPrefill.name || null,
           passwordHash,
+          phone: accountPrefill.phone || null,
           profileCompleted: true,
           role: "BUSINESS_OWNER",
-          username: parsed.data.username,
+          username,
         },
       });
       const attached = await attachOwnerAccessToUser({
@@ -185,13 +203,14 @@ export async function createOwnerAccountFromInvitationAction(
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
     if (message === "owner_account_exists") return { error: copy(locale).accountExists };
+    if (message === "owner_phone_exists") return { error: copy(locale).phoneExists };
     if (message === "owner_username_exists") return { error: copy(locale).invalid, fieldErrors: { username: copy(locale).invalid } };
     return { error: copy(locale).invalid };
   }
 
   try {
     await signIn("credentials", {
-      identifier: parsed.data.email,
+      identifier: access.email ?? access.phone ?? "",
       password,
       redirectTo: `/businesses/${encodeURIComponent(businessSlug)}/edit`,
     });
@@ -237,7 +256,7 @@ export async function requestOwnerAccessAction(
         businessName: access.business.name,
         locale,
         manageUrl: getOwnerAccessUrl(invitation.token),
-        recipient: access.email,
+        recipient: access.email!,
         viewUrl: `${getAppUrl()}/businesses/${encodeURIComponent(access.business.slug)}`,
       });
     } catch (error) {

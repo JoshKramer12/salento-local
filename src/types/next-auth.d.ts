@@ -6,6 +6,7 @@ declare module "next-auth" {
     user: DefaultSession["user"] & {
       email: string;
       id: string;
+      phone: string;
       profileCompleted: boolean;
       role: UserRole;
       username: string;
@@ -14,6 +15,7 @@ declare module "next-auth" {
 
   interface User {
     email: string;
+    phone: string;
     profileCompleted: boolean;
     role: UserRole;
     username: string;
@@ -24,6 +26,7 @@ declare module "next-auth/jwt" {
   interface JWT {
     email?: string;
     id?: string;
+    phone?: string;
     profileCompleted?: boolean;
     role?: UserRole;
     sessionVersion?: number;

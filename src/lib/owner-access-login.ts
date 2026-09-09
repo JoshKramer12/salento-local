@@ -19,7 +19,7 @@ export async function getOwnerAccessLoginContext() {
 
   return {
     businessName: resolved.invitation.businessOwnerAccess.business.name,
-    email: resolved.invitation.businessOwnerAccess.email,
+    email: resolved.invitation.businessOwnerAccess.email ?? undefined,
     token,
   };
 }

@@ -39,6 +39,27 @@ export function normalizeUsername(value: string) {
   return value.trim().toLowerCase();
 }
 
+/**
+ * Canonical E.164 representation for account identifiers. Publishing already
+ * validates owner contacts with the same libphonenumber metadata; keeping the
+ * normalized value here prevents formatting variations from becoming separate
+ * accounts. The configured default is only used for legacy/local numbers,
+ * matching the rest of the application phone handling.
+ */
+export function normalizePhoneNumber(value: string | null | undefined) {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) return null;
+
+  const defaultCountry = (process.env.DEFAULT_PHONE_COUNTRY || "IT").trim().toUpperCase();
+  const parsed = parsePhoneNumberFromString(
+    trimmed,
+    defaultCountry.length === 2 ? defaultCountry as Parameters<typeof parsePhoneNumberFromString>[1] : "IT",
+    phoneNumberMetadata,
+  );
+
+  return parsed?.isValid() ? parsed.number : null;
+}
+
 export function getStringValue(value: FormDataEntryValue | null) {
   return typeof value === "string" ? value : "";
 }

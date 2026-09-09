@@ -29,7 +29,7 @@ export async function requestPasswordResetAction(_state: PasswordResetFormState,
   const user = account
     ? await prisma.user.findUnique({ where: { id: account.id }, select: { email: true, id: true, passwordHash: true } })
     : null;
-  if (user?.passwordHash) {
+  if (user?.passwordHash && user.email) {
     try {
       const token = await issuePasswordResetToken(user.id);
       await sendPasswordResetEmail({ locale, recipient: user.email, resetUrl: getPasswordResetUrl(token) });

@@ -1542,7 +1542,7 @@ export async function runWeeklyPartnerPayouts(params?: {
         businessCount: 0,
         businessNames: [],
         failureMessage: null,
-        partnerName: partner.localPartnerProfile?.fullName || partner.email,
+        partnerName: partner.localPartnerProfile?.fullName || partner.email || "",
         partnerUserId: partner.id,
         status: "skipped-no-commissions",
         stripeTransferId: null,
@@ -1565,7 +1565,7 @@ export async function runWeeklyPartnerPayouts(params?: {
         businessCount: pendingCommissions.length,
         businessNames: pendingBusinessNames,
         failureMessage: "below_minimum_payout",
-        partnerName: partner.localPartnerProfile?.fullName || partner.email,
+        partnerName: partner.localPartnerProfile?.fullName || partner.email || "",
         partnerUserId: partner.id,
         status: "skipped-below-minimum",
         stripeTransferId: null,
@@ -1577,7 +1577,7 @@ export async function runWeeklyPartnerPayouts(params?: {
     const partnerProfile = partner.localPartnerProfile;
     if (!partnerProfile) {
       failedPartners += 1;
-      partnerSummaries.push({ businessCount: pendingCommissions.length, businessNames: pendingBusinessNames, failureMessage: "missing_partner_profile", partnerName: partner.email, partnerUserId: partner.id, status: "skipped-setup-incomplete", stripeTransferId: null, totalPaidCents: 0 });
+      partnerSummaries.push({ businessCount: pendingCommissions.length, businessNames: pendingBusinessNames, failureMessage: "missing_partner_profile", partnerName: partner.email || "", partnerUserId: partner.id, status: "skipped-setup-incomplete", stripeTransferId: null, totalPaidCents: 0 });
       continue;
     }
     const payoutMethod = partnerProfile.preferredPayoutMethod;
@@ -1593,7 +1593,7 @@ export async function runWeeklyPartnerPayouts(params?: {
         reason: "paypal-not-configured",
       });
       failedPartners += 1;
-      partnerSummaries.push({ businessCount: pendingCommissions.length, businessNames: pendingBusinessNames, failureMessage: "paypal_not_configured", partnerName: partnerProfile.fullName || partner.email, partnerUserId: partner.id, status: "skipped-setup-incomplete", stripeTransferId: null, totalPaidCents: 0 });
+      partnerSummaries.push({ businessCount: pendingCommissions.length, businessNames: pendingBusinessNames, failureMessage: "paypal_not_configured", partnerName: partnerProfile.fullName || partner.email || "", partnerUserId: partner.id, status: "skipped-setup-incomplete", stripeTransferId: null, totalPaidCents: 0 });
       continue;
     }
 
@@ -1610,7 +1610,7 @@ export async function runWeeklyPartnerPayouts(params?: {
         reason: "sepa-rail-unavailable",
       });
       failedPartners += 1;
-      partnerSummaries.push({ businessCount: pendingCommissions.length, businessNames: pendingBusinessNames, failureMessage: "sepa_rail_unavailable", partnerName: partnerProfile.fullName || partner.email, partnerUserId: partner.id, status: "skipped-setup-incomplete", stripeTransferId: null, totalPaidCents: 0 });
+      partnerSummaries.push({ businessCount: pendingCommissions.length, businessNames: pendingBusinessNames, failureMessage: "sepa_rail_unavailable", partnerName: partnerProfile.fullName || partner.email || "", partnerUserId: partner.id, status: "skipped-setup-incomplete", stripeTransferId: null, totalPaidCents: 0 });
       continue;
     }
 
@@ -1628,7 +1628,7 @@ export async function runWeeklyPartnerPayouts(params?: {
         businessCount: pendingCommissions.length,
         businessNames: pendingBusinessNames,
         failureMessage: "missing_connected_account",
-        partnerName: partnerProfile.fullName || partner.email,
+        partnerName: partnerProfile.fullName || partner.email || "",
         partnerUserId: partner.id,
         status: "skipped-setup-incomplete",
         stripeTransferId: null,
@@ -1664,7 +1664,7 @@ export async function runWeeklyPartnerPayouts(params?: {
         businessCount: pendingCommissions.length,
         businessNames: pendingBusinessNames,
         failureMessage: synced?.setupState ?? "payout_readiness_unavailable",
-        partnerName: partnerProfile.fullName || partner.email,
+        partnerName: partnerProfile.fullName || partner.email || "",
         partnerUserId: partner.id,
         status: "skipped-setup-incomplete",
         stripeTransferId: null,
@@ -1683,7 +1683,7 @@ export async function runWeeklyPartnerPayouts(params?: {
         businessCount: pendingCommissions.length,
         businessNames: pendingBusinessNames,
         failureMessage: "below_minimum_payout",
-        partnerName: partnerProfile.fullName || partner.email,
+        partnerName: partnerProfile.fullName || partner.email || "",
         partnerUserId: partner.id,
         status: "skipped-below-minimum",
         stripeTransferId: null,
@@ -1694,7 +1694,7 @@ export async function runWeeklyPartnerPayouts(params?: {
 
     processedPartners += 1;
     const success = await createTransferAndPayout({
-      email: reserved.email,
+      email: reserved.email ?? "",
       locale: reserved.locale,
       paypalPayoutEmail: reserved.paypalPayoutEmail,
       payout: reserved.payout,
@@ -1715,7 +1715,7 @@ export async function runWeeklyPartnerPayouts(params?: {
         businessCount: reserved.businessCount,
         businessNames: reserved.businessNames,
         failureMessage: failedPayout?.failureMessage ?? "payout_failed",
-        partnerName: partnerProfile.fullName || partner.email,
+        partnerName: partnerProfile.fullName || partner.email || "",
         partnerUserId: partner.id,
         status: "failed",
         stripeTransferId: failedPayout?.stripeTransferId ?? null,
@@ -1737,7 +1737,7 @@ export async function runWeeklyPartnerPayouts(params?: {
       businessCount: reserved.businessCount,
       businessNames: reserved.businessNames,
       failureMessage: null,
-      partnerName: partnerProfile.fullName || partner.email,
+        partnerName: partnerProfile.fullName || partner.email || "",
       partnerUserId: partner.id,
       status: createdPayout?.status === "PAID" ? "paid" : "processing",
       stripeTransferId: createdPayout?.stripeTransferId ?? null,

@@ -10,6 +10,8 @@ import {
   getOrCreateOwnerAccessDeliveryInvitation,
   getOwnerAccessInvitationExpiry,
   getOwnerAccessUrl,
+  buildOwnerWhatsAppMessage,
+  getOwnerWhatsAppDeepLink,
 } from "@/lib/business-owner-access";
 import { sendPurchaseConfirmationForSubmission } from "@/lib/receipts";
 
@@ -168,11 +170,11 @@ test("owner account setup pre-fills only data already collected for the invited 
       email: " Mario@Example.COM ",
       ownerName: " Mario Rossi ",
     }),
-    { email: "mario@example.com", name: "Mario Rossi" },
+    { email: "mario@example.com", name: "Mario Rossi", phone: "" },
   );
   assert.deepEqual(
     getOwnerAccountPrefill({ email: "mario@example.com", ownerName: null }),
-    { email: "mario@example.com", name: "" },
+    { email: "mario@example.com", name: "", phone: "" },
   );
 });
 
@@ -222,7 +224,7 @@ test("an existing account is attached without creating a duplicate user", async 
   assert.equal(writes.length, 1);
 });
 
-test("no access is created for owners without an email", async () => {
+test("no access is created for no-email owners without a usable private WhatsApp", async () => {
   const db = {
     businessSubmission: {
       findUnique: async () => ({
@@ -237,6 +239,39 @@ test("no access is created for owners without an email", async () => {
     await ensureOwnerAccessForPublishedSubmission({ db: db as never, submissionId: "submission-3" }),
     null,
   );
+});
+
+test("a no-email owner access is bound to the normalized private WhatsApp", async () => {
+  const writes: unknown[] = [];
+  const db = {
+    business: { updateMany: async (value: unknown) => writes.push(value) },
+    businessOwnerAccess: {
+      create: async (value: { data: Record<string, unknown> }) => ({ id: "access-phone", ...value.data }),
+      findFirst: async () => null,
+    },
+    businessSubmission: { findUnique: async () => ({ createdBusinessId: "business-phone", id: "submission-phone", ownerEmail: "", ownerHasNoEmail: true, ownerPhone: "+39 347 123 4567" }) },
+    user: { findUnique: async () => null },
+  };
+  const access = await ensureOwnerAccessForPublishedSubmission({ db: db as never, submissionId: "submission-phone" });
+  assert.equal(access?.email, null);
+  assert.equal(access?.phone, "+393471234567");
+  assert.equal(writes.length, 0);
+});
+
+test("WhatsApp owner handoff uses E.164 owner recipient and encodes real secure links", () => {
+  const message = buildOwnerWhatsAppMessage({
+    businessName: "Masseria del Sole",
+    locale: "it",
+    manageUrl: "https://salentolocal.com/owner-access/secure-token",
+    ownerName: "Giulia Bianchi",
+    viewUrl: "https://salentolocal.com/businesses/masseria-del-sole",
+  });
+  const href = getOwnerWhatsAppDeepLink({ message, phone: "+39 347 123 4567" });
+  assert.ok(href);
+  assert.match(href!, /^https:\/\/wa\.me\/393471234567\?text=/);
+  assert.match(decodeURIComponent(href!), /Ciao Giulia/);
+  assert.match(decodeURIComponent(href!), /businesses\/masseria-del-sole/);
+  assert.match(decodeURIComponent(href!), /owner-access\/secure-token/);
 });
 
 test("business management authorization requires the owner relationship", async () => {

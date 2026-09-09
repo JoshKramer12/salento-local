@@ -9,7 +9,7 @@ import {
   consumeSecurityRateLimit,
   getRequestClientAddress,
 } from "@/lib/security-rate-limit";
-import { normalizeEmail, normalizeUsername } from "@/lib/validation";
+import { normalizeEmail, normalizePhoneNumber, normalizeUsername } from "@/lib/validation";
 
 export const { auth, handlers, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
@@ -21,7 +21,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
   providers: [
     Credentials({
       credentials: {
-        identifier: { label: "Email or username", type: "text" },
+        identifier: { label: "Email, phone number, or username", type: "text" },
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials, request) {
@@ -45,6 +45,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
           return null;
         }
 
+        const normalizedPhone = normalizePhoneNumber(identifier);
         const user = identifier.includes("@")
           ? await (async () => {
               const email = normalizeEmail(identifier);
@@ -57,7 +58,9 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
                 ? await prisma.user.findUnique({ where: { id: matches[0].id } })
                 : null;
             })()
-          : await prisma.user.findFirst({ where: { username: normalizeUsername(identifier) } });
+          : normalizedPhone
+            ? await prisma.user.findUnique({ where: { phone: normalizedPhone } })
+            : await prisma.user.findFirst({ where: { username: normalizeUsername(identifier) } });
 
         if (!user?.passwordHash) {
           return null;
@@ -75,7 +78,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
           subject: identifier,
         });
 
-        return user;
+        return { ...user, email: user.email ?? "", phone: user.phone ?? "" };
       },
     }),
   ],
@@ -102,6 +105,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
           id: true,
           image: true,
           name: true,
+          phone: true,
           profileCompleted: true,
           role: true,
           sessionVersion: true,
@@ -119,6 +123,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
           delete token.email;
           delete token.id;
           delete token.name;
+          delete token.phone;
           delete token.picture;
           delete token.profileCompleted;
           delete token.role;
@@ -127,9 +132,10 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
           return token;
         }
 
-        token.email = currentUser.email;
+        token.email = currentUser.email ?? "";
         token.id = currentUser.id;
         token.name = currentUser.name;
+        token.phone = currentUser.phone;
         token.picture = currentUser.image;
         token.profileCompleted = currentUser.profileCompleted;
         token.role = currentUser.role;
@@ -150,6 +156,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         sessionUser.id = "";
         sessionUser.image = null;
         sessionUser.name = null;
+        sessionUser.phone = "";
         sessionUser.profileCompleted = false;
         sessionUser.role = "USER";
         sessionUser.username = "";
@@ -160,6 +167,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       sessionUser.id = `${token.id ?? ""}`;
       sessionUser.image = typeof token.picture === "string" ? token.picture : null;
       sessionUser.name = typeof token.name === "string" ? token.name : null;
+      sessionUser.phone = typeof token.phone === "string" ? token.phone : "";
       sessionUser.profileCompleted = Boolean(token.profileCompleted);
       sessionUser.role = `${token.role ?? "USER"}` as typeof sessionUser.role;
       sessionUser.username = `${token.username ?? ""}`;

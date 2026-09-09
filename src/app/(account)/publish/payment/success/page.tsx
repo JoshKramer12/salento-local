@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import {
   IconCalendarEvent,
+  IconBrandWhatsapp,
   IconCheck,
   IconCircleCheck,
   IconDownload,
@@ -19,6 +20,7 @@ import { getViewer } from "@/lib/auth-guards";
 import { getCurrentLocale } from "@/lib/locale";
 import { prisma } from "@/lib/prisma";
 import { getReceiptData } from "@/lib/receipts";
+import { getNoEmailOwnerWhatsAppHandoff } from "@/lib/business-owner-access";
 import { getOriginFromHeaders } from "@/lib/request-origin";
 import {
   syncStripePaymentForSubmission,
@@ -143,6 +145,10 @@ export default async function PublishPaymentSuccessPage({
         successTitle: "Pagamento riuscito!",
         summaryTitle: "Riepilogo pagamento",
         viewListing: "Vedi la mia scheda",
+        handoffBody: "L'attività è online. Invia al titolare la sua scheda e il link sicuro per creare l'account su WhatsApp.",
+        handoffHint: "WhatsApp si aprirà con il numero del titolare e i link già compilati. Controlla il messaggio e premi Invia.",
+        handoffTitle: "Dai accesso al titolare",
+        handoffCta: "Invia accesso via WhatsApp",
       }
     : {
         amount: "Amount paid",
@@ -168,6 +174,10 @@ export default async function PublishPaymentSuccessPage({
         successTitle: "Payment successful!",
         summaryTitle: "Payment summary",
         viewListing: "View my business listing",
+        handoffBody: "The business is live. Send the owner their listing and secure account-creation link on WhatsApp.",
+        handoffHint: "WhatsApp will open with the owner’s number and links already filled in. Review the message and press Send.",
+        handoffTitle: "Give the owner access",
+        handoffCta: "Send access via WhatsApp",
       };
 
   if (!paymentConfirmed) {
@@ -205,6 +215,13 @@ export default async function PublishPaymentSuccessPage({
     receipt.payment.amountCents || receipt.submission.amountPaidCents,
     locale,
   );
+  const ownerWhatsAppHandoff = listingIsLive
+    ? await getNoEmailOwnerWhatsAppHandoff({
+        appUrl: getOriginFromHeaders(requestHeaders),
+        locale,
+        submissionId,
+      })
+    : null;
 
   return (
     <main className="shell px-4 py-7 sm:px-6 sm:py-12">
@@ -255,6 +272,22 @@ export default async function PublishPaymentSuccessPage({
             </div>
           </div>
         </section>
+
+        {ownerWhatsAppHandoff ? (
+          <section className="mt-6 rounded-[1.4rem] border border-[rgba(37,211,102,0.24)] bg-[linear-gradient(135deg,rgba(238,251,242,0.96),rgba(255,255,255,0.98))] p-5 sm:p-6">
+            <div className="flex items-start gap-4">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[rgba(37,211,102,0.12)] text-[#168846]"><IconBrandWhatsapp size={25} /></span>
+              <div className="min-w-0">
+                <h2 className="text-xl font-bold text-[var(--foreground)]">{copy.handoffTitle}</h2>
+                <p className="mt-2 leading-7 text-[var(--foreground)]">{copy.handoffBody}</p>
+                <a href={ownerWhatsAppHandoff.href} className="btn-primary mt-5 flex w-full py-4 text-base sm:w-auto" target="_blank" rel="noreferrer">
+                  <IconBrandWhatsapp size={22} /> {copy.handoffCta}
+                </a>
+                <p className="mt-3 text-sm leading-6 text-[var(--muted)]">{copy.handoffHint}</p>
+              </div>
+            </div>
+          </section>
+        ) : null}
 
         <div className="mt-8 grid gap-3">
           {businessListingHref ? (

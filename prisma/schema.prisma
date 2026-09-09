@@ -262,7 +262,8 @@ model Category {
 
 model User {
   id               String               @id @default(cuid())
-  email            String               @unique
+  email            String?              @unique
+  phone            String?              @unique
   username         String               @unique @default(cuid())
   name             String?
   passwordHash     String?
@@ -411,7 +412,8 @@ model Business {
 model BusinessOwnerAccess {
   id               String   @id @default(cuid())
   businessId       String
-  email            String
+  email            String?
+  phone            String?
   userId           String?
   sourceSubmissionId String? @unique
   verifiedAt       DateTime @default(now())
@@ -423,8 +425,10 @@ model BusinessOwnerAccess {
   updatedAt        DateTime @updatedAt
 
   @@unique([businessId, email])
+  @@unique([businessId, phone])
   @@unique([businessId, userId])
   @@index([email, userId])
+  @@index([phone, userId])
 }
 
 model BusinessOwnerAccessInvitation {

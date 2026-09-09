@@ -6,7 +6,7 @@ import { hasResendConfiguration, sendTransactionalEmail } from "@/lib/email";
 import { getAppUrl } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
 import { hasSmtpConfiguration } from "@/lib/claim-delivery";
-import { normalizeEmail } from "@/lib/validation";
+import { normalizeEmail, normalizePhoneNumber } from "@/lib/validation";
 import { normalizeEnvValue } from "@/lib/env";
 
 type OwnerAccessDb = PrismaClient | Prisma.TransactionClient;
@@ -55,13 +55,28 @@ export async function findUserByNormalizedEmail(params: {
   });
 }
 
+export async function findUserByNormalizedPhone(params: {
+  db?: OwnerAccessDb;
+  phone: string;
+}) {
+  const db = params.db ?? prisma;
+  const phone = normalizePhoneNumber(params.phone);
+  if (!phone) return null;
+  return db.user.findUnique({
+    where: { phone },
+    select: { id: true, phone: true },
+  });
+}
+
 export function getOwnerAccountPrefill(params: {
-  email: string;
+  email?: string | null;
   ownerName?: string | null;
+  phone?: string | null;
 }) {
   return {
-    email: normalizeEmail(params.email),
+    email: params.email ? normalizeEmail(params.email) : "",
     name: params.ownerName?.trim() ?? "",
+    phone: params.phone ?? "",
   };
 }
 
@@ -140,24 +155,29 @@ export async function ensureOwnerAccessForPublishedSubmission(params: {
       id: true,
       ownerEmail: true,
       ownerHasNoEmail: true,
+      ownerPhone: true,
     },
   });
 
-  if (
-    !submission?.createdBusinessId ||
-    submission.ownerHasNoEmail ||
-    !submission.ownerEmail.trim()
-  ) {
+  if (!submission?.createdBusinessId) {
     return null;
   }
 
-  const email = normalizeEmail(submission.ownerEmail);
-  const ownerUser = await findUserByNormalizedEmail({ db, email });
+  const noEmailOwner = submission.ownerHasNoEmail || !submission.ownerEmail.trim();
+  const email = noEmailOwner ? null : normalizeEmail(submission.ownerEmail);
+  const phone = noEmailOwner ? normalizePhoneNumber(submission.ownerPhone) : null;
+  if (!email && !phone) return null;
+
+  const ownerUser = email
+    ? await findUserByNormalizedEmail({ db, email })
+    : await findUserByNormalizedPhone({ db, phone: phone! });
   const existing = await db.businessOwnerAccess.findFirst({
     where: {
       OR: [
         { sourceSubmissionId: submission.id },
-        { AND: [{ businessId: submission.createdBusinessId }, { email }] },
+        email
+          ? { AND: [{ businessId: submission.createdBusinessId }, { email }] }
+          : { AND: [{ businessId: submission.createdBusinessId }, { phone: phone! }] },
       ],
     },
     select: { id: true, userId: true },
@@ -169,6 +189,7 @@ export async function ensureOwnerAccessForPublishedSubmission(params: {
         where: { id: existing.id },
         data: {
           email,
+          phone,
           sourceSubmissionId: submission.id,
           userId,
           ...(userId && !existing.userId ? { activatedAt: new Date() } : {}),
@@ -179,6 +200,7 @@ export async function ensureOwnerAccessForPublishedSubmission(params: {
         data: {
           businessId: submission.createdBusinessId,
           email,
+          phone,
           sourceSubmissionId: submission.id,
           userId,
           ...(userId ? { activatedAt: new Date() } : {}),
@@ -206,17 +228,19 @@ export async function attachOwnerAccessToUser(params: {
   const db = params.db ?? prisma;
   const access = await db.businessOwnerAccess.findUnique({
     where: { id: params.accessId },
-    select: { businessId: true, email: true, id: true, userId: true },
+    select: { businessId: true, email: true, id: true, phone: true, userId: true },
   });
 
   if (!access) return null;
 
   const user = await db.user.findUnique({
     where: { id: params.userId },
-    select: { email: true, id: true },
+    select: { email: true, id: true, phone: true },
   });
 
-  if (!user || normalizeEmail(user.email) !== access.email) {
+  const emailMatches = Boolean(access.email && user?.email && normalizeEmail(user.email) === access.email);
+  const phoneMatches = Boolean(access.phone && user?.phone && user.phone === access.phone);
+  if (!user || (!emailMatches && !phoneMatches)) {
     return null;
   }
 
@@ -444,4 +468,73 @@ export async function sendOwnerAccessInvitationForSubmission(params: {
     recipient: access.email,
     viewUrl: `${appUrl}/businesses/${encodeURIComponent(business.slug)}`,
   };
+}
+
+export function buildOwnerWhatsAppMessage(params: {
+  businessName: string;
+  locale: "en" | "it";
+  manageUrl: string;
+  ownerName: string;
+  viewUrl: string;
+}) {
+  const firstName = params.ownerName.trim().split(/\s+/)[0] || "";
+  if (params.locale === "it") {
+    return `Ciao${firstName ? ` ${firstName}` : ""}!\n\nLa tua attività ${params.businessName} è ora pubblicata su Salento Local.\n\nVisualizza la tua attività:\n${params.viewUrl}\n\nCrea il tuo account per gestire e aggiornare la tua attività:\n${params.manageUrl}\n\nQuesto link di accesso è personale. Non condividerlo con altre persone.\n\nSalento Local`;
+  }
+  return `Hello${firstName ? ` ${firstName}` : ""}!\n\nYour business ${params.businessName} is now published on Salento Local.\n\nView your business:\n${params.viewUrl}\n\nCreate your account to manage and update your business:\n${params.manageUrl}\n\nThis access link is personal. Please do not share it with anyone else.\n\nSalento Local`;
+}
+
+export function getOwnerWhatsAppDeepLink(params: { message: string; phone: string }) {
+  const phone = normalizePhoneNumber(params.phone);
+  if (!phone) return null;
+  return `https://wa.me/${phone.slice(1)}?text=${encodeURIComponent(params.message)}`;
+}
+
+/**
+ * This is intentionally called only from a page that has already verified the
+ * payment and publication state. It reuses the durable access and invitation
+ * record, so refreshes and repeat WhatsApp taps never mint uncontrolled links.
+ */
+export async function getNoEmailOwnerWhatsAppHandoff(params: {
+  appUrl?: string;
+  locale: "en" | "it";
+  submissionId: string;
+}) {
+  const submission = await prisma.businessSubmission.findUnique({
+    where: { id: params.submissionId },
+    select: {
+      createdBusiness: { select: { name: true, slug: true } },
+      ownerEmail: true,
+      ownerHasNoEmail: true,
+      ownerName: true,
+      ownerPhone: true,
+      paymentStatus: true,
+      status: true,
+    },
+  });
+  if (
+    !submission ||
+    submission.paymentStatus !== "PAID" ||
+    submission.status !== "PUBLISHED" ||
+    (!submission.ownerHasNoEmail && submission.ownerEmail.trim()) ||
+    !submission.createdBusiness
+  ) return null;
+
+  const phone = normalizePhoneNumber(submission.ownerPhone);
+  if (!phone) return null;
+  const access = await ensureOwnerAccessForPublishedSubmission({ submissionId: params.submissionId });
+  if (!access || access.userId || access.phone !== phone) return null;
+  const invitation = await getOrCreateOwnerAccessDeliveryInvitation({ accessId: access.id });
+  const appUrl = (params.appUrl || getAppUrl()).replace(/\/+$/, "");
+  const viewUrl = `${appUrl}/businesses/${encodeURIComponent(submission.createdBusiness.slug)}`;
+  const manageUrl = getOwnerAccessUrl(invitation.token, appUrl);
+  const message = buildOwnerWhatsAppMessage({
+    businessName: submission.createdBusiness.name,
+    locale: params.locale,
+    manageUrl,
+    ownerName: submission.ownerName,
+    viewUrl,
+  });
+  const href = getOwnerWhatsAppDeepLink({ message, phone });
+  return href ? { href, phone } : null;
 }

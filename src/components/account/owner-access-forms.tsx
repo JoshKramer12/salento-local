@@ -18,28 +18,34 @@ export function OwnerAccountActivationForm({
   email,
   locale,
   name,
+  phone,
   token,
 }: {
   email: string;
   locale: Locale;
   name: string;
+  phone: string;
   token: string;
 }) {
   const [state, action] = useActionState(createOwnerAccountFromInvitationAction, initialState);
   const [password, setPassword] = useState("");
   const copy = locale === "it"
-    ? { confirm: "Conferma password", create: "Crea il mio account", email: "Email associata all'attività", emailHint: "Questa email è verificata dall'invito e non può essere modificata qui.", login: "Accedi", name: "Nome e cognome", password: "Password", pending: "Creazione account...", terms: "Ho letto e accetto i", username: "Username", usernameHint: "Scegli uno username per il tuo accesso." }
-    : { confirm: "Confirm password", create: "Create my account", email: "Email linked to this business", emailHint: "This email was verified by the invitation and cannot be changed here.", login: "Log in", name: "Full name", password: "Password", pending: "Creating account...", terms: "I have read and agree to the", username: "Username", usernameHint: "Choose a username for your account." };
+    ? { confirm: "Conferma password", create: "Crea il mio account", email: "Email associata all'attività", emailHint: "Questa email è verificata dall'invito e non può essere modificata qui.", login: "Accedi", name: "Nome e cognome", password: "Password", pending: "Creazione account...", phone: "Numero WhatsApp", phoneHint: "🔒 Questo numero è collegato alla tua attività e non può essere modificato qui.", terms: "Ho letto e accetto i", username: "Username", usernameHint: "Scegli uno username per il tuo accesso." }
+    : { confirm: "Confirm password", create: "Create my account", email: "Email linked to this business", emailHint: "This email was verified by the invitation and cannot be changed here.", login: "Log in", name: "Full name", password: "Password", pending: "Creating account...", phone: "WhatsApp number", phoneHint: "🔒 This number is connected to your business and cannot be changed here.", terms: "I have read and agree to the", username: "Username", usernameHint: "Choose a username for your account." };
 
   return (
     <form action={action} className="card grid gap-5 p-6 sm:p-8">
       <input type="hidden" name="locale" value={locale} />
       <input type="hidden" name="token" value={token} />
-      <label className="field-label">
+      {email ? <label className="field-label">
         <span>{copy.email}</span>
         <input value={email} readOnly className="input-field bg-[var(--secondary)]" />
         <span className="text-sm text-[var(--muted)]">{copy.emailHint}</span>
-      </label>
+      </label> : <div className="rounded-2xl border border-[var(--border)] bg-[var(--secondary)] px-4 py-4">
+        <p className="text-sm font-medium text-[var(--foreground)]">{copy.phone}</p>
+        <p className="mt-1 font-semibold text-[var(--primary)]">{phone}</p>
+        <p className="mt-2 text-sm text-[var(--muted)]">{copy.phoneHint}</p>
+      </div>}
       <label className="field-label">
         <span>{copy.name}</span>
         <input name="name" defaultValue={name} autoComplete="name" className="input-field" />
