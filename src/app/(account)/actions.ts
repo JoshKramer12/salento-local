@@ -88,6 +88,8 @@ import {
   ensurePaymentQrActionResult,
   getPaymentQrOpeningError,
   preparePaymentQrNavigation,
+  toPaymentQrSelectionResult,
+  type PaymentQrSelectionResult,
 } from "@/lib/payment-qr-navigation";
 import { prisma } from "@/lib/prisma";
 import { getSafeInternalRedirect } from "@/lib/redirects";
@@ -1365,6 +1367,29 @@ export async function saveBusinessSubmissionAction(
             : "We couldn't save the draft. Please try again in a moment.",
     };
   }
+}
+
+export async function openBusinessSubmissionPaymentAction(
+  formData: FormData,
+): Promise<PaymentQrSelectionResult> {
+  const locale = getLocaleFromForm(formData);
+  const paymentMethod = getStringValue(formData.get("paymentMethod"));
+
+  if (paymentMethod !== "ONLINE" && paymentMethod !== "BANK_TRANSFER") {
+    return {
+      error: getPaymentQrOpeningError(locale),
+      ok: false,
+    };
+  }
+
+  // This dedicated action is the only client contract for a payment-choice
+  // click. It cannot accidentally become a draft save after a UI refactor.
+  formData.set("intent", "submit");
+  formData.set("paymentMethod", paymentMethod);
+
+  const result = await saveBusinessSubmissionAction({}, formData);
+
+  return toPaymentQrSelectionResult({ locale, result });
 }
 
 async function saveBusinessSubmission(

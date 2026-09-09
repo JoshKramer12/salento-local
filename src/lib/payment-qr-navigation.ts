@@ -4,10 +4,14 @@ export type PaymentQrMethod = Extract<PaymentMethod, "ONLINE" | "BANK_TRANSFER">
 
 export type PaymentQrAttemptGate = { current: boolean };
 
-type PaymentQrActionResult = {
+type PaymentQrActionState = {
   error?: string;
   paymentDestination?: string;
 };
+
+export type PaymentQrSelectionResult =
+  | { destination: string; ok: true }
+  | { error: string; ok: false };
 
 export function beginPaymentQrAttempt(gate: PaymentQrAttemptGate) {
   if (gate.current) {
@@ -66,7 +70,7 @@ export function getPaymentQrOpeningError(locale: "en" | "it") {
  * A payment action must resolve to exactly one public outcome. In particular,
  * a duplicate-check response is not a valid response to a payment-choice click.
  */
-export function ensurePaymentQrActionResult<Result extends PaymentQrActionResult>({
+export function ensurePaymentQrActionResult<Result extends PaymentQrActionState>({
   locale,
   onInvalidResult,
   result,
@@ -88,5 +92,27 @@ export function ensurePaymentQrActionResult<Result extends PaymentQrActionResult
     ...result,
     error: result.error?.trim() || getPaymentQrOpeningError(locale),
     paymentDestination: undefined,
+  };
+}
+
+export function toPaymentQrSelectionResult({
+  locale,
+  result,
+}: {
+  locale: "en" | "it";
+  result: PaymentQrActionState;
+}): PaymentQrSelectionResult {
+  const checkedResult = ensurePaymentQrActionResult({ locale, result });
+
+  if (checkedResult.paymentDestination) {
+    return {
+      destination: checkedResult.paymentDestination.trim(),
+      ok: true,
+    };
+  }
+
+  return {
+    error: checkedResult.error ?? getPaymentQrOpeningError(locale),
+    ok: false,
   };
 }

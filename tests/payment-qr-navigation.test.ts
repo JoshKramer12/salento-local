@@ -8,6 +8,7 @@ import {
   finishPaymentQrAttempt,
   getPaymentQrOpeningError,
   preparePaymentQrNavigation,
+  toPaymentQrSelectionResult,
 } from "@/lib/payment-qr-navigation";
 
 test("payment QR preparation preserves the submission id and navigates after the card session is ready", async () => {
@@ -112,4 +113,21 @@ test("payment action results cannot return a destination and error together", ()
 
   assert.equal(result.paymentDestination, undefined);
   assert.equal(result.error, "provider failure");
+});
+
+test("the payment-choice action exposes an explicit success or error contract", () => {
+  assert.deepEqual(
+    toPaymentQrSelectionResult({
+      locale: "en",
+      result: { paymentDestination: " /publish/payment?submission=card " },
+    }),
+    { destination: "/publish/payment?submission=card", ok: true },
+  );
+  assert.deepEqual(
+    toPaymentQrSelectionResult({ locale: "it", result: {} }),
+    {
+      error: "Non siamo riusciti ad aprire il QR di pagamento. Riprova tra un momento.",
+      ok: false,
+    },
+  );
 });

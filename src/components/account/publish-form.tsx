@@ -42,11 +42,13 @@ import {
 } from "react";
 
 import {
+  openBusinessSubmissionPaymentAction,
   saveBusinessSubmissionAction,
   type DuplicateBusinessMatch,
   type FormState,
   type SubmissionFormValues,
 } from "@/app/(account)/actions";
+import { usePaymentQrTransition } from "@/hooks/use-payment-qr-transition";
 import { formatCurrencyFromCents } from "@/lib/account";
 import { SignaturePad } from "@/components/account/signature-pad";
 import { AddressAutocomplete } from "@/components/address-autocomplete";
@@ -66,12 +68,8 @@ import { LISTING_OFFER, LISTING_SIGNER_ROLE_VALUES, resolveContractualEmail } fr
 import type { PhoneCountryOption } from "@/lib/phone-country-options";
 import { getCategoryLabel } from "@/lib/site";
 import { normalizeSubmissionSocialInput } from "@/lib/business-links";
-import {
-  beginPaymentQrAttempt,
-  finishPaymentQrAttempt,
-  getPaymentQrOpeningError,
-} from "@/lib/payment-qr-navigation";
 import { duplicateResponseMatchesSubmittedValues } from "@/lib/publish-flow";
+import type { PaymentQrMethod } from "@/lib/payment-qr-navigation";
 
 const initialState: FormState = {};
 
@@ -826,7 +824,6 @@ export function PublishForm({
   const generatedInitialSummary = buildShortDescription(initialOfferItems);
   const [state, action, actionPending] = useActionState(saveBusinessSubmissionAction, initialState);
   const [currentSubmissionId, setCurrentSubmissionId] = useState(submission.id ?? "");
-  const [paymentOpeningMethod, setPaymentOpeningMethod] = useState<PaymentMethod | null>(null);
   const [businessName, setBusinessName] = useState(initialSubmissionValues.businessName);
   const [categoryId, setCategoryId] = useState(initialSubmissionValues.categoryId);
   const [address, setAddress] = useState(() =>
@@ -903,7 +900,6 @@ export function PublishForm({
   const intentInputRef = useRef<HTMLInputElement | null>(null);
   const paymentMethodInputRef = useRef<HTMLInputElement | null>(null);
   const exitAfterDraftSaveInputRef = useRef<HTMLInputElement | null>(null);
-  const paymentOpeningRef = useRef(false);
   const previewUrlsRef = useRef<Partial<Record<PhotoSlot, string>>>({});
   const duplicateDecisionInputRef = useRef<HTMLInputElement | null>(null);
   const duplicateNoticeRef = useRef<HTMLElement | null>(null);
@@ -917,6 +913,15 @@ export function PublishForm({
   const initialDraftRestoreCheckedRef = useRef(false);
   const possibleMatchesOnLoadCheckedRef = useRef(false);
   const storageKey = useMemo(() => buildLocalDraftStorageKey(adminMode), [adminMode]);
+  const {
+    error: paymentOpeningError,
+    openPaymentQr,
+    pendingMethod: paymentOpeningMethod,
+  } = usePaymentQrTransition({
+    action: openBusinessSubmissionPaymentAction,
+    locale,
+    navigate: router.push,
+  });
   const highlightedFields = useMemo(
     () => new Set(state.invalidFields ?? Object.keys(state.fieldErrors ?? {})),
     [state.fieldErrors, state.invalidFields],
@@ -1990,25 +1995,6 @@ export function PublishForm({
   }, [state.notice]);
 
   useEffect(() => {
-    if (!paymentOpeningMethod || actionPending) {
-      return;
-    }
-
-    if (state.paymentDestination) {
-      finishPaymentQrAttempt(paymentOpeningRef);
-      startTransition(() => setPaymentOpeningMethod(null));
-      router.push(state.paymentDestination);
-      return;
-    }
-
-    finishPaymentQrAttempt(paymentOpeningRef);
-    startTransition(() => {
-      setPaymentOpeningMethod(null);
-      setDraftNotice(state.error || getPaymentQrOpeningError(locale));
-    });
-  }, [actionPending, locale, paymentOpeningMethod, router, state.error, state.paymentDestination]);
-
-  useEffect(() => {
     if (!state.error || !awaitingDraftResponseRef.current) {
       return;
     }
@@ -2383,13 +2369,12 @@ export function PublishForm({
     formRef.current.requestSubmit();
   }
 
-  function continueWithPaymentMethod(method: PaymentMethod) {
-    if (!formRef.current || actionPending || !beginPaymentQrAttempt(paymentOpeningRef)) {
+  function continueWithPaymentMethod(method: PaymentQrMethod) {
+    if (!formRef.current || actionPending || paymentOpeningMethod) {
       return;
     }
 
     setPaymentMethod(method);
-    setPaymentOpeningMethod(method);
     setDraftNotice("");
 
     // Avoid depending on React flushing controlled hidden inputs before a
@@ -2400,9 +2385,7 @@ export function PublishForm({
     formData.set("paymentMethod", method);
     formData.set("exitAfterDraftSave", "");
 
-    startTransition(() => {
-      action(formData);
-    });
+    openPaymentQr(method, formData);
   }
 
   function continueAdminPublication() {
@@ -2946,7 +2929,7 @@ export function PublishForm({
 
         {wizardStep === "signature" ? <div className="grid gap-5"><div><p className="section-kicker">{locale === "it" ? "Firma" : "Sign"}</p><h1 className="font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? "Firma per continuare" : "Sign to continue"}</h1><p className="mt-3 text-[var(--muted)]">{locale === "it" ? "Inserisci i tuoi dati e firma per confermare l'autorizzazione." : "Enter your details and sign to confirm your authorisation."}</p></div><div className="grid gap-4 sm:grid-cols-2"><label className="field-label"><FieldLabel title={copy.signerName} required={copy.required} /><input value={signerFullName} onChange={(event) => setSignerFullName(event.target.value)} className="input-field" /></label><label className="field-label"><FieldLabel title={copy.signerRole} required={copy.required} /><select value={signerRole} onChange={(event) => setSignerRole(event.target.value)} className="input-field"><option value="">{copy.signerRolePlaceholder}</option>{signerRoleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label></div>{signerRoleRequiresOther ? <label className="field-label"><FieldLabel title={copy.signerRoleOther} required={copy.required} /><input value={signerRoleOther} onChange={(event) => setSignerRoleOther(event.target.value)} className="input-field" /></label> : null}<div className="field-label"><FieldLabel title={copy.signatureTitle} description={copy.signatureIntro} required={copy.required} /><SignaturePad clearLabel={copy.clearSignature} drawHint={copy.signatureDrawHint} hasError={hasFieldError("agreementSignature")} legacyValueNotice={copy.signatureLegacyNotice} value={signature} onChange={setSignature} /></div></div> : null}
 
-        {wizardStep === "payment" ? <div className="grid gap-6"><div><p className="section-kicker">{locale === "it" ? "Pagamento" : "Payment"}</p><h1 className="mt-2 font-serif text-4xl text-[var(--foreground)]">{locale === "it" ? "Come preferiscono pagare?" : "How would they like to pay?"}</h1><p className="mt-3 text-[var(--muted)]">{locale === "it" ? "Chiedi al titolare quale opzione preferisce." : "Ask the business owner which option they prefer."}</p></div>{adminMode ? <div className="rounded-2xl bg-[rgba(42,98,87,0.08)] p-4 text-sm">{locale === "it" ? "Modalita admin: la pubblicazione non richiede il pagamento." : "Admin mode: publication does not require payment."}</div> : <div className="grid gap-5 lg:grid-cols-2"><article className="flex flex-col rounded-[1.6rem] border-[1.5px] border-[rgba(42,98,87,0.42)] bg-white p-5 shadow-[0_12px_30px_rgba(42,98,87,0.08)] sm:p-6"><div className="flex items-center justify-between gap-3"><span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(42,98,87,0.1)] text-[var(--primary)]"><IconQrcode size={23} /></span><span className="rounded-full bg-[rgba(42,98,87,0.1)] px-3 py-1.5 text-[0.68rem] font-bold tracking-[0.12em] text-[var(--primary)]">{locale === "it" ? "CONSIGLIATO" : "RECOMMENDED"}</span></div><h2 className="mt-5 font-serif text-2xl text-[var(--foreground)]">{locale === "it" ? "Paga ora dal telefono" : "Pay now by phone"}</h2><p className="mt-2 text-sm leading-6 text-[var(--muted)]">{locale === "it" ? "Il titolare paga in sicurezza dal proprio telefono." : "The owner pays securely on their own phone."}</p><div className="mt-5 grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-1 rounded-2xl bg-[rgba(247,244,239,0.65)] p-3 text-center text-[0.7rem] font-semibold text-[var(--foreground)] sm:gap-2 sm:p-4"><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[var(--primary)]">1</b>{locale === "it" ? "Mostra QR" : "Show QR"}</span><span className="text-[var(--muted)]">→</span><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[var(--primary)]">2</b>{locale === "it" ? "Scansiona" : "Owner scans"}</span><span className="text-[var(--muted)]">→</span><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[var(--primary)]">3</b>{locale === "it" ? "Paga" : "Owner pays"}</span></div><p className="mt-4 text-center text-xs text-[var(--muted)]">Card <span className="mx-1 text-[var(--border)]">•</span> Apple Pay <span className="mx-1 text-[var(--border)]">•</span> Google Pay</p><button type="button" disabled={actionPending} onClick={() => continueWithPaymentMethod("ONLINE")} className="btn-primary mt-5 min-h-12 w-full disabled:cursor-wait disabled:opacity-60"><IconQrcode size={18} />{actionPending ? (locale === "it" ? "Caricamento..." : "Loading...") : locale === "it" ? "Mostra QR di pagamento" : "Show payment QR"}</button></article><article className="flex flex-col rounded-[1.6rem] border border-[var(--border)] bg-white p-5 sm:p-6"><div className="flex items-center justify-between"><span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(128,110,85,0.1)] text-[#806e55]"><IconCashBanknote size={23} /></span></div><h2 className="mt-5 font-serif text-2xl text-[var(--foreground)]">{locale === "it" ? "Paga con bonifico" : "Pay by bank transfer"}</h2><p className="mt-2 text-sm leading-6 text-[var(--muted)]">{locale === "it" ? "Usa questa opzione se il titolare preferisce fare un bonifico." : "Use this if the owner prefers to make a transfer."}</p><div className="mt-5 grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-1 rounded-2xl bg-[rgba(247,244,239,0.65)] p-3 text-center text-[0.7rem] font-semibold text-[var(--foreground)] sm:gap-2 sm:p-4"><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[#806e55]">1</b>{locale === "it" ? "Mostra QR" : "Show QR"}</span><span className="text-[var(--muted)]">→</span><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[#806e55]">2</b>{locale === "it" ? "Scansiona" : "Owner scans"}</span><span className="text-[var(--muted)]">→</span><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[#806e55]">3</b>{locale === "it" ? "Segui le istruzioni" : "Follow instructions"}</span></div><div className="mt-4 flex items-start gap-2 text-xs leading-5 text-[var(--muted)]"><IconReceipt2 size={17} className="mt-0.5 shrink-0 text-[var(--accent)]" />{locale === "it" ? "La scheda va online dopo la ricezione del bonifico." : "The listing goes live after the transfer is received."}</div><button type="button" disabled={actionPending} onClick={() => continueWithPaymentMethod("BANK_TRANSFER")} className="btn-secondary mt-5 min-h-12 w-full disabled:cursor-wait disabled:opacity-60"><IconQrcode size={18} />{actionPending ? (locale === "it" ? "Caricamento..." : "Loading...") : locale === "it" ? "Mostra QR del bonifico" : "Show bank transfer QR"}</button></article></div>}</div> : null}
+        {wizardStep === "payment" ? <div className="grid gap-6"><div><p className="section-kicker">{locale === "it" ? "Pagamento" : "Payment"}</p><h1 className="mt-2 font-serif text-4xl text-[var(--foreground)]">{locale === "it" ? "Come preferiscono pagare?" : "How would they like to pay?"}</h1><p className="mt-3 text-[var(--muted)]">{locale === "it" ? "Chiedi al titolare quale opzione preferisce." : "Ask the business owner which option they prefer."}</p></div>{paymentOpeningError ? <p role="alert" className="rounded-2xl border border-[rgba(191,91,42,0.25)] bg-[rgba(255,248,243,0.96)] px-4 py-3 text-sm font-medium text-[var(--accent)]">{paymentOpeningError}</p> : null}{adminMode ? <div className="rounded-2xl bg-[rgba(42,98,87,0.08)] p-4 text-sm">{locale === "it" ? "Modalita admin: la pubblicazione non richiede il pagamento." : "Admin mode: publication does not require payment."}</div> : <div className="grid gap-5 lg:grid-cols-2"><article className="flex flex-col rounded-[1.6rem] border-[1.5px] border-[rgba(42,98,87,0.42)] bg-white p-5 shadow-[0_12px_30px_rgba(42,98,87,0.08)] sm:p-6"><div className="flex items-center justify-between gap-3"><span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(42,98,87,0.1)] text-[var(--primary)]"><IconQrcode size={23} /></span><span className="rounded-full bg-[rgba(42,98,87,0.1)] px-3 py-1.5 text-[0.68rem] font-bold tracking-[0.12em] text-[var(--primary)]">{locale === "it" ? "CONSIGLIATO" : "RECOMMENDED"}</span></div><h2 className="mt-5 font-serif text-2xl text-[var(--foreground)]">{locale === "it" ? "Paga ora dal telefono" : "Pay now by phone"}</h2><p className="mt-2 text-sm leading-6 text-[var(--muted)]">{locale === "it" ? "Il titolare paga in sicurezza dal proprio telefono." : "The owner pays securely on their own phone."}</p><div className="mt-5 grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-1 rounded-2xl bg-[rgba(247,244,239,0.65)] p-3 text-center text-[0.7rem] font-semibold text-[var(--foreground)] sm:gap-2 sm:p-4"><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[var(--primary)]">1</b>{locale === "it" ? "Mostra QR" : "Show QR"}</span><span className="text-[var(--muted)]">→</span><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[var(--primary)]">2</b>{locale === "it" ? "Scansiona" : "Owner scans"}</span><span className="text-[var(--muted)]">→</span><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[var(--primary)]">3</b>{locale === "it" ? "Paga" : "Owner pays"}</span></div><p className="mt-4 text-center text-xs text-[var(--muted)]">Card <span className="mx-1 text-[var(--border)]">•</span> Apple Pay <span className="mx-1 text-[var(--border)]">•</span> Google Pay</p><button type="button" disabled={actionPending || Boolean(paymentOpeningMethod)} onClick={() => continueWithPaymentMethod("ONLINE")} className="btn-primary mt-5 min-h-12 w-full disabled:cursor-wait disabled:opacity-60"><IconQrcode size={18} />{paymentOpeningMethod === "ONLINE" ? (locale === "it" ? "Apertura..." : "Opening...") : locale === "it" ? "Mostra QR di pagamento" : "Show payment QR"}</button></article><article className="flex flex-col rounded-[1.6rem] border border-[var(--border)] bg-white p-5 sm:p-6"><div className="flex items-center justify-between"><span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(128,110,85,0.1)] text-[#806e55]"><IconCashBanknote size={23} /></span></div><h2 className="mt-5 font-serif text-2xl text-[var(--foreground)]">{locale === "it" ? "Paga con bonifico" : "Pay by bank transfer"}</h2><p className="mt-2 text-sm leading-6 text-[var(--muted)]">{locale === "it" ? "Usa questa opzione se il titolare preferisce fare un bonifico." : "Use this if the owner prefers to make a transfer."}</p><div className="mt-5 grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-1 rounded-2xl bg-[rgba(247,244,239,0.65)] p-3 text-center text-[0.7rem] font-semibold text-[var(--foreground)] sm:gap-2 sm:p-4"><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[#806e55]">1</b>{locale === "it" ? "Mostra QR" : "Show QR"}</span><span className="text-[var(--muted)]">→</span><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[#806e55]">2</b>{locale === "it" ? "Scansiona" : "Owner scans"}</span><span className="text-[var(--muted)]">→</span><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[#806e55]">3</b>{locale === "it" ? "Segui le istruzioni" : "Follow instructions"}</span></div><div className="mt-4 flex items-start gap-2 text-xs leading-5 text-[var(--muted)]"><IconReceipt2 size={17} className="mt-0.5 shrink-0 text-[var(--accent)]" />{locale === "it" ? "La scheda va online dopo la ricezione del bonifico." : "The listing goes live after the transfer is received."}</div><button type="button" disabled={actionPending || Boolean(paymentOpeningMethod)} onClick={() => continueWithPaymentMethod("BANK_TRANSFER")} className="btn-secondary mt-5 min-h-12 w-full disabled:cursor-wait disabled:opacity-60"><IconQrcode size={18} />{paymentOpeningMethod === "BANK_TRANSFER" ? (locale === "it" ? "Apertura..." : "Opening...") : locale === "it" ? "Mostra QR del bonifico" : "Show bank transfer QR"}</button></article></div>}</div> : null}
       </section>
 
       {showWizardFooter ? <div className={`publish-form-footer flex flex-wrap justify-end gap-3 border-t border-[rgba(42,98,87,0.12)] bg-[rgba(255,255,255,0.72)] p-3 sm:p-4 ${collectionIndex >= 0 ? `collection-wizard-footer ${previousWizardStep ? "collection-wizard-footer--with-back" : "collection-wizard-footer--without-back"}` : ""} ${specialFooterStep ? "special-wizard-footer" : ""} ${duplicateFooterStep ? "duplicate-wizard-footer" : ""}`}>
