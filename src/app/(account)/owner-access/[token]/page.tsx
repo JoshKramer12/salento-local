@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { activateOwnerAccessForCurrentUserAction } from "@/app/(account)/owner-access-actions";
 import { signOutAction } from "@/app/(account)/sign-out-action";
 import { OwnerAccountActivationForm, OwnerAccessRequestForm } from "@/components/account/owner-access-forms";
 import { getViewer } from "@/lib/auth-guards";
@@ -50,22 +49,15 @@ export default async function OwnerAccessPage({ params, searchParams }: OwnerAcc
       </section>
     );
     if (viewer && viewer.email.trim().toLowerCase() === access.email) {
-      return (
-        <main className="shell px-4 py-12 sm:px-6"><section className="mx-auto max-w-xl card p-6 sm:p-8">
-          <p className="section-kicker mb-3">{copy.eyebrow}</p><h1 className="font-serif text-4xl text-[var(--foreground)]">{copy.title}</h1>
-          <p className="mt-3 text-[var(--muted)]">{locale === "it" ? "Sei nell'account giusto. Conferma per aprire la gestione della tua attività." : "You are signed in to the correct account. Confirm to open your business management."}</p>
-          <div className="mt-6">{contextCard}</div>
-          <form action={activateOwnerAccessForCurrentUserAction}><input type="hidden" name="locale" value={locale} /><input type="hidden" name="token" value={token} /><button className="btn-primary w-full sm:w-auto">{copy.activate}</button></form>
-        </section></main>
-      );
+      redirect(`/owner-access/${encodeURIComponent(token)}/complete`);
     }
     if (viewer) {
       return (
-        <main className="shell px-4 py-12 sm:px-6"><section className="mx-auto max-w-xl card p-6 sm:p-8"><h1 className="font-serif text-3xl text-[var(--foreground)]">{copy.title}</h1><p className="mt-4 text-[var(--accent)]">{error || copy.wrong}</p><p className="mt-4 text-[var(--muted)]">{locale === "it" ? "Esci e accedi con l'email a cui è stato inviato questo invito." : "Log out, then sign in with the email that received this invitation."}</p><form action={signOutAction} className="mt-6"><input type="hidden" name="redirectTo" value={`/owner-access/${token}`} /><button className="btn-primary">{locale === "it" ? "Esci e accedi" : "Log out and sign in"}</button></form></section></main>
+        <main className="shell px-4 py-12 sm:px-6"><section className="mx-auto max-w-xl card p-6 sm:p-8"><h1 className="font-serif text-3xl text-[var(--foreground)]">{copy.title}</h1><p className="mt-4 text-[var(--accent)]">{error === "wrong-account" ? copy.wrong : error || copy.wrong}</p><p className="mt-4 text-[var(--muted)]">{locale === "it" ? "Esci e accedi con l'email a cui è stato inviato questo invito." : "Log out, then sign in with the email that received this invitation."}</p><form action={signOutAction} className="mt-6"><input type="hidden" name="redirectTo" value={`/owner-access/${token}`} /><button className="btn-primary">{locale === "it" ? "Esci e accedi" : "Log out and sign in"}</button></form></section></main>
       );
     }
     if (access.userId) {
-      redirect(`/login?redirectTo=${encodeURIComponent(`/owner-access/${token}`)}`);
+      redirect(`/owner-access/${encodeURIComponent(token)}/login`);
     }
     return (
       <main className="shell px-4 py-12 sm:px-6"><div className="mx-auto max-w-xl"><p className="section-kicker mb-3">{copy.eyebrow}</p><h1 className="font-serif text-4xl text-[var(--foreground)]">{locale === "it" ? "Benvenuto su Salento Local" : "Welcome to Salento Local"}</h1><p className="mt-2 font-serif text-2xl text-[var(--foreground)]">{locale === "it" ? "Crea il tuo account" : "Create your account"}</p><p className="mt-4 text-[var(--muted)]">{locale === "it" ? "La tua attività è già su Salento Local. Completa il tuo account per gestire e aggiornare la tua pagina." : copy.body}</p><div className="mt-6">{contextCard}</div><OwnerAccountActivationForm email={prefill.email} locale={locale} name={prefill.name} token={token} /></div></main>

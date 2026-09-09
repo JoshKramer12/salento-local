@@ -12,7 +12,9 @@ const initialState: FormState = {};
 
 type LoginFormProps = {
   helperText?: string;
+  invitedEmail?: string;
   locale: Locale;
+  ownerAccessFlow?: boolean;
   redirectTo?: string;
   signupHref?: string;
   signupLabel?: string;
@@ -20,7 +22,9 @@ type LoginFormProps = {
 
 export function LoginForm({
   helperText,
+  invitedEmail,
   locale,
+  ownerAccessFlow = false,
   redirectTo = "",
   signupHref,
   signupLabel,
@@ -31,8 +35,8 @@ export function LoginForm({
       ? {
           cta: "Accedi",
           helper: "Non hai ancora un account?",
-          identifierHint: "Puoi usare la tua email oppure il tuo username.",
-          identifier: "Email o username",
+          identifierHint: invitedEmail ? "Usa l'email che ha ricevuto l'invito." : "Puoi usare la tua email oppure il tuo username.",
+          identifier: invitedEmail ? "Email associata all'attività" : "Email o username",
           password: "Password",
           pending: "Accesso in corso...",
           signup: "Registrati",
@@ -40,8 +44,8 @@ export function LoginForm({
       : {
           cta: "Log in",
           helper: "Need an account?",
-          identifierHint: "You can use either your email address or your username.",
-          identifier: "Email or username",
+          identifierHint: invitedEmail ? "Use the email address that received the invitation." : "You can use either your email address or your username.",
+          identifier: invitedEmail ? "Email linked to this business" : "Email or username",
           password: "Password",
           pending: "Signing you in...",
           signup: "Sign up",
@@ -54,13 +58,13 @@ export function LoginForm({
         <input type="hidden" name="redirectTo" value={redirectTo} />
         <label className="field-label">
           <span>{copy.identifier}</span>
-          <input name="identifier" className="input-field" />
+          <input name="identifier" defaultValue={invitedEmail} readOnly={Boolean(invitedEmail)} autoComplete={invitedEmail ? "email" : "username"} className="input-field" />
           <span className="text-sm text-[var(--muted)]">{copy.identifierHint}</span>
           {state.fieldErrors?.identifier ? (
             <span className="text-sm text-[var(--accent)]">{state.fieldErrors.identifier}</span>
           ) : null}
         </label>
-        <div className="-mt-1"><ForgotPasswordLink locale={locale} /></div>
+        <div className="-mt-1"><ForgotPasswordLink locale={locale} ownerAccessFlow={ownerAccessFlow} /></div>
         <label className="field-label">
           <span>{copy.password}</span>
           <input name="password" type="password" className="input-field" />

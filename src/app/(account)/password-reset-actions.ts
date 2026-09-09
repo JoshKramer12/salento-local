@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { getPasswordResetUrl, issuePasswordResetToken, resolvePasswordResetToken, sendPasswordResetEmail } from "@/lib/password-reset";
+import { findUserByNormalizedEmail } from "@/lib/business-owner-access";
 import { prisma } from "@/lib/prisma";
 import { consumeSecurityRateLimit, getRequestClientAddress } from "@/lib/security-rate-limit";
 import { getStringValue, normalizeEmail } from "@/lib/validation";
@@ -24,8 +25,11 @@ export async function requestPasswordResetAction(_state: PasswordResetFormState,
   const requestHeaders = await headers();
   const limit = await consumeSecurityRateLimit({ clientAddress: getRequestClientAddress(requestHeaders), limit: 3, namespace: "password-reset", subject: email, windowMs: 60 * 60 * 1000 });
   if (!limit.allowed) return { notice };
-  const user = await prisma.user.findUnique({ where: { email }, select: { id: true, email: true } });
-  if (user) {
+  const account = await findUserByNormalizedEmail({ email });
+  const user = account
+    ? await prisma.user.findUnique({ where: { id: account.id }, select: { email: true, id: true, passwordHash: true } })
+    : null;
+  if (user?.passwordHash) {
     try {
       const token = await issuePasswordResetToken(user.id);
       await sendPasswordResetEmail({ locale, recipient: user.email, resetUrl: getPasswordResetUrl(token) });

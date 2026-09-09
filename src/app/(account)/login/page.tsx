@@ -5,6 +5,7 @@ import { HardNavigationLink } from "@/components/hard-navigation-link";
 import { LoginForm } from "@/components/account/login-form";
 import { getViewer } from "@/lib/auth-guards";
 import { getCurrentLocale } from "@/lib/locale";
+import { getOwnerAccessLoginContext } from "@/lib/owner-access-login";
 import { getSafeInternalRedirect } from "@/lib/redirects";
 import { getSingleParam } from "@/lib/site";
 
@@ -13,16 +14,22 @@ type LoginPageProps = {
 };
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
-  const locale = await getCurrentLocale();
-  const viewer = await getViewer();
+  const [locale, viewer, ownerAccess] = await Promise.all([
+    getCurrentLocale(),
+    getViewer(),
+    getOwnerAccessLoginContext(),
+  ]);
   const resolvedSearchParams = await searchParams;
   const redirectTo = getSingleParam(resolvedSearchParams.redirectTo);
   const safeRedirectTo = getSafeInternalRedirect(redirectTo);
   const claimBusinessFlow = redirectTo?.startsWith("/claim?business=") ?? false;
+  const ownerAccessFlow = Boolean(ownerAccess);
 
   if (viewer && (!claimBusinessFlow || viewer.role === "BUSINESS_OWNER")) {
     redirect(
-      viewer.profileCompleted
+      ownerAccess
+        ? `/owner-access/${encodeURIComponent(ownerAccess.token)}/complete`
+        : viewer.profileCompleted
         ? safeRedirectTo
           ? safeRedirectTo
           : "/dashboard"
@@ -36,31 +43,35 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const copy =
     locale === "it"
       ? {
-          body: claimBusinessFlow
+          body: ownerAccessFlow
+            ? `Accedi per gestire ${ownerAccess!.businessName}.`
+            : claimBusinessFlow
             ? "Per rivendicare una scheda devi accedere con un account attivita oppure crearne uno nuovo."
             : "Accedi al tuo spazio per seguire le tue schede, gestire la directory e continuare il tuo percorso come attivita, Partner locale o visitatore.",
-          eyebrow: claimBusinessFlow ? "Rivendica scheda" : "Account Salento Local",
+          eyebrow: ownerAccessFlow ? "Gestisci la tua attività" : claimBusinessFlow ? "Rivendica scheda" : "Account Salento Local",
           signedInWrongAccount:
             "Sei gia dentro con un account che non puo rivendicare attivita. Esci e continua con un account attivita.",
           manageExisting: "Vuoi gestire un'attività già presente?",
           manageExistingLink: "Invia un link di accesso",
           signupHelper: "Non hai ancora un account attivita?",
           signupLabel: "Crea account attivita",
-          title: claimBusinessFlow ? "Accedi con il tuo account attivita" : "Accedi",
+          title: ownerAccessFlow ? "Accedi per continuare" : claimBusinessFlow ? "Accedi con il tuo account attivita" : "Accedi",
           wrongAccountCta: "Esci e continua",
         }
       : {
-          body: claimBusinessFlow
+          body: ownerAccessFlow
+            ? `Log in to manage ${ownerAccess!.businessName}.`
+            : claimBusinessFlow
             ? "To claim a listing, you need to log in with a business account or create one first."
             : "Log in to manage your listings, continue your directory activity, and pick up where you left off as a business, Local Partner, or visitor.",
-          eyebrow: claimBusinessFlow ? "Claim listing" : "Salento Local account",
+          eyebrow: ownerAccessFlow ? "Manage your business" : claimBusinessFlow ? "Claim listing" : "Salento Local account",
           signedInWrongAccount:
             "You are already signed in with an account that cannot claim businesses. Log out and continue with a business account.",
           manageExisting: "Need to manage a business already on Salento Local?",
           manageExistingLink: "Send an access link",
           signupHelper: "Need a business account?",
           signupLabel: "Create business account",
-          title: claimBusinessFlow ? "Log in with your business account" : "Log in",
+          title: ownerAccessFlow ? "Log in to continue" : claimBusinessFlow ? "Log in with your business account" : "Log in",
           wrongAccountCta: "Log out and continue",
         };
   const businessSignupHref = redirectTo
@@ -109,8 +120,10 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             <>
               <LoginForm
                 helperText={claimBusinessFlow ? copy.signupHelper : undefined}
+                invitedEmail={ownerAccess?.email}
                 locale={locale}
-                redirectTo={redirectTo ?? ""}
+                ownerAccessFlow={ownerAccessFlow}
+                redirectTo={ownerAccess ? `/owner-access/${ownerAccess.token}/complete` : redirectTo ?? ""}
                 signupHref={claimBusinessFlow ? businessSignupHref : undefined}
                 signupLabel={claimBusinessFlow ? copy.signupLabel : undefined}
               />

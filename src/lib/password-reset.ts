@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import type { Prisma, PrismaClient } from "@prisma/client";
 
 import { hasSmtpConfiguration } from "@/lib/claim-delivery";
 import { hasResendConfiguration, sendTransactionalEmail } from "@/lib/email";
@@ -6,6 +7,7 @@ import { getAppUrl } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
 
 const resetLifetimeMs = 60 * 60 * 1000;
+type PasswordResetReadDb = PrismaClient | Prisma.TransactionClient;
 
 function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
@@ -15,10 +17,18 @@ export function getPasswordResetUrl(token: string) {
   return `${getAppUrl()}/reset-password/${encodeURIComponent(token)}`;
 }
 
-export async function issuePasswordResetToken(userId: string) {
+export function getPasswordResetExpiry(now = new Date()) {
+  return new Date(now.getTime() + resetLifetimeMs);
+}
+
+export async function issuePasswordResetToken(
+  userId: string,
+  options: { db?: PrismaClient; now?: Date } = {},
+) {
+  const db = options.db ?? prisma;
   const token = randomBytes(32).toString("base64url");
-  const now = new Date();
-  await prisma.$transaction(async (tx) => {
+  const now = options.now ?? new Date();
+  await db.$transaction(async (tx) => {
     await tx.passwordResetToken.updateMany({
       where: { userId, revokedAt: null, usedAt: null },
       data: { revokedAt: now },
@@ -27,16 +37,16 @@ export async function issuePasswordResetToken(userId: string) {
       data: {
         userId,
         tokenHash: hashToken(token),
-        expiresAt: new Date(now.getTime() + resetLifetimeMs),
+        expiresAt: getPasswordResetExpiry(now),
       },
     });
   });
   return token;
 }
 
-export async function resolvePasswordResetToken(token: string) {
+export async function resolvePasswordResetToken(token: string, db: PasswordResetReadDb = prisma) {
   if (!token || token.length < 20) return null;
-  const record = await prisma.passwordResetToken.findUnique({
+  const record = await db.passwordResetToken.findUnique({
     where: { tokenHash: hashToken(token) },
     include: { user: { select: { email: true, id: true } } },
   });
