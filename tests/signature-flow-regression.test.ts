@@ -30,7 +30,7 @@ test("publish flow retains agreement, drawn-signature, back, and draft-save gate
   );
   assert.match(
     publishFormSource,
-    /if \(!signerFullName \|\| !signerRole \|\| !signature\)/,
+    /if \(!isPaymentApprovalReady\(\{ signature, signerFullName, signerRole, signerRoleOther \}\)\)/,
   );
   assert.match(publishFormSource, /onClick={goToPreviousStep}/);
   assert.match(publishFormSource, /requestDraftSave\("manual", true\)/);

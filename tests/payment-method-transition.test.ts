@@ -3,10 +3,12 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { JSDOM } from "jsdom";
-import { act, createElement } from "react";
+import { act, createElement, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 
+import { PaymentChoiceButton } from "@/components/account/payment-choice-button";
 import { usePaymentQrTransition } from "@/hooks/use-payment-qr-transition";
+import { requestPaymentQr } from "@/lib/payment-choice-client";
 import type {
   PaymentQrMethod,
   PaymentQrSelectionResult,
@@ -22,6 +24,7 @@ function PaymentChoiceHarness({
   ownerEmail = "owner@example.com",
   ownerHasNoEmail = false,
   publisherRole = "BUSINESS_OWNER",
+  onParentSubmit,
 }: {
   action: PaymentAction;
   locale?: "en" | "it";
@@ -30,6 +33,7 @@ function PaymentChoiceHarness({
   ownerEmail?: string;
   ownerHasNoEmail?: boolean;
   publisherRole?: "BUSINESS_OWNER" | "GETTER";
+  onParentSubmit?: () => void;
 }) {
   const { error, openPaymentQr, pendingMethod } = usePaymentQrTransition({
     action,
@@ -38,29 +42,34 @@ function PaymentChoiceHarness({
   });
 
   function open(method: PaymentQrMethod) {
-    const formData = new FormData();
-    formData.set("ownerAccountState", ownerAccountState);
-    formData.set("ownerEmail", ownerEmail);
-    formData.set("ownerHasNoEmail", ownerHasNoEmail ? "on" : "");
+    const formData = new FormData(document.querySelector("form")!);
     formData.set("paymentMethod", method);
-    formData.set("publisherRole", publisherRole);
-    formData.set("submissionId", "submission-1");
     openPaymentQr(method, formData);
   }
 
   const pending = pendingMethod !== null;
 
   return createElement(
-    "div",
-    null,
+    "form",
+    {
+      onSubmit: (event: FormEvent) => {
+        event.preventDefault();
+        onParentSubmit?.();
+      },
+    },
+    createElement("input", { name: "ownerAccountState", type: "hidden", value: ownerAccountState }),
+    createElement("input", { name: "ownerEmail", type: "hidden", value: ownerEmail }),
+    createElement("input", { name: "ownerHasNoEmail", type: "hidden", value: ownerHasNoEmail ? "on" : "" }),
+    createElement("input", { name: "publisherRole", type: "hidden", value: publisherRole }),
+    createElement("input", { name: "submissionId", type: "hidden", value: "submission-1" }),
     createElement(
-      "button",
-      { disabled: pending, onClick: () => open("ONLINE"), type: "button" },
+      PaymentChoiceButton,
+      { className: "online", disabled: pending, method: "ONLINE", onSelect: open },
       pendingMethod === "ONLINE" ? "Opening card QR" : "Show payment QR",
     ),
     createElement(
-      "button",
-      { disabled: pending, onClick: () => open("BANK_TRANSFER"), type: "button" },
+      PaymentChoiceButton,
+      { className: "bank", disabled: pending, method: "BANK_TRANSFER", onSelect: open },
       pendingMethod === "BANK_TRANSFER" ? "Opening bank QR" : "Show bank transfer QR",
     ),
     error ? createElement("p", { role: "alert" }, error) : null,
@@ -85,6 +94,7 @@ async function renderHarness(
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   const navigations: string[] = [];
+  let parentSubmits = 0;
   const root = createRoot(dom.window.document.getElementById("root")!);
 
   await act(async () => {
@@ -92,6 +102,9 @@ async function renderHarness(
       createElement(PaymentChoiceHarness, {
         action,
         navigate: (destination) => navigations.push(destination),
+        onParentSubmit: () => {
+          parentSubmits += 1;
+        },
         ...props,
       }),
     );
@@ -114,6 +127,7 @@ async function renderHarness(
     },
     dom,
     navigations,
+    parentSubmits: () => parentSubmits,
     teardown: async () => {
       await act(async () => root.unmount());
       Object.assign(globalThis, {
@@ -146,6 +160,8 @@ for (const [method, buttonLabel] of [
       await harness.click(buttonLabel);
       assert.equal(calls.length, 1);
       assert.equal(calls[0].paymentMethod, method);
+      assert.equal(harness.parentSubmits(), 0);
+      assert.equal(harness.button(buttonLabel).getAttribute("type"), "button");
       assert.deepEqual(harness.navigations, ["/publish/payment?submission=submission-1"]);
     } finally {
       await harness.teardown();
@@ -277,11 +293,31 @@ test("refreshing the choice page creates a fresh usable transition without chang
   }
 });
 
-test("PublishForm uses the dedicated awaited payment action and cannot navigate from stale form state", () => {
+test("PublishForm uses the stable payment endpoint and cannot navigate from stale form state", () => {
   const source = readFileSync("src/components/account/publish-form.tsx", "utf8");
 
   assert.match(source, /usePaymentQrTransition\(\{/);
-  assert.match(source, /action: openBusinessSubmissionPaymentAction/);
+  assert.match(source, /action: requestPaymentQr/);
   assert.match(source, /openPaymentQr\(method, formData\)/);
   assert.doesNotMatch(source, /if \(state\.paymentDestination\)/);
+});
+
+test("the payment endpoint client sends FormData and accepts an internal destination", async () => {
+  const formData = new FormData();
+  formData.set("paymentMethod", "ONLINE");
+  const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+
+  const result = await requestPaymentQr(formData, async (input, init) => {
+    calls.push({ input, init });
+    return Response.json({ destination: "/publish/payment?submission=stable", ok: true });
+  });
+
+  assert.deepEqual(result, {
+    destination: "/publish/payment?submission=stable",
+    ok: true,
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].input, "/api/publish/payment-choice");
+  assert.equal(calls[0].init?.method, "POST");
+  assert.equal(calls[0].init?.body, formData);
 });

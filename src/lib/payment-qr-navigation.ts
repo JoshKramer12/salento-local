@@ -6,12 +6,14 @@ export type PaymentQrAttemptGate = { current: boolean };
 
 type PaymentQrActionState = {
   error?: string;
+  fieldErrors?: Record<string, string>;
+  invalidFields?: string[];
   paymentDestination?: string;
 };
 
 export type PaymentQrSelectionResult =
   | { destination: string; ok: true }
-  | { error: string; ok: false };
+  | { error: string; invalidFields?: string[]; ok: false };
 
 export function beginPaymentQrAttempt(gate: PaymentQrAttemptGate) {
   if (gate.current) {
@@ -24,6 +26,26 @@ export function beginPaymentQrAttempt(gate: PaymentQrAttemptGate) {
 
 export function finishPaymentQrAttempt(gate: PaymentQrAttemptGate) {
   gate.current = false;
+}
+
+export function isPaymentApprovalReady({
+  signature,
+  signerFullName,
+  signerRole,
+  signerRoleOther,
+}: {
+  signature: string;
+  signerFullName: string;
+  signerRole: string;
+  signerRoleOther: string;
+}) {
+  return (
+    signerFullName.trim().length >= 2 &&
+    Boolean(signerRole) &&
+    (signerRole !== "OTHER_AUTHORIZED_REPRESENTATIVE" ||
+      Boolean(signerRoleOther.trim())) &&
+    signature.trim().length >= 2
+  );
 }
 
 export function buildPaymentQrDestination(submissionId: string) {
@@ -112,7 +134,15 @@ export function toPaymentQrSelectionResult({
   }
 
   return {
-    error: checkedResult.error ?? getPaymentQrOpeningError(locale),
+    error:
+      checkedResult.invalidFields?.length
+        ? checkedResult.fieldErrors?.[checkedResult.invalidFields[0]] ??
+          checkedResult.error ??
+          getPaymentQrOpeningError(locale)
+        : checkedResult.error ?? getPaymentQrOpeningError(locale),
+    ...(checkedResult.invalidFields?.length
+      ? { invalidFields: checkedResult.invalidFields }
+      : {}),
     ok: false,
   };
 }

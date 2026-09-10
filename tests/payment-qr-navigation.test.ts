@@ -7,6 +7,7 @@ import {
   ensurePaymentQrActionResult,
   finishPaymentQrAttempt,
   getPaymentQrOpeningError,
+  isPaymentApprovalReady,
   preparePaymentQrNavigation,
   toPaymentQrSelectionResult,
 } from "@/lib/payment-qr-navigation";
@@ -49,6 +50,18 @@ test("bank-transfer QR preparation preserves the submission id and navigates aft
   assert.equal(bankTransferPreparations, 1);
   assert.equal(onlinePreparations, 0);
   assert.equal(destination, "/publish/payment?submission=submission-bank-1");
+});
+
+test("payment approval enforces the same signer-name minimum as final submission validation", () => {
+  const approval = {
+    signature: "signed",
+    signerRole: "OWNER",
+    signerRoleOther: "",
+  };
+
+  assert.equal(isPaymentApprovalReady({ ...approval, signerFullName: "J" }), false);
+  assert.equal(isPaymentApprovalReady({ ...approval, signerFullName: "Jo" }), true);
+  assert.equal(isPaymentApprovalReady({ ...approval, signerFullName: " Josh " }), true);
 });
 
 test("a failed QR preparation does not produce a destination and exposes retryable localized copy", async () => {
@@ -127,6 +140,26 @@ test("the payment-choice action exposes an explicit success or error contract", 
     toPaymentQrSelectionResult({ locale: "it", result: {} }),
     {
       error: "Non siamo riusciti ad aprire il QR di pagamento. Riprova tra un momento.",
+      ok: false,
+    },
+  );
+});
+
+test("a payment validation failure exposes the first actionable field error", () => {
+  assert.deepEqual(
+    toPaymentQrSelectionResult({
+      locale: "en",
+      result: {
+        error: "Please check the highlighted fields and try again.",
+        fieldErrors: {
+          signerFullName: "Enter the full name of the person approving this listing.",
+        },
+        invalidFields: ["signerFullName"],
+      },
+    }),
+    {
+      error: "Enter the full name of the person approving this listing.",
+      invalidFields: ["signerFullName"],
       ok: false,
     },
   );
