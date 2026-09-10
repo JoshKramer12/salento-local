@@ -3,7 +3,9 @@ import test from "node:test";
 
 import {
   buildOwnerListingEmailCopy,
+  buildPartnerOwnerWhatsAppMessage,
   canManageBusiness,
+  canOfferNoEmailOwnerWhatsAppHandoff,
   ensureOwnerAccessForPublishedSubmission,
   findUserByNormalizedEmail,
   getOwnerAccountPrefill,
@@ -272,6 +274,38 @@ test("WhatsApp owner handoff uses E.164 owner recipient and encodes real secure 
   assert.match(decodeURIComponent(href!), /Ciao Giulia/);
   assert.match(decodeURIComponent(href!), /businesses\/masseria-del-sole/);
   assert.match(decodeURIComponent(href!), /owner-access\/secure-token/);
+});
+
+test("the Partner-to-owner WhatsApp handoff is always Italian and only eligible after paid publication", () => {
+  const message = buildPartnerOwnerWhatsAppMessage({
+    businessName: "Masseria del Sole",
+    manageUrl: "https://salentolocal.com/owner-access/secure-token",
+    ownerName: "Giulia Bianchi",
+    viewUrl: "https://salentolocal.com/businesses/masseria-del-sole",
+  });
+
+  assert.match(message, /Ciao Giulia/);
+  assert.match(message, /La tua attività Masseria del Sole è ora pubblicata/);
+  assert.match(message, /businesses\/masseria-del-sole/);
+  assert.match(message, /owner-access\/secure-token/);
+  assert.doesNotMatch(message, /Your business/);
+  const href = getOwnerWhatsAppDeepLink({ message, phone: "+39 347 123 4567" });
+  assert.match(href!, /^https:\/\/wa\.me\/393471234567\?text=/);
+  assert.doesNotMatch(href!, /393331234567/); // A Partner's number must never become the recipient.
+  assert.match(decodeURIComponent(href!), /Masseria del Sole/);
+
+  const eligible = {
+    ownerEmail: "",
+    ownerHasNoEmail: true,
+    ownerPhone: "+39 347 123 4567",
+    paymentStatus: "PAID",
+    status: "PUBLISHED",
+  } as const;
+  assert.equal(canOfferNoEmailOwnerWhatsAppHandoff(eligible), true);
+  assert.equal(canOfferNoEmailOwnerWhatsAppHandoff({ ...eligible, paymentStatus: "PENDING" }), false);
+  assert.equal(canOfferNoEmailOwnerWhatsAppHandoff({ ...eligible, status: "PAYMENT_PENDING" }), false);
+  assert.equal(canOfferNoEmailOwnerWhatsAppHandoff({ ...eligible, ownerEmail: "owner@example.com", ownerHasNoEmail: false }), false);
+  assert.equal(canOfferNoEmailOwnerWhatsAppHandoff({ ...eligible, ownerPhone: "not-a-phone" }), false);
 });
 
 test("business management authorization requires the owner relationship", async () => {

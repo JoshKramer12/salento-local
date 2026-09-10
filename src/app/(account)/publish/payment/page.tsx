@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import {
   IconBuildingBank,
+  IconBrandWhatsapp,
   IconCheck,
   IconCircleCheck,
   IconClock,
@@ -24,6 +25,7 @@ import { CheckoutStatusWatcher } from "@/components/account/checkout-status-watc
 import { FormSubmitButton } from "@/components/form-submit-button";
 import { formatCurrencyFromCents } from "@/lib/account";
 import { requireCompletedViewer } from "@/lib/auth-guards";
+import { getNoEmailOwnerWhatsAppHandoff } from "@/lib/business-owner-access";
 import { getCurrentLocale } from "@/lib/locale";
 import { getPendingPaymentCopy } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
@@ -104,6 +106,7 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
         date: "Data pagamento", emailSent: "Ricevuta inviata", emailSentHint: "Una ricevuta è stata inviata all'email del titolare.", failed: "Il pagamento non è stato completato. Puoi riprovare quando sei pronto.",
         iban: "IBAN", next: "Cosa succede ora?", nextPending: "Verificheremo automaticamente il pagamento. Quando Stripe lo confermerà, la scheda verrà pubblicata.", nextSuccess: "Il pagamento è stato confermato e la tua scheda è ora pubblicata.",
         paymentConfirmed: "Pagamento confermato!", paymentStep: "Passaggio pagamento", paymentSuccess: "Grazie! Il tuo pagamento è stato ricevuto correttamente.", pendingReference: "Riferimento in attesa",
+        handoffBody: "L'attività è online. Invia al titolare la sua scheda e il link sicuro per creare l'account su WhatsApp.", handoffCta: "Invia accesso via WhatsApp", handoffHint: "WhatsApp si aprirà con il numero del titolare e i link già compilati. Controlla il messaggio e premi Invia.", handoffTitle: "Dai accesso al titolare",
         receipt: "La tua ricevuta", receiptHint: "Scansiona il QR per visualizzare e salvare la ricevuta.", receiptUnavailable: "La ricevuta sarà disponibile appena la conferma sarà completata.", reference: "Riferimento", returnDashboard: "Torna alla dashboard",
         sandboxBody: "Simula la ricezione del bonifico da parte di Stripe per verificare il flusso di pubblicazione locale.", sandboxCta: "Simula bonifico ricevuto", sandboxTitle: "Test sandbox Stripe", secure: "Pagamento sicuro", status: "Stato pagamento", statusConfirmed: "Confermato", useBankingApp: "Usa l'app della tua banca",
         titleBank: "Completa il tuo bonifico", titleCard: "Completa il tuo pagamento", transferAction: "Apri istruzioni bonifico", transferAmount: "Importo da trasferire", transferHint: "Scansiona questo QR per aprire le istruzioni di bonifico Stripe sul telefono del titolare.",
@@ -115,6 +118,7 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
         date: "Payment date", emailSent: "Receipt sent", emailSentHint: "A receipt has been sent to the business owner's email.", failed: "The payment was not completed. You can try again whenever you are ready.",
         iban: "IBAN", next: "What happens next?", nextPending: "We'll automatically check for your payment. Once Stripe confirms it, your listing will be published.", nextSuccess: "Your payment is confirmed and your listing is now published.",
         paymentConfirmed: "Payment confirmed!", paymentStep: "Payment step", paymentSuccess: "Thank you! Your payment has been received successfully.", pendingReference: "Pending reference",
+        handoffBody: "The business is live. Send the owner their listing and secure account-creation link on WhatsApp.", handoffCta: "Send access via WhatsApp", handoffHint: "WhatsApp will open with the owner’s number and links already filled in. Review the message and press Send.", handoffTitle: "Give the owner access",
         receipt: "Your receipt", receiptHint: "Scan the QR code to view and save your receipt.", receiptUnavailable: "Your receipt will be available as soon as confirmation is complete.", reference: "Reference", returnDashboard: "Back to dashboard",
         sandboxBody: "Simulate Stripe receiving the transfer to verify the local publication flow.", sandboxCta: "Simulate received bank transfer", sandboxTitle: "Stripe sandbox test", secure: "Secure payment", status: "Payment status", statusConfirmed: "Confirmed", useBankingApp: "Use your banking app",
         titleBank: "Complete your bank transfer", titleCard: "Complete your payment", transferAction: "Open bank transfer instructions", transferAmount: "Amount to transfer", transferHint: "Scan this QR code to open Stripe's bank transfer instructions on the business owner's phone.",
@@ -183,6 +187,14 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
   const isPaid = submission.paymentStatus === "PAID";
   const isFailed = submission.paymentStatus === "FAILED" || submission.paymentStatus === "REFUNDED";
   const amountDue = formatCurrencyFromCents(submission.amountOwedCents, locale);
+  // This authenticated QR page belongs to the submitting Partner. Its paid state
+  // is reached after CheckoutStatusWatcher has authoritatively confirmed payment.
+  const ownerWhatsAppHandoff = isPaid && viewer.role === "GETTER"
+    ? await getNoEmailOwnerWhatsAppHandoff({
+        appUrl,
+        submissionId: submission.id,
+      })
+    : null;
 
   return (
     <main className="shell px-4 py-9 sm:px-6 sm:py-12">
@@ -204,6 +216,7 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
               <SummaryRow label={copy.status} last><span className="pill-success inline-flex items-center gap-1.5"><IconCircleCheck size={16} /> {copy.statusConfirmed}</span></SummaryRow>
             </div>
             <div className="mt-6 rounded-[1.4rem] border border-[rgba(191,91,42,0.15)] bg-[linear-gradient(135deg,rgba(255,248,243,0.96),rgba(255,255,255,0.98))] p-5 sm:p-6"><div className="grid items-center gap-5 sm:grid-cols-[1fr_auto]"><div><div className="flex items-center gap-3 text-[var(--accent)]"><span className="flex h-11 w-11 items-center justify-center rounded-full bg-[rgba(191,91,42,0.09)]"><IconReceipt2 size={23} /></span><h2 className="text-xl font-bold text-[var(--foreground)]">{copy.receipt}</h2></div><p className="mt-4 max-w-md leading-7 text-[var(--foreground)]">{copy.receiptHint}</p>{receipt?.submission.purchaseConfirmationSentAt && receipt.recipientEmail ? <p className="mt-4 text-sm font-medium text-[var(--primary)]">{copy.emailSent} · {copy.emailSentHint}</p> : null}{receipt?.receiptUrl ? <a href={receipt.receiptUrl} download className="btn-secondary mt-5 inline-flex border-[rgba(191,91,42,0.4)] text-[var(--accent)]"><IconDownload size={18} /> {locale === "it" ? "Scarica ricevuta PDF" : "Download PDF receipt"}</a> : <p className="mt-4 text-sm text-[var(--muted)]">{copy.receiptUnavailable}</p>}</div>{receiptQrDataUrl ? <div className="mx-auto rounded-[1.25rem] border border-[var(--border)] bg-white p-3 shadow-sm"><img src={receiptQrDataUrl} alt={locale === "it" ? "QR della ricevuta" : "Receipt QR code"} className="h-44 w-44 rounded-xl sm:h-40 sm:w-40" /></div> : null}</div></div>
+            {ownerWhatsAppHandoff ? <section className="mt-6 rounded-[1.4rem] border border-[rgba(37,211,102,0.24)] bg-[linear-gradient(135deg,rgba(238,251,242,0.96),rgba(255,255,255,0.98))] p-5 sm:p-6"><div className="flex items-start gap-4"><span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[rgba(37,211,102,0.12)] text-[#168846]"><IconBrandWhatsapp size={25} /></span><div className="min-w-0"><h2 className="text-xl font-bold text-[var(--foreground)]">{copy.handoffTitle}</h2><p className="mt-2 leading-7 text-[var(--foreground)]">{copy.handoffBody}</p><a href={ownerWhatsAppHandoff.href} className="btn-primary mt-5 flex w-full py-4 text-base sm:w-auto" target="_blank" rel="noreferrer"><IconBrandWhatsapp size={22} /> {copy.handoffCta}</a><p className="mt-3 text-sm leading-6 text-[var(--muted)]">{copy.handoffHint}</p></div></div></section> : null}
             <Link href="/dashboard" className="btn-primary mt-8 flex w-full py-4 text-base">{copy.returnDashboard}</Link>
           </section>
         ) : (

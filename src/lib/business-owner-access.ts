@@ -488,10 +488,34 @@ export function buildOwnerWhatsAppMessage(params: {
   return `Hello${firstName ? ` ${firstName}` : ""}!\n\nYour business ${params.businessName} is now published on Salento Local.\n\nView your business:\n${params.viewUrl}\n\nCreate your account to manage and update your business:\n${params.manageUrl}\n\nThis access link is personal. Please do not share it with anyone else.\n\nSalento Local`;
 }
 
+export function buildPartnerOwnerWhatsAppMessage(params: {
+  businessName: string;
+  manageUrl: string;
+  ownerName: string;
+  viewUrl: string;
+}) {
+  return buildOwnerWhatsAppMessage({ ...params, locale: "it" });
+}
+
 export function getOwnerWhatsAppDeepLink(params: { message: string; phone: string }) {
   const phone = normalizePhoneNumber(params.phone);
   if (!phone) return null;
   return `https://wa.me/${phone.slice(1)}?text=${encodeURIComponent(params.message)}`;
+}
+
+export function canOfferNoEmailOwnerWhatsAppHandoff(params: {
+  ownerEmail: string;
+  ownerHasNoEmail: boolean;
+  ownerPhone: string;
+  paymentStatus: "PAID" | string;
+  status: "PUBLISHED" | string;
+}) {
+  return (
+    params.paymentStatus === "PAID" &&
+    params.status === "PUBLISHED" &&
+    !(!params.ownerHasNoEmail && params.ownerEmail.trim()) &&
+    Boolean(normalizePhoneNumber(params.ownerPhone))
+  );
 }
 
 /**
@@ -501,7 +525,6 @@ export function getOwnerWhatsAppDeepLink(params: { message: string; phone: strin
  */
 export async function getNoEmailOwnerWhatsAppHandoff(params: {
   appUrl?: string;
-  locale: "en" | "it";
   submissionId: string;
 }) {
   const submission = await prisma.businessSubmission.findUnique({
@@ -516,13 +539,7 @@ export async function getNoEmailOwnerWhatsAppHandoff(params: {
       status: true,
     },
   });
-  if (
-    !submission ||
-    submission.paymentStatus !== "PAID" ||
-    submission.status !== "PUBLISHED" ||
-    (!submission.ownerHasNoEmail && submission.ownerEmail.trim()) ||
-    !submission.createdBusiness
-  ) return null;
+  if (!submission || !submission.createdBusiness || !canOfferNoEmailOwnerWhatsAppHandoff(submission)) return null;
 
   const phone = normalizePhoneNumber(submission.ownerPhone);
   if (!phone) return null;
@@ -532,9 +549,8 @@ export async function getNoEmailOwnerWhatsAppHandoff(params: {
   const appUrl = (params.appUrl || getAppUrl()).replace(/\/+$/, "");
   const viewUrl = `${appUrl}/businesses/${encodeURIComponent(submission.createdBusiness.slug)}`;
   const manageUrl = getOwnerAccessUrl(invitation.token, appUrl);
-  const message = buildOwnerWhatsAppMessage({
+  const message = buildPartnerOwnerWhatsAppMessage({
     businessName: submission.createdBusiness.name,
-    locale: params.locale,
     manageUrl,
     ownerName: submission.ownerName,
     viewUrl,
