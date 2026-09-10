@@ -11,7 +11,11 @@ import {
   completeLocalPartnerOnboardingAction,
   type FormState,
 } from "@/app/(account)/actions";
-import { completePartnerSignupAction } from "@/app/(account)/auth-actions";
+import {
+  completeBusinessSignupAction,
+  completePartnerSignupAction,
+} from "@/app/(account)/auth-actions";
+import { completeOwnerAccountFromInvitationAction } from "@/app/(account)/owner-access-actions";
 import { SegmentedDateInput } from "@/components/account/segmented-date-input";
 import { FormSubmitButton } from "@/components/form-submit-button";
 import { HardNavigationLink } from "@/components/hard-navigation-link";
@@ -27,6 +31,7 @@ type PhoneParts = {
 };
 
 type LocalPartnerOnboardingFormProps = {
+  activationToken?: string;
   backHref?: string;
   locale: Locale;
   needsDetails: boolean;
@@ -45,7 +50,9 @@ type LocalPartnerOnboardingFormProps = {
     setupState?: "action-required" | "ready" | "restricted" | "setup-incomplete" | "setup-not-started";
   } | null;
   returnTo: string;
+  signupAudience?: "business" | "owner" | "partner";
   signupMode?: boolean;
+  lockedPhone?: boolean;
   towns: Array<{
     id: string;
     name: string;
@@ -118,6 +125,7 @@ function normalizeHeardAboutValue(value: string | null | undefined) {
 }
 
 export function LocalPartnerOnboardingForm({
+  activationToken,
   backHref,
   locale,
   needsDetails,
@@ -125,12 +133,19 @@ export function LocalPartnerOnboardingForm({
   profile,
   payoutSetup,
   returnTo,
+  signupAudience = "partner",
   signupMode = false,
+  lockedPhone = false,
   towns,
 }: LocalPartnerOnboardingFormProps) {
-  const submitAction = signupMode
-    ? completePartnerSignupAction
-    : completeLocalPartnerOnboardingAction;
+  const submitAction =
+    signupMode && signupAudience === "owner"
+      ? completeOwnerAccountFromInvitationAction
+      : signupMode && signupAudience === "business"
+      ? completeBusinessSignupAction
+      : signupMode
+        ? completePartnerSignupAction
+        : completeLocalPartnerOnboardingAction;
   const [state, action] = useActionState(submitAction, initialState);
   const defaultCountry = (phoneCountryOptions.find((option) => option.code === "IT")?.code ??
     phoneCountryOptions[0]?.code ??
@@ -141,6 +156,8 @@ export function LocalPartnerOnboardingForm({
   const [townQuery, setTownQuery] = useState(profile?.baseTownOrArea ?? "");
   const [selectedTownId, setSelectedTownId] = useState("");
   const [townMenuOpen, setTownMenuOpen] = useState(false);
+  const [notFromSalento, setNotFromSalento] = useState(false);
+  const [manualHometown, setManualHometown] = useState("");
   const heardAboutState = normalizeHeardAboutValue(profile?.heardAbout);
   const [heardAbout, setHeardAbout] = useState(heardAboutState.value);
   const [birthDate, setBirthDate] = useState(
@@ -158,6 +175,9 @@ export function LocalPartnerOnboardingForm({
           finishTitle: "Completa la configurazione dei pagamenti",
           hometown: "Citta di origine",
           howHeard: "Come hai conosciuto Salento Local?",
+          manualHometown: "Di dove sei?",
+          manualHometownPlaceholder: "Milano, Roma, Toronto...",
+          notFromSalento: "Non vengo dal Salento",
           notStartedBody: "Collega il tuo conto bancario prima di poter ricevere i guadagni.",
           notStartedTitle: "Configura i pagamenti",
           other: "Altro",
@@ -167,6 +187,7 @@ export function LocalPartnerOnboardingForm({
           phone: "WhatsApp / numero di telefono",
           phoneCode: "Prefisso internazionale",
           phoneNumber: "Numero di telefono",
+          lockedPhone: "Questo numero WhatsApp è collegato al tuo accesso e non può essere modificato qui.",
           payoutBody:
             "Stripe raccogliera direttamente i tuoi dati personali e bancari in modo sicuro. Salento Local non conserva il tuo IBAN completo.",
           payoutButton: "Configura i pagamenti",
@@ -196,6 +217,9 @@ export function LocalPartnerOnboardingForm({
           finishTitle: "Finish setting up your payouts",
           hometown: "Hometown",
           howHeard: "How did you hear about Salento Local?",
+          manualHometown: "Where are you from?",
+          manualHometownPlaceholder: "Milan, Rome, Toronto...",
+          notFromSalento: "Not from Salento",
           notStartedBody: "Connect your bank account before you can receive earnings.",
           notStartedTitle: "Set up your payouts",
           other: "Other",
@@ -205,6 +229,7 @@ export function LocalPartnerOnboardingForm({
           phone: "WhatsApp / phone number",
           phoneCode: "Country code",
           phoneNumber: "Phone number",
+          lockedPhone: "This WhatsApp number is connected to your access and cannot be changed here.",
           payoutBody:
             "Stripe will securely collect your identity and bank details directly. Salento Local does not store your full IBAN.",
           payoutButton: "Set up payouts",
@@ -237,7 +262,16 @@ export function LocalPartnerOnboardingForm({
   }, [townQuery, towns]);
 
   const setupState = payoutSetup?.setupState ?? "setup-not-started";
-  const currentPhoneValue = buildPhoneValue(phoneParts, phoneCountryOptions);
+  const canUseManualHometown = signupMode && signupAudience === "partner";
+  const detailsStepLabel =
+    signupMode && (signupAudience === "business" || signupAudience === "owner")
+      ? locale === "it"
+        ? "Dati business"
+        : "Business details"
+      : copy.stepDetails;
+  const currentPhoneValue = lockedPhone
+    ? profile?.phone ?? ""
+    : buildPhoneValue(phoneParts, phoneCountryOptions);
   const livePhoneError =
     currentPhoneValue.trim() && !isPossiblePhoneNumber(currentPhoneValue, defaultCountry)
       ? locale === "it"
@@ -293,6 +327,7 @@ export function LocalPartnerOnboardingForm({
     <form action={action} className="grid gap-5">
       <input type="hidden" name="locale" value={locale} />
       <input type="hidden" name="returnTo" value={returnTo} />
+      {activationToken ? <input type="hidden" name="token" value={activationToken} /> : null}
       <input type="hidden" name="phone" value={currentPhoneValue} />
       <input
         type="hidden"
@@ -300,17 +335,23 @@ export function LocalPartnerOnboardingForm({
         value={currentPhoneValue}
       />
       <input type="hidden" name="hometownTownId" value={selectedTownId} />
-      <input type="hidden" name="baseTownOrArea" value={townQuery} />
+      <input type="hidden" name="baseTownOrArea" value={notFromSalento ? "" : townQuery} />
 
       <div className="rounded-[1.4rem] border border-[color:rgba(42,98,87,0.14)] bg-[color:rgba(42,98,87,0.05)] px-5 py-4">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--accent)]">
-          {copy.stepDetails}
+          {detailsStepLabel}
         </p>
       </div>
 
       <label className="field-label">
         <span>{copy.phone}</span>
-        <div className="grid gap-3 sm:grid-cols-[minmax(0,10rem)_minmax(0,1fr)]">
+        {lockedPhone ? (
+          <>
+            <input readOnly value={currentPhoneValue} className="input-field bg-[var(--secondary)]" />
+            <span className="text-sm text-[var(--muted)]">{copy.lockedPhone}</span>
+          </>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,10rem)_minmax(0,1fr)]">
           <select
             value={phoneParts.country}
             onChange={(event) =>
@@ -342,53 +383,88 @@ export function LocalPartnerOnboardingForm({
             placeholder={copy.phoneNumber}
             aria-invalid={hasPhoneError}
           />
-        </div>
+          </div>
+        )}
         {phoneErrorMessage ? (
           <span className="text-sm text-[var(--accent)]">{phoneErrorMessage}</span>
         ) : null}
       </label>
 
-      <div className="field-label relative">
-        <span>{copy.hometown}</span>
-        <div className="relative">
-          <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]">
-            <IconSearch size={16} />
-          </div>
+      {canUseManualHometown ? (
+        <label className="flex items-center gap-3 rounded-[1.35rem] border border-[var(--border)] bg-[color:rgba(247,244,239,0.64)] p-4 text-sm text-[var(--foreground)]">
           <input
-            value={townQuery}
-            onFocus={() => setTownMenuOpen(true)}
+            name="notFromSalento"
+            type="checkbox"
+            checked={notFromSalento}
             onChange={(event) => {
-              setTownQuery(event.target.value);
-              setSelectedTownId("");
-              setTownMenuOpen(true);
+              setNotFromSalento(event.target.checked);
+              setTownMenuOpen(false);
             }}
-            className="input-field !pl-14"
-            placeholder={copy.searchTown}
+            className="h-4 w-4 accent-[var(--primary)]"
           />
-          {townMenuOpen ? (
-            <div className="absolute left-0 right-0 top-[calc(100%+0.55rem)] z-40 overflow-hidden rounded-[1.25rem] border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow-card)]">
-              {filteredTowns.map((town) => (
-                <button
-                  key={town.id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedTownId(town.id);
-                    setTownQuery(town.name);
-                    setTownMenuOpen(false);
-                  }}
-                  className="flex w-full items-center justify-between px-4 py-3 text-left text-sm text-[var(--foreground)] transition-colors hover:bg-[color:rgba(247,244,239,0.74)]"
-                >
-                  <span>{town.name}</span>
-                  {selectedTownId === town.id ? <IconCheck size={16} /> : null}
-                </button>
-              ))}
+          <span>{copy.notFromSalento}</span>
+        </label>
+      ) : null}
+
+      {notFromSalento ? (
+        <label className="field-label">
+          <span>{copy.manualHometown}</span>
+          <input
+            name="manualHometown"
+            value={manualHometown}
+            onChange={(event) => setManualHometown(event.target.value)}
+            className={getInputClass(Boolean(state.fieldErrors?.manualHometown))}
+            placeholder={copy.manualHometownPlaceholder}
+            autoComplete="address-level2"
+          />
+          {state.fieldErrors?.manualHometown ? (
+            <span className="text-sm text-[var(--accent)]">{state.fieldErrors.manualHometown}</span>
+          ) : null}
+        </label>
+      ) : (
+        <div className="field-label relative">
+          <span>{copy.hometown}</span>
+          <div className="relative">
+            <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]">
+              <IconSearch size={16} />
             </div>
+            <input
+              value={townQuery}
+              onFocus={() => setTownMenuOpen(true)}
+              onChange={(event) => {
+                setTownQuery(event.target.value);
+                setSelectedTownId("");
+                setTownMenuOpen(true);
+              }}
+              className="input-field !pl-14"
+              placeholder={copy.searchTown}
+              autoComplete="address-level2"
+            />
+            {townMenuOpen ? (
+              <div className="absolute left-0 right-0 top-[calc(100%+0.55rem)] z-40 overflow-hidden rounded-[1.25rem] border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow-card)]">
+                {filteredTowns.map((town) => (
+                  <button
+                    key={town.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedTownId(town.id);
+                      setTownQuery(town.name);
+                      setTownMenuOpen(false);
+                    }}
+                    className="flex w-full items-center justify-between px-4 py-3 text-left text-sm text-[var(--foreground)] transition-colors hover:bg-[color:rgba(247,244,239,0.74)]"
+                  >
+                    <span>{town.name}</span>
+                    {selectedTownId === town.id ? <IconCheck size={16} /> : null}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          {state.fieldErrors?.baseTownOrArea ? (
+            <span className="text-sm text-[var(--accent)]">{state.fieldErrors.baseTownOrArea}</span>
           ) : null}
         </div>
-        {state.fieldErrors?.baseTownOrArea ? (
-          <span className="text-sm text-[var(--accent)]">{state.fieldErrors.baseTownOrArea}</span>
-        ) : null}
-      </div>
+      )}
 
       <label className="field-label">
         <span>{copy.birthDate}</span>

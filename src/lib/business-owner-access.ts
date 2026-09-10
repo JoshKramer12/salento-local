@@ -73,9 +73,13 @@ export function getOwnerAccountPrefill(params: {
   ownerName?: string | null;
   phone?: string | null;
 }) {
+  const name = params.ownerName?.trim().replace(/\s+/g, " ") ?? "";
+  const [firstName = "", ...lastNameParts] = name ? name.split(" ") : [];
   return {
     email: params.email ? normalizeEmail(params.email) : "",
-    name: params.ownerName?.trim() ?? "",
+    firstName,
+    lastName: lastNameParts.join(" "),
+    name,
     phone: params.phone ?? "",
   };
 }

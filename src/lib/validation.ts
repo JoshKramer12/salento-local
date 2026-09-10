@@ -477,7 +477,7 @@ export const adminBusinessSubmissionSubmitSchema =
   withStructuredAddressValidation(adminBusinessSubmissionSubmitSchemaBase);
 
 export const localPartnerOnboardingSchema = z.object({
-  baseTownOrArea: z.string().trim().min(2).max(120),
+  baseTownOrArea: z.string().trim().max(120),
   birthDate: z
     .string()
     .trim()
@@ -493,6 +493,8 @@ export const localPartnerOnboardingSchema = z.object({
     }),
   heardAbout: z.enum(partnerHeardAboutValues),
   heardAboutOther: z.string().trim().max(300).optional(),
+  manualHometown: z.string().trim().max(120).optional(),
+  notFromSalento: z.boolean().optional(),
   phone: z
     .string()
     .trim()
@@ -502,6 +504,18 @@ export const localPartnerOnboardingSchema = z.object({
       message: "invalid_phone",
     }),
   whatsapp: optionalPhoneSchema.optional(),
+}).superRefine((value, ctx) => {
+  const hometown = value.notFromSalento
+    ? value.manualHometown?.trim()
+    : value.baseTownOrArea.trim();
+
+  if (!hometown || hometown.length < 2) {
+    ctx.addIssue({
+      code: "custom",
+      message: "invalid_hometown",
+      path: [value.notFromSalento ? "manualHometown" : "baseTownOrArea"],
+    });
+  }
 });
 
 export const businessClaimRequestSchema = z.object({

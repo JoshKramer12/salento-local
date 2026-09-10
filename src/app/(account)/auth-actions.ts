@@ -14,6 +14,12 @@ import { requireViewer } from "@/lib/auth-guards";
 import type { Locale } from "@/lib/i18n";
 import { recordCurrentLegalAcceptances } from "@/lib/legal-consent";
 import {
+  openBusinessSignupHandoff,
+  sealBusinessSignupHandoff,
+  validateBusinessSignupEntry,
+  type BusinessSignupEntry,
+} from "@/lib/business-signup-flow";
+import {
   createCompletePartnerSignup,
   openPartnerSignupHandoff,
   sealPartnerSignupHandoff,
@@ -56,6 +62,8 @@ export type FormState = {
     heardAboutOther?: string;
     hometownTownId?: string;
     lastName?: string;
+    manualHometown?: string;
+    notFromSalento?: boolean;
     partnerPhone?: string;
     partnerTermsAccepted: boolean;
     password?: string;
@@ -114,6 +122,7 @@ const formCopy = {
 } satisfies Record<Locale, Record<string, string>>;
 
 const partnerSignupHandoffCookie = "salento-local-partner-signup";
+const businessSignupHandoffCookie = "salento-local-business-signup";
 const partnerSignupHandoffMaxAge = 15 * 60;
 
 function getLocaleFromForm(formData: FormData): Locale {
@@ -161,6 +170,42 @@ async function clearPendingPartnerSignup() {
   });
 }
 
+async function getPendingBusinessSignup(): Promise<BusinessSignupEntry | null> {
+  const secret = getPartnerSignupHandoffSecret();
+  if (!secret) return null;
+
+  const cookieStore = await cookies();
+  const value = cookieStore.get(businessSignupHandoffCookie)?.value;
+  return value ? openBusinessSignupHandoff(value, secret) : null;
+}
+
+async function storePendingBusinessSignup(entry: BusinessSignupEntry) {
+  const secret = getPartnerSignupHandoffSecret();
+  if (!secret) {
+    throw new Error("Business signup handoff is not configured.");
+  }
+
+  const cookieStore = await cookies();
+  cookieStore.set(businessSignupHandoffCookie, sealBusinessSignupHandoff(entry, secret), {
+    httpOnly: true,
+    maxAge: partnerSignupHandoffMaxAge,
+    path: "/signup/business",
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+  });
+}
+
+async function clearPendingBusinessSignup() {
+  const cookieStore = await cookies();
+  cookieStore.set(businessSignupHandoffCookie, "", {
+    httpOnly: true,
+    maxAge: 0,
+    path: "/signup/business",
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+  });
+}
+
 export async function getPendingPartnerSignupForPage() {
   const entry = await getPendingPartnerSignup();
   if (!entry) return null;
@@ -170,6 +215,19 @@ export async function getPendingPartnerSignupForPage() {
     firstName: entry.firstName,
     lastName: entry.lastName,
     partnerTermsAccepted: entry.partnerTermsAccepted,
+    username: entry.username,
+  };
+}
+
+export async function getPendingBusinessSignupForPage() {
+  const entry = await getPendingBusinessSignup();
+  if (!entry) return null;
+
+  return {
+    businessTermsAccepted: entry.businessTermsAccepted,
+    email: entry.email,
+    firstName: entry.firstName,
+    lastName: entry.lastName,
     username: entry.username,
   };
 }
@@ -205,6 +263,7 @@ function buildFieldErrors(
     password: formCopy[locale].passwordRule,
     phone: formCopy[locale].invalidForm,
     lastName: formCopy[locale].invalidForm,
+    manualHometown: formCopy[locale].invalidForm,
     username: formCopy[locale].usernameRule,
     whatsapp: formCopy[locale].invalidForm,
   };
@@ -443,6 +502,8 @@ export async function completePartnerSignupAction(
     birthDate: getStringValue(formData.get("birthDate")),
     heardAbout: getStringValue(formData.get("heardAbout")),
     heardAboutOther: getStringValue(formData.get("heardAboutOther")),
+    manualHometown: getStringValue(formData.get("manualHometown")),
+    notFromSalento: getStringValue(formData.get("notFromSalento")) === "on",
     phone: getStringValue(formData.get("phone")),
     whatsapp: getStringValue(formData.get("whatsapp")),
   });
@@ -462,20 +523,25 @@ export async function completePartnerSignupAction(
     };
   }
 
+  const isNotFromSalento = parsed.data.notFromSalento === true;
   const hometownTownId = getStringValue(formData.get("hometownTownId")).trim();
-  const hometown = hometownTownId
+  const hometown = !isNotFromSalento && hometownTownId
     ? await prisma.town.findUnique({
         where: { id: hometownTownId },
         select: { name: true },
       })
     : null;
 
-  if (!hometown) {
+  if (!isNotFromSalento && !hometown) {
     return {
       error: formCopy[locale].unknownTown,
       fieldErrors: { baseTownOrArea: formCopy[locale].unknownTown },
     };
   }
+
+  const hometownName = isNotFromSalento
+    ? parsed.data.manualHometown!.trim()
+    : hometown!.name;
 
   if (parsed.data.heardAbout === "other" && !parsed.data.heardAboutOther?.trim()) {
     return {
@@ -525,7 +591,7 @@ export async function completePartnerSignupAction(
     await prisma.$transaction(async (tx) => {
       await createCompletePartnerSignup(
         {
-          baseTownOrArea: hometown.name,
+          baseTownOrArea: hometownName,
           birthDate: parsed.data.birthDate,
           email: signupEntry.email,
           firstName: signupEntry.firstName,
@@ -579,6 +645,250 @@ export async function completePartnerSignupAction(
     identifier: signupEntry.email,
     password: signupEntry.password,
     redirectTo: signupEntry.redirectTo ?? "/partner/start",
+  });
+
+  return {};
+}
+
+export async function businessSignupAction(
+  _previousState: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const locale = getLocaleFromForm(formData);
+  const firstName = getStringValue(formData.get("firstName"));
+  const lastName = getStringValue(formData.get("lastName"));
+  const email = normalizeEmail(getStringValue(formData.get("email")));
+  const rawUsername = getStringValue(formData.get("username"));
+  const password = getStringValue(formData.get("password"));
+  const confirmPassword = getStringValue(formData.get("confirmPassword"));
+  const businessTermsAccepted = getStringValue(formData.get("businessTermsAccepted")) === "on";
+  const redirectTo = getSafeInternalRedirect(getStringValue(formData.get("redirectTo")));
+  const signupValues = {
+    businessTermsAccepted,
+    email,
+    firstName,
+    lastName,
+    partnerTermsAccepted: false,
+    username: rawUsername,
+  };
+
+  const validation = validateBusinessSignupEntry({
+    businessTermsAccepted,
+    confirmPassword,
+    email,
+    firstName,
+    lastName,
+    locale,
+    password,
+    redirectTo,
+    username: rawUsername,
+  });
+
+  if (!validation.entry) {
+    return {
+      error:
+        validation.termsMissing && validation.fields.length === 1
+          ? formCopy[locale].missingBusinessTerms
+          : validation.passwordMismatch && validation.fields.length === 1
+            ? formCopy[locale].passwordMismatch
+            : formCopy[locale].invalidForm,
+      fieldErrors: buildFieldErrors(validation.fields, locale),
+      signupValues,
+    };
+  }
+
+  const requestHeaders = await headers();
+  const clientAddress = getRequestClientAddress(requestHeaders);
+  const signupLimit = await consumeSecurityRateLimit({
+    clientAddress,
+    limit: 5,
+    namespace: "business-signup",
+    subject: validation.entry.email,
+    windowMs: 60 * 60 * 1000,
+  });
+
+  if (!signupLimit.allowed) {
+    return { error: formCopy[locale].invalidForm, signupValues };
+  }
+
+  const existing = await prisma.user.findFirst({
+    where: {
+      OR: [{ email: validation.entry.email }, { username: validation.entry.username }],
+    },
+    select: { email: true, username: true },
+  });
+
+  if (existing?.email === validation.entry.email) {
+    return {
+      error: formCopy[locale].duplicateEmail,
+      fieldErrors: { email: formCopy[locale].duplicateEmail },
+      signupValues,
+    };
+  }
+
+  if (existing?.username === validation.entry.username) {
+    return {
+      error: formCopy[locale].duplicateUsername,
+      fieldErrors: { username: formCopy[locale].duplicateUsername },
+      signupValues,
+    };
+  }
+
+  if (!canUsePrimaryAdminUsername(null, validation.entry.username)) {
+    return {
+      error: formCopy[locale].reservedAdminUsername,
+      fieldErrors: { username: formCopy[locale].reservedAdminUsername },
+      signupValues,
+    };
+  }
+
+  await storePendingBusinessSignup(validation.entry);
+  redirect("/signup/business/details");
+
+  return {};
+}
+
+export async function completeBusinessSignupAction(
+  _previousState: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const locale = getLocaleFromForm(formData);
+  const entry = await getPendingBusinessSignup();
+
+  if (!entry) {
+    return { error: formCopy[locale].signupExpired };
+  }
+
+  const entryValidation = validateBusinessSignupEntry({
+    ...entry,
+    confirmPassword: entry.password,
+  });
+  if (!entryValidation.entry) {
+    await clearPendingBusinessSignup();
+    return { error: formCopy[locale].signupExpired };
+  }
+  const signupEntry = entryValidation.entry;
+
+  const parsed = localPartnerOnboardingSchema.safeParse({
+    baseTownOrArea: getStringValue(formData.get("baseTownOrArea")),
+    birthDate: getStringValue(formData.get("birthDate")),
+    heardAbout: getStringValue(formData.get("heardAbout")),
+    heardAboutOther: getStringValue(formData.get("heardAboutOther")),
+    phone: getStringValue(formData.get("phone")),
+    whatsapp: getStringValue(formData.get("whatsapp")),
+  });
+
+  if (!parsed.success) {
+    const invalidFields = parsed.error.issues.map((issue) => String(issue.path[0] ?? "form"));
+    const birthdayValidationError = getBirthdayValidationError(parsed.error.issues);
+    return {
+      error: birthdayValidationError
+        ? getBirthdayValidationMessage(locale, birthdayValidationError)
+        : formCopy[locale].invalidForm,
+      fieldErrors: buildFieldErrors(
+        [...new Set(invalidFields)],
+        locale,
+        birthdayValidationError,
+      ),
+    };
+  }
+
+  const hometownTownId = getStringValue(formData.get("hometownTownId")).trim();
+  const hometown = hometownTownId
+    ? await prisma.town.findUnique({
+        where: { id: hometownTownId },
+        select: { id: true },
+      })
+    : null;
+
+  if (!hometown) {
+    return {
+      error: formCopy[locale].unknownTown,
+      fieldErrors: { baseTownOrArea: formCopy[locale].unknownTown },
+    };
+  }
+
+  if (parsed.data.heardAbout === "other" && !parsed.data.heardAboutOther?.trim()) {
+    return {
+      error: formCopy[locale].invalidForm,
+      fieldErrors: { heardAbout: formCopy[locale].invalidForm },
+    };
+  }
+
+  const existing = await prisma.user.findFirst({
+    where: {
+      OR: [{ email: signupEntry.email }, { username: signupEntry.username }],
+    },
+    select: { email: true, username: true },
+  });
+
+  if (existing?.email === signupEntry.email) {
+    return {
+      error: formCopy[locale].duplicateEmail,
+      fieldErrors: { email: formCopy[locale].duplicateEmail },
+    };
+  }
+
+  if (existing?.username === signupEntry.username) {
+    return {
+      error: formCopy[locale].duplicateUsername,
+      fieldErrors: { username: formCopy[locale].duplicateUsername },
+    };
+  }
+
+  if (!canUsePrimaryAdminUsername(null, signupEntry.username)) {
+    return {
+      error: formCopy[locale].reservedAdminUsername,
+      fieldErrors: { username: formCopy[locale].reservedAdminUsername },
+    };
+  }
+
+  const passwordHash = await bcrypt.hash(signupEntry.password, 12);
+  try {
+    await prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          email: signupEntry.email,
+          name: `${signupEntry.firstName} ${signupEntry.lastName}`.trim(),
+          passwordHash,
+          profileCompleted: true,
+          role: "BUSINESS_OWNER",
+          username: signupEntry.username,
+        },
+      });
+
+      await recordCurrentLegalAcceptances({
+        acceptanceContext: "BUSINESS_SIGNUP",
+        audience: "business",
+        db: tx,
+        locale: signupEntry.locale,
+        userId: user.id,
+      });
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      const duplicate = await prisma.user.findFirst({
+        where: {
+          OR: [{ email: signupEntry.email }, { username: signupEntry.username }],
+        },
+        select: { email: true, username: true },
+      });
+      const duplicateField = duplicate?.email === signupEntry.email ? "email" : "username";
+      const duplicateMessage =
+        duplicateField === "email"
+          ? formCopy[locale].duplicateEmail
+          : formCopy[locale].duplicateUsername;
+      return { error: duplicateMessage, fieldErrors: { [duplicateField]: duplicateMessage } };
+    }
+
+    throw error;
+  }
+
+  await clearPendingBusinessSignup();
+  await signIn("credentials", {
+    identifier: signupEntry.email,
+    password: signupEntry.password,
+    redirectTo: resolvePostAuthRedirect("BUSINESS_OWNER", signupEntry.redirectTo ?? ""),
   });
 
   return {};

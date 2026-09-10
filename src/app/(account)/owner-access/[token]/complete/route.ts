@@ -15,8 +15,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
 
   const resolved = await resolveOwnerAccessInvitation(token);
   const invitation = resolved.invitation;
-  const businessSlug = invitation?.businessOwnerAccess.business.slug;
-  if (!invitation || !businessSlug) {
+  if (!invitation) {
     return NextResponse.redirect(new URL(`/owner-access/${encodeURIComponent(token)}`, request.url));
   }
   const access = invitation.businessOwnerAccess;
@@ -54,7 +53,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     return NextResponse.redirect(new URL(`/owner-access/${encodeURIComponent(token)}`, request.url));
   }
 
-  const response = NextResponse.redirect(new URL(`/businesses/${encodeURIComponent(businessSlug)}/edit`, request.url));
+  const response = NextResponse.redirect(new URL("/dashboard", request.url));
   response.cookies.delete(ownerAccessLoginCookie);
   return response;
 }

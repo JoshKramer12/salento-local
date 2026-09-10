@@ -2,41 +2,78 @@
 
 import { startTransition, useActionState, useEffect, useEffectEvent, useState } from "react";
 
-import { partnerSignupAction, type FormState } from "@/app/(account)/auth-actions";
+import {
+  businessSignupAction,
+  partnerSignupAction,
+  type FormState,
+} from "@/app/(account)/auth-actions";
+import { beginOwnerAccountActivationAction } from "@/app/(account)/owner-access-actions";
 import { PasswordRequirements } from "@/components/account/password-requirements";
 import { FormSubmitButton } from "@/components/form-submit-button";
 import { HardNavigationLink } from "@/components/hard-navigation-link";
 import { LegalConsentCopy } from "@/components/legal/legal-consent-copy";
 import type { Locale } from "@/lib/i18n";
+import { getPasswordMatchFeedback } from "@/lib/password-match-feedback";
 
 const initialState: FormState = {};
 
 type PartnerEntrySignupFormProps = {
+  activationToken?: string;
+  audience?: "business" | "owner" | "partner";
+  emailHint?: string;
+  emailOptional?: boolean;
+  emailReadOnly?: boolean;
   initialValues?: {
+    businessTermsAccepted?: boolean;
     email: string;
     firstName: string;
     lastName: string;
-    partnerTermsAccepted: boolean;
+    partnerTermsAccepted?: boolean;
     username: string;
   } | null;
   locale: Locale;
+  loginHref?: string;
+  redirectTo?: string;
 };
 
-export function PartnerEntrySignupForm({ initialValues, locale }: PartnerEntrySignupFormProps) {
-  const [state, action] = useActionState(partnerSignupAction, initialState);
+export function PartnerEntrySignupForm({
+  activationToken,
+  audience = "partner",
+  emailHint,
+  emailOptional = false,
+  emailReadOnly = false,
+  initialValues,
+  loginHref,
+  locale,
+  redirectTo = "",
+}: PartnerEntrySignupFormProps) {
+  const submitAction = audience === "owner"
+    ? beginOwnerAccountActivationAction
+    : audience === "business"
+      ? businessSignupAction
+      : partnerSignupAction;
+  const [state, action] = useActionState(submitAction, initialState);
   const [firstName, setFirstName] = useState(initialValues?.firstName ?? "");
   const [lastName, setLastName] = useState(initialValues?.lastName ?? "");
   const [email, setEmail] = useState(initialValues?.email ?? "");
   const [username, setUsername] = useState(initialValues?.username ?? "");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [termsAccepted, setTermsAccepted] = useState(initialValues?.partnerTermsAccepted ?? false);
+  const [termsAccepted, setTermsAccepted] = useState(
+    audience !== "partner"
+      ? initialValues?.businessTermsAccepted ?? false
+      : initialValues?.partnerTermsAccepted ?? false,
+  );
   const restoreSignupValues = useEffectEvent((signupValues: NonNullable<FormState["signupValues"]>) => {
     setFirstName(signupValues.firstName ?? "");
     setLastName(signupValues.lastName ?? "");
     setEmail(signupValues.email ?? "");
     setUsername(signupValues.username ?? "");
-    setTermsAccepted(signupValues.partnerTermsAccepted ?? false);
+    setTermsAccepted(
+      audience !== "partner"
+        ? signupValues.businessTermsAccepted ?? false
+        : signupValues.partnerTermsAccepted ?? false,
+    );
     setPassword("");
     setConfirmPassword("");
   });
@@ -45,6 +82,7 @@ export function PartnerEntrySignupForm({ initialValues, locale }: PartnerEntrySi
     if (!state.signupValues) return;
     startTransition(() => restoreSignupValues(state.signupValues!));
   }, [state.signupValues]);
+  const passwordFeedback = getPasswordMatchFeedback(password, confirmPassword, locale);
   const copy =
     locale === "it"
       ? {
@@ -75,11 +113,20 @@ export function PartnerEntrySignupForm({ initialValues, locale }: PartnerEntrySi
           username: "Username",
           usernameHint: "Choose a unique username to use when logging in to your account.",
         };
+  const termsFieldName = audience !== "partner" ? "businessTermsAccepted" : "partnerTermsAccepted";
+  const consentAudience = audience !== "partner" ? "business" : "partner";
+  const resolvedLoginHref = loginHref ?? (redirectTo
+    ? `/login?redirectTo=${encodeURIComponent(redirectTo)}`
+    : audience === "partner"
+      ? "/login?redirectTo=%2Fpartner%2Fstart"
+      : "/login");
 
   return (
     <div className="grid gap-5">
       <form action={action} className="card grid gap-5 p-6 sm:p-8">
         <input type="hidden" name="locale" value={locale} />
+        <input type="hidden" name="redirectTo" value={redirectTo} />
+        {activationToken ? <input type="hidden" name="token" value={activationToken} /> : null}
         <label className="field-label">
           <span>{copy.firstName}</span>
           <input name="firstName" autoComplete="given-name" value={firstName} onChange={(event) => setFirstName(event.target.value)} className="input-field" />
@@ -91,8 +138,9 @@ export function PartnerEntrySignupForm({ initialValues, locale }: PartnerEntrySi
           {state.fieldErrors?.lastName ? <span className="text-sm text-[var(--accent)]">{state.fieldErrors.lastName}</span> : null}
         </label>
         <label className="field-label">
-          <span>{copy.email}</span>
-          <input name="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} className="input-field" />
+          <span>{emailOptional ? `${copy.email} (${locale === "it" ? "facoltativa" : "optional"})` : copy.email}</span>
+          <input name="email" type="email" autoComplete="email" readOnly={emailReadOnly} value={email} onChange={(event) => setEmail(event.target.value)} className={emailReadOnly ? "input-field bg-[var(--secondary)]" : "input-field"} />
+          {emailHint ? <span className="text-sm text-[var(--muted)]">{emailHint}</span> : null}
           {state.fieldErrors?.email ? <span className="text-sm text-[var(--accent)]">{state.fieldErrors.email}</span> : null}
         </label>
         <label className="field-label">
@@ -109,12 +157,24 @@ export function PartnerEntrySignupForm({ initialValues, locale }: PartnerEntrySi
         <label className="field-label">
           <span>{copy.confirmPassword}</span>
           <input name="confirmPassword" type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} className="input-field" />
+          {passwordFeedback.state !== "none" ? (
+            <span
+              aria-live="polite"
+              className={
+                passwordFeedback.state === "match"
+                  ? "text-sm text-[var(--primary)]"
+                  : "text-sm text-[var(--accent)]"
+              }
+            >
+              {passwordFeedback.message}
+            </span>
+          ) : null}
           {state.fieldErrors?.confirmPassword ? <span className="text-sm text-[var(--accent)]">{state.fieldErrors.confirmPassword}</span> : null}
         </label>
         <PasswordRequirements locale={locale} password={password} />
         <label className="flex items-start gap-3 rounded-[1.35rem] border border-[var(--border)] bg-[color:rgba(247,244,239,0.64)] p-4 text-sm leading-6 text-[var(--foreground)]">
-          <input name="partnerTermsAccepted" type="checkbox" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} className="mt-1 h-4 w-4 accent-[var(--primary)]" />
-          <span><LegalConsentCopy audience="partner" locale={locale} /></span>
+          <input name={termsFieldName} type="checkbox" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} className="mt-1 h-4 w-4 accent-[var(--primary)]" />
+          <span><LegalConsentCopy audience={consentAudience} locale={locale} /></span>
         </label>
         <p className="-mt-2 text-xs leading-5 text-[var(--muted)]">{copy.termsHint}</p>
         {state.error ? <p className="text-sm text-[var(--accent)]">{state.error}</p> : null}
@@ -123,7 +183,7 @@ export function PartnerEntrySignupForm({ initialValues, locale }: PartnerEntrySi
         </FormSubmitButton>
       </form>
       <p className="text-center text-sm text-[var(--muted)]">
-        {copy.already} <HardNavigationLink href="/login?redirectTo=%2Fpartner%2Fstart" className="font-medium text-[var(--primary)] underline underline-offset-4">{copy.login}</HardNavigationLink>
+        {copy.already} <HardNavigationLink href={resolvedLoginHref} className="font-medium text-[var(--primary)] underline underline-offset-4">{copy.login}</HardNavigationLink>
       </p>
     </div>
   );

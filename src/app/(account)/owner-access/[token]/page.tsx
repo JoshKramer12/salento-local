@@ -2,7 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { signOutAction } from "@/app/(account)/sign-out-action";
-import { OwnerAccountActivationForm, OwnerAccessRequestForm } from "@/components/account/owner-access-forms";
+import { PartnerEntrySignupForm } from "@/components/account/partner-entry-signup-form";
+import { OwnerAccessRequestForm } from "@/components/account/owner-access-forms";
 import { getViewer } from "@/lib/auth-guards";
 import { getOwnerAccountPrefill, resolveOwnerAccessInvitation } from "@/lib/business-owner-access";
 import { getCurrentLocale } from "@/lib/locale";
@@ -32,10 +33,10 @@ export default async function OwnerAccessPage({ params, searchParams }: OwnerAcc
     const ownerSubmission = access.sourceSubmissionId
       ? await prisma.businessSubmission.findUnique({
           where: { id: access.sourceSubmissionId },
-          select: { ownerName: true },
+          select: { ownerName: true, ownerPhone: true },
         })
       : null;
-    const prefill = getOwnerAccountPrefill({ email: access.email, ownerName: ownerSubmission?.ownerName, phone: access.phone });
+    const prefill = getOwnerAccountPrefill({ email: access.email, ownerName: ownerSubmission?.ownerName, phone: access.phone ?? ownerSubmission?.ownerPhone });
     const contextCard = (
       <section className="mb-6 overflow-hidden rounded-[1.4rem] border border-[var(--border)] bg-[var(--secondary)]">
         <div className="flex gap-4 p-4 sm:p-5">
@@ -63,7 +64,7 @@ export default async function OwnerAccessPage({ params, searchParams }: OwnerAcc
       redirect(`/owner-access/${encodeURIComponent(token)}/login`);
     }
     return (
-      <main className="shell px-4 py-12 sm:px-6"><div className="mx-auto max-w-xl"><p className="section-kicker mb-3">{copy.eyebrow}</p><h1 className="font-serif text-4xl text-[var(--foreground)]">{locale === "it" ? "Crea il tuo account Salento Local" : "Create your Salento Local account"}</h1><p className="mt-2 font-serif text-2xl text-[var(--foreground)]">{locale === "it" ? `Crea il tuo account per gestire ${access.business.name}.` : `Create your account to manage ${access.business.name}.`}</p><p className="mt-4 text-[var(--muted)]">{locale === "it" ? "La tua attività è già su Salento Local. Completa il tuo account per gestire e aggiornare la tua pagina." : copy.body}</p><div className="mt-6">{contextCard}</div><OwnerAccountActivationForm email={prefill.email} locale={locale} name={prefill.name} phone={prefill.phone} token={token} /></div></main>
+      <main className="shell px-4 py-12 sm:px-6"><div className="mx-auto max-w-xl"><p className="section-kicker mb-3">{copy.eyebrow}</p><h1 className="font-serif text-4xl text-[var(--foreground)]">{locale === "it" ? "Crea il tuo account Salento Local" : "Create your Salento Local account"}</h1><p className="mt-2 font-serif text-2xl text-[var(--foreground)]">{locale === "it" ? `Crea il tuo account per gestire ${access.business.name}.` : `Create your account to manage ${access.business.name}.`}</p><p className="mt-4 text-[var(--muted)]">{locale === "it" ? "La tua attività è già su Salento Local. Completa il tuo account per gestire e aggiornare la tua pagina." : copy.body}</p><div className="mt-6">{contextCard}</div><PartnerEntrySignupForm activationToken={token} audience="owner" emailHint={access.email ? (locale === "it" ? "Email verificata dell'invito." : "Verified invitation email.") : (locale === "it" ? "Facoltativa: il tuo numero WhatsApp resta il metodo di accesso verificato." : "Optional: your verified WhatsApp number remains your sign-in method.")} emailOptional={!access.email} emailReadOnly={Boolean(access.email)} initialValues={{ businessTermsAccepted: false, email: prefill.email, firstName: prefill.firstName, lastName: prefill.lastName, username: "" }} locale={locale} loginHref={`/login?redirectTo=${encodeURIComponent(`/owner-access/${token}/complete`)}`} /></div></main>
     );
   }
 
@@ -75,9 +76,9 @@ export default async function OwnerAccessPage({ params, searchParams }: OwnerAcc
     resolved.invitation?.businessOwnerAccess.userId === viewer.id &&
     businessSlug
   ) {
-    redirect(`/businesses/${encodeURIComponent(businessSlug)}/edit`);
+    redirect("/dashboard");
   }
   return (
-    <main className="shell px-4 py-12 sm:px-6"><div className="mx-auto max-w-xl"><section className="mb-6 card p-6 sm:p-8"><p className="section-kicker mb-3">{isUsed ? copy.used : copy.expired}</p><h1 className="font-serif text-4xl text-[var(--foreground)]">{isUsed ? copy.used : copy.expired}</h1><p className="mt-4 text-[var(--muted)]">{isUsed ? copy.usedBody : copy.expiredBody}</p>{isUsed && businessSlug ? <Link href={`/login?redirectTo=${encodeURIComponent(`/businesses/${businessSlug}/edit`)}`} className="btn-primary mt-6">{copy.login}</Link> : null}</section>{!isUsed ? <OwnerAccessRequestForm locale={locale} /> : null}</div></main>
+    <main className="shell px-4 py-12 sm:px-6"><div className="mx-auto max-w-xl"><section className="mb-6 card p-6 sm:p-8"><p className="section-kicker mb-3">{isUsed ? copy.used : copy.expired}</p><h1 className="font-serif text-4xl text-[var(--foreground)]">{isUsed ? copy.used : copy.expired}</h1><p className="mt-4 text-[var(--muted)]">{isUsed ? copy.usedBody : copy.expiredBody}</p>{isUsed && businessSlug ? <Link href={`/login?redirectTo=${encodeURIComponent("/dashboard")}`} className="btn-primary mt-6">{copy.login}</Link> : null}</section>{!isUsed ? <OwnerAccessRequestForm locale={locale} /> : null}</div></main>
   );
 }

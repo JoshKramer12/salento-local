@@ -5,6 +5,7 @@ import { AdminPartnerPayoutButton } from "@/components/account/admin-partner-pay
 import { PartnerOutstandingCommissionCard } from "@/components/account/partner-outstanding-commission-card";
 import { PartnerPayoutSummary } from "@/components/account/partner-payout-summary";
 import { PartnerDashboard } from "@/components/account/partner-dashboard";
+import { OwnedBusinessList } from "@/components/account/owned-business-list";
 import { SubmissionList } from "@/components/account/submission-list";
 import { HardNavigationLink } from "@/components/hard-navigation-link";
 import {
@@ -235,6 +236,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     partnerHistory,
     partnerSetup,
     adminDashboard,
+    ownedBusinesses,
   ] = await Promise.all([
     prisma.businessSubmission.findMany({
       where: {
@@ -289,6 +291,22 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       ? getPartnerPayoutSetupSummary(viewer.id)
       : Promise.resolve(null),
     viewer.role === "ADMIN" ? getAdminDashboardData() : Promise.resolve(null),
+    viewer.role === "BUSINESS_OWNER"
+      ? prisma.business.findMany({
+          where: {
+            OR: [
+              { ownerUserId: viewer.id },
+              { ownerAccesses: { some: { userId: viewer.id } } },
+            ],
+          },
+          include: {
+            category: { select: { name: true } },
+            images: { orderBy: { sortOrder: "asc" }, select: { url: true }, take: 1 },
+            town: { select: { name: true } },
+          },
+          orderBy: { updatedAt: "desc" },
+        })
+      : Promise.resolve([]),
   ]);
 
   const totals = buildSubmissionTotals(submissions, viewer.role);
@@ -534,6 +552,29 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           role={viewer.role}
         />
       </div>
+
+      {viewer.role === "BUSINESS_OWNER" ? (
+        <section className="mb-10 rounded-[1.75rem] border border-[color:rgba(42,98,87,0.18)] bg-[color:rgba(42,98,87,0.05)] p-5 sm:p-6">
+          <div className="mb-5">
+            <p className="section-kicker mb-2">{locale === "it" ? "Attività collegata" : "Connected business"}</p>
+            <h2 className="font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? "La tua attività" : "Your business"}</h2>
+            <p className="mt-2 text-sm text-[var(--muted)]">{locale === "it" ? "La tua attività pubblicata è pronta da gestire. Apri Modifica attività solo quando vuoi aggiornare la scheda." : "Your published business is ready to manage. Open Edit business only when you want to update the listing."}</p>
+          </div>
+          <OwnedBusinessList
+            businesses={ownedBusinesses.map((business) => ({
+              address: business.address,
+              categoryName: business.category.name,
+              imageUrl: business.images[0]?.url,
+              name: business.name,
+              shortDescription: business.shortDescription,
+              slug: business.slug,
+              townName: business.town.name,
+              updatedAt: business.updatedAt,
+            }))}
+            locale={locale}
+          />
+        </section>
+      ) : null}
 
       {viewer.role === "ADMIN" && adminDashboard ? (
         <>

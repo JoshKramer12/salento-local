@@ -5,6 +5,7 @@ import type { Locale } from "@/lib/i18n";
 type OwnedBusinessListItem = {
   address: string;
   categoryName: string;
+  imageUrl?: string | null;
   name: string;
   shortDescription: string;
   slug: string;
@@ -41,8 +42,9 @@ export function OwnedBusinessList({ businesses, locale }: OwnedBusinessListProps
     <div className="grid gap-4">
       {businesses.map((business) => (
         <article key={business.slug} className="card grid gap-4 p-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            {business.imageUrl ? <img src={business.imageUrl} alt="" className="h-20 w-20 shrink-0 rounded-2xl object-cover" /> : null}
+            <div className="min-w-0 flex-1">
               <h3 className="font-serif text-2xl text-[var(--foreground)]">{business.name}</h3>
               <p className="mt-1 text-sm text-[var(--muted)]">
                 {business.categoryName} · {business.townName}
@@ -53,7 +55,7 @@ export function OwnedBusinessList({ businesses, locale }: OwnedBusinessListProps
               <p className="mt-2 text-xs text-[var(--muted)]">{business.address}</p>
             </div>
             <span className="rounded-full bg-[color:rgba(42,98,87,0.1)] px-3 py-1 text-xs font-medium text-[var(--primary)]">
-              {copy.updated}:{" "}
+              {copy.updated}: {" "}
               {new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-US", {
                 dateStyle: "medium",
               }).format(business.updatedAt)}
@@ -65,7 +67,7 @@ export function OwnedBusinessList({ businesses, locale }: OwnedBusinessListProps
               {copy.publicPage}
             </Link>
             <Link href={`/businesses/${business.slug}/edit`} className="btn-primary">
-              {copy.edit}
+              {locale === "it" ? "Modifica attività" : "Edit business"}
             </Link>
           </div>
         </article>

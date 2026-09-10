@@ -170,11 +170,11 @@ test("owner account setup pre-fills only data already collected for the invited 
       email: " Mario@Example.COM ",
       ownerName: " Mario Rossi ",
     }),
-    { email: "mario@example.com", name: "Mario Rossi", phone: "" },
+    { email: "mario@example.com", firstName: "Mario", lastName: "Rossi", name: "Mario Rossi", phone: "" },
   );
   assert.deepEqual(
     getOwnerAccountPrefill({ email: "mario@example.com", ownerName: null }),
-    { email: "mario@example.com", name: "", phone: "" },
+    { email: "mario@example.com", firstName: "", lastName: "", name: "", phone: "" },
   );
 });
 

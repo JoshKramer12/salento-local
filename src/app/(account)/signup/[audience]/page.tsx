@@ -1,7 +1,6 @@
 import { redirect, notFound } from "next/navigation";
 import { IconArrowLeft } from "@tabler/icons-react";
 
-import { BusinessSignupForm } from "@/components/account/business-signup-form";
 import { PartnerSignupForm } from "@/components/account/partner-signup-form";
 import { SignupForm } from "@/components/account/signup-form";
 import { HardNavigationLink } from "@/components/hard-navigation-link";
@@ -44,6 +43,14 @@ export default async function SignupAudiencePage({
 
   if (audience === "partner") {
     redirect("/partner/join");
+  }
+
+  if (audience === "business") {
+    redirect(
+      redirectTo
+        ? `/signup/business/join?redirectTo=${encodeURIComponent(redirectTo)}`
+        : "/signup/business/join",
+    );
   }
 
   const copyMap =
@@ -143,7 +150,7 @@ export default async function SignupAudiencePage({
         ])
       : [[], []];
 
-  if (accountType === "GETTER" || accountType === "BUSINESS_OWNER") {
+  if (accountType === "GETTER") {
     return (
       <main className="shell px-4 py-14 sm:px-6">
         <div className="mx-auto max-w-5xl">
@@ -169,12 +176,7 @@ export default async function SignupAudiencePage({
                 redirectTo={redirectTo ?? ""}
                 towns={towns}
               />
-            ) : (
-              <BusinessSignupForm
-                locale={locale}
-                redirectTo={redirectTo ?? ""}
-              />
-            )}
+            ) : null}
           </div>
         </div>
       </main>
