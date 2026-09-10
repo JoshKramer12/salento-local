@@ -5,6 +5,7 @@ import { AdminPartnerPayoutButton } from "@/components/account/admin-partner-pay
 import { PartnerOutstandingCommissionCard } from "@/components/account/partner-outstanding-commission-card";
 import { PartnerPayoutSummary } from "@/components/account/partner-payout-summary";
 import { PartnerDashboard } from "@/components/account/partner-dashboard";
+import { BusinessOwnerDashboard } from "@/components/account/business-owner-dashboard";
 import { OwnedBusinessList } from "@/components/account/owned-business-list";
 import { SubmissionList } from "@/components/account/submission-list";
 import { HardNavigationLink } from "@/components/hard-navigation-link";
@@ -31,11 +32,16 @@ import {
 } from "@/lib/partner-ledger";
 import { prisma } from "@/lib/prisma";
 import { getSingleParam } from "@/lib/site";
+import { buildDraftLikeSubmissionWhere } from "@/lib/submission-drafts";
 
 type DashboardLocale = "it" | "en";
 type DashboardPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
+
+function rendersBusinessOwnerDashboard(role: string): boolean {
+  return role === "BUSINESS_OWNER";
+}
 
 function formatDashboardDate(locale: DashboardLocale, value: Date) {
   return new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-US", {
@@ -226,6 +232,82 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   }
 
   scheduleAccountRouteSync(viewer.id, viewer.role);
+
+  // Business owners have a dedicated control centre. Keeping this branch before
+  // the shared partner/admin data work makes the role boundary explicit and
+  // avoids changing either of those dashboards.
+  if (rendersBusinessOwnerDashboard(viewer.role)) {
+    const [businesses, draftCount] = await Promise.all([
+      prisma.business.findMany({
+        where: {
+          OR: [
+            { ownerUserId: viewer.id },
+            { ownerAccesses: { some: { userId: viewer.id } } },
+          ],
+        },
+        select: {
+          address: true,
+          category: { select: { name: true, slug: true } },
+          description: true,
+          heroImageSeed: true,
+          id: true,
+          images: {
+            orderBy: { sortOrder: "asc" },
+            select: { alt: true, id: true, url: true },
+          },
+          locality: { select: { name: true } },
+          name: true,
+          payments: {
+            where: { status: "PAID" },
+            orderBy: { paidAt: "desc" },
+            select: {
+              createdAt: true,
+              paidAt: true,
+              status: true,
+              businessSubmission: {
+                select: { id: true, listingTermMonthsAtAcceptance: true },
+              },
+            },
+            take: 1,
+          },
+          phone: true,
+          rating: true,
+          reviewCount: true,
+          reviews: {
+            orderBy: { createdAt: "desc" },
+            select: {
+              authorName: true,
+              body: true,
+              createdAt: true,
+              id: true,
+              rating: true,
+              title: true,
+            },
+            take: 2,
+          },
+          shortDescription: true,
+          slug: true,
+          tags: { select: { tag: { select: { name: true } } } },
+          town: { select: { name: true } },
+          website: true,
+        },
+        orderBy: { updatedAt: "desc" },
+      }),
+      prisma.businessSubmission.count({ where: buildDraftLikeSubmissionWhere(viewer.id) }),
+    ]);
+    const displayName = viewer.name?.trim() || viewer.username;
+    const firstName = displayName.split(/\s+/)[0] || viewer.username;
+
+    return (
+      <BusinessOwnerDashboard
+        businesses={businesses}
+        draftCount={draftCount}
+        firstName={firstName}
+        locale={locale}
+      />
+    );
+  }
+
   const resolvedSearchParams = await searchParams;
   const payoutStatus = getSingleParam(resolvedSearchParams.payoutStatus);
 

@@ -13,6 +13,7 @@ import { LEGAL_ROUTES } from "@/lib/legal";
 import { getAppUrl } from "@/lib/payment";
 import {
   buildOwnerListingEmailCopy,
+  canManageBusiness,
   sendOwnerAccessInvitationForSubmission,
 } from "@/lib/business-owner-access";
 import { prisma } from "@/lib/prisma";
@@ -334,6 +335,7 @@ export async function getReceiptData(params: {
       businessName: true,
       businessTermsAcceptedAt: true,
       businessTermsVersion: true,
+      createdBusinessId: true,
       createdAt: true,
       contractualEmail: true,
       email: true,
@@ -388,13 +390,23 @@ export async function getReceiptData(params: {
     return null;
   }
 
-  if (!canAccessSubmissionReceipt({
+  const directAccess = canAccessSubmissionReceipt({
     allowInternal: params.allowInternal,
     paymentPartnerUserId: payment.partnerUserId,
     submissionUserId: submission.userId,
     viewerId: params.viewerId,
     viewerRole: params.viewerRole,
-  })) return null;
+  });
+  const ownerAccess =
+    !directAccess &&
+    params.viewerRole === "BUSINESS_OWNER" &&
+    Boolean(params.viewerId && submission.createdBusinessId) &&
+    (await canManageBusiness({
+      businessId: submission.createdBusinessId!,
+      userId: params.viewerId!,
+    }));
+
+  if (!directAccess && !ownerAccess) return null;
 
   const receiptNumber = buildReceiptNumber({
     paymentId: payment.id,
