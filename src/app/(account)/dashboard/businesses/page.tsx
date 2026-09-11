@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { BusinessOwnerAccountNav } from "@/components/account/business-owner-account-nav";
 import { DashboardNav, DraftCountBadge } from "@/components/account/dashboard-nav";
 import { OwnedBusinessList } from "@/components/account/owned-business-list";
 import { PartnerWorkspaceNav } from "@/components/account/partner-workspace-nav";
@@ -162,15 +163,19 @@ export default async function DashboardBusinessesPage({
         <PartnerWorkspaceNav active="businesses" locale={locale} />
       ) : null}
       <main className="shell px-4 py-12 sm:px-6">
-      <div className="dashboard-nav-shell mb-8">
-        <DashboardNav
-          active={showAll ? "adminBusinesses" : "businesses"}
-          draftCount={showAll ? ownDraftCount : draftSubmissions.length}
-          isAdmin={viewer.role === "ADMIN"}
-          locale={locale}
-          role={viewer.role}
-        />
-      </div>
+      {viewer.role === "BUSINESS_OWNER" ? (
+        <BusinessOwnerAccountNav active="drafts" locale={locale} />
+      ) : (
+        <div className="dashboard-nav-shell mb-8">
+          <DashboardNav
+            active={showAll ? "adminBusinesses" : "businesses"}
+            draftCount={showAll ? ownDraftCount : draftSubmissions.length}
+            isAdmin={viewer.role === "ADMIN"}
+            locale={locale}
+            role={viewer.role}
+          />
+        </div>
+      )}
 
       <div className="mb-8">
         <p className="section-kicker mb-2">

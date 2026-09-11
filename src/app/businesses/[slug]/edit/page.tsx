@@ -156,6 +156,7 @@ export default async function EditBusinessPage({ params, searchParams }: EditBus
         categories={categories}
         editMode={{
           businessId: business.id,
+          businessSlug: business.slug,
           initialStep,
           preservedPhotoUrls: imageUrls.slice(5),
         }}

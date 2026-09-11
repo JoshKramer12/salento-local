@@ -16,6 +16,7 @@ import {
   IconWorld,
 } from "@tabler/icons-react";
 
+import { BusinessOwnerAccountNav } from "@/components/account/business-owner-account-nav";
 import { HardNavigationLink } from "@/components/hard-navigation-link";
 import { normalizeUrlInput } from "@/lib/business-links";
 import type { Locale } from "@/lib/i18n";
@@ -60,7 +61,6 @@ type OwnerBusiness = {
 
 type BusinessOwnerDashboardProps = {
   businesses: OwnerBusiness[];
-  draftCount: number;
   firstName: string;
   locale: Locale;
 };
@@ -112,7 +112,6 @@ function getInitials(name: string) {
 
 export function BusinessOwnerDashboard({
   businesses,
-  draftCount,
   firstName,
   locale,
 }: BusinessOwnerDashboardProps) {
@@ -215,14 +214,7 @@ export function BusinessOwnerDashboard({
         </div>
       </section>
 
-      <nav aria-label={copy.accountArea} className="mb-7 grid grid-cols-4 border-b border-[var(--border)] sm:mb-8 sm:flex sm:gap-7">
-        <OwnerTab active href="/dashboard">Dashboard</OwnerTab>
-        <OwnerTab href="/dashboard/businesses">{copy.myBusinesses}</OwnerTab>
-        <OwnerTab href="/dashboard/businesses#drafts">
-          {copy.drafts}{draftCount > 0 ? ` (${draftCount})` : ""}
-        </OwnerTab>
-        <OwnerTab href="/claim">{copy.claim}</OwnerTab>
-      </nav>
+      <BusinessOwnerAccountNav active="businesses" locale={locale} />
 
       {businesses.length ? (
         <div className="grid gap-7 sm:gap-8">
@@ -255,17 +247,6 @@ export function BusinessOwnerDashboard({
         </div>
       </section>
     </main>
-  );
-}
-
-function OwnerTab({ active = false, children, href }: { active?: boolean; children: React.ReactNode; href: string }) {
-  return (
-    <HardNavigationLink
-      href={href}
-      className={`relative flex min-h-11 items-center justify-center px-1 text-center text-[0.72rem] font-semibold leading-4 text-[var(--muted)] transition hover:text-[var(--foreground)] sm:min-h-12 sm:justify-start sm:text-sm ${active ? "text-[var(--foreground)] after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:bg-[var(--primary)]" : ""}`}
-    >
-      {children}
-    </HardNavigationLink>
   );
 }
 

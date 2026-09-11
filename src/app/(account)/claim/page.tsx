@@ -1,14 +1,13 @@
 import { redirect } from "next/navigation";
 
 import { BusinessClaimForm } from "@/components/account/business-claim-form";
+import { BusinessOwnerAccountNav } from "@/components/account/business-owner-account-nav";
 import { getEnabledVerificationMethods } from "@/lib/business-claim-verification";
-import { DashboardNav } from "@/components/account/dashboard-nav";
 import { getViewer } from "@/lib/auth-guards";
 import { hasAcceptedCurrentLegalDocuments } from "@/lib/legal-consent";
 import { getCurrentLocale } from "@/lib/locale";
 import { prisma } from "@/lib/prisma";
 import { getSingleParam } from "@/lib/site";
-import { buildDraftLikeSubmissionWhere } from "@/lib/submission-drafts";
 
 type ClaimPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -38,7 +37,7 @@ export default async function ClaimPage({ searchParams }: ClaimPageProps) {
     redirect(`/login?redirectTo=${encodeURIComponent(claimRedirectTo)}`);
   }
 
-  const [selectedBusiness, hasAcceptedBusinessLegalDocuments, draftCount] = await Promise.all([
+  const [selectedBusiness, hasAcceptedBusinessLegalDocuments] = await Promise.all([
     requestedBusinessSlug
       ? prisma.business.findUnique({
           where: {
@@ -60,9 +59,6 @@ export default async function ClaimPage({ searchParams }: ClaimPageProps) {
       audience: "business",
       userId: viewer.id,
     }),
-    prisma.businessSubmission.count({
-      where: buildDraftLikeSubmissionWhere(viewer.id),
-    }),
   ]);
 
   return (
@@ -81,9 +77,7 @@ export default async function ClaimPage({ searchParams }: ClaimPageProps) {
         </p>
       </div>
 
-      <div className="dashboard-nav-shell mb-8">
-        <DashboardNav active="claim" draftCount={draftCount} locale={locale} role={viewer.role} />
-      </div>
+      <BusinessOwnerAccountNav active="claims" locale={locale} />
 
       <section className="card p-8">
         <BusinessClaimForm

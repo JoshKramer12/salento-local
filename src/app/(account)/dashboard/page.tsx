@@ -32,7 +32,6 @@ import {
 } from "@/lib/partner-ledger";
 import { prisma } from "@/lib/prisma";
 import { getSingleParam } from "@/lib/site";
-import { buildDraftLikeSubmissionWhere } from "@/lib/submission-drafts";
 
 type DashboardLocale = "it" | "en";
 type DashboardPageProps = {
@@ -237,8 +236,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   // the shared partner/admin data work makes the role boundary explicit and
   // avoids changing either of those dashboards.
   if (rendersBusinessOwnerDashboard(viewer.role)) {
-    const [businesses, draftCount] = await Promise.all([
-      prisma.business.findMany({
+    const businesses = await prisma.business.findMany({
         where: {
           OR: [
             { ownerUserId: viewer.id },
@@ -292,16 +290,13 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           website: true,
         },
         orderBy: { updatedAt: "desc" },
-      }),
-      prisma.businessSubmission.count({ where: buildDraftLikeSubmissionWhere(viewer.id) }),
-    ]);
+      });
     const displayName = viewer.name?.trim() || viewer.username;
     const firstName = displayName.split(/\s+/)[0] || viewer.username;
 
     return (
       <BusinessOwnerDashboard
         businesses={businesses}
-        draftCount={draftCount}
         firstName={firstName}
         locale={locale}
       />
