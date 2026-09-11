@@ -915,7 +915,7 @@ export function PublishForm({
   const [duplicateRejected, setDuplicateRejected] = useState(false);
   const [ownerDetailsExpanded, setOwnerDetailsExpanded] = useState(false);
   const [wizardStep, setWizardStep] = useState<WizardStep>(() =>
-    editMode?.initialStep ?? getResumeWizardStep(initialSubmissionValues),
+    editMode ? editMode.initialStep ?? "business" : getResumeWizardStep(initialSubmissionValues),
   );
   const offerInputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const photoInputRefs = useRef<Partial<Record<PhotoSlot, HTMLInputElement | null>>>({});
@@ -2213,6 +2213,7 @@ export function PublishForm({
       const preparedFile = await prepareSubmissionPhoto(file);
       const payload = await uploadSubmissionPhoto(preparedFile, slot);
       setPhotos((current) => ({ ...current, [slot]: payload.url }));
+      setPreviewUrlForSlot(slot, null);
     } catch {
       setUploadError(copy.photoError);
       setPreviewUrlForSlot(slot, null);

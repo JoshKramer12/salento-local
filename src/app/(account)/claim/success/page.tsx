@@ -72,7 +72,7 @@ export default async function ClaimSuccessPage({
             <Link href={`/businesses/${business.slug}`} className="btn-primary">
               {copy.cta}
             </Link>
-            <Link href={`/businesses/${business.slug}/edit`} className="btn-secondary">
+            <Link href={`/businesses/${business.slug}/edit?step=business`} className="btn-secondary">
               {copy.edit}
             </Link>
           </div>

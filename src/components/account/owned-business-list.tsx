@@ -66,7 +66,7 @@ export function OwnedBusinessList({ businesses, locale }: OwnedBusinessListProps
             <Link href={`/businesses/${business.slug}`} className="btn-secondary">
               {copy.publicPage}
             </Link>
-            <Link href={`/businesses/${business.slug}/edit`} className="btn-primary">
+            <Link href={`/businesses/${business.slug}/edit?step=business`} className="btn-primary">
               {locale === "it" ? "Modifica attività" : "Edit business"}
             </Link>
           </div>

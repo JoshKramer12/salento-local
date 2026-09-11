@@ -4,6 +4,7 @@ import { OwnedBusinessEditForm } from "@/components/account/owned-business-edit-
 import { PublishForm, type OwnerEditStep } from "@/components/account/publish-form";
 import { requireCompletedViewer } from "@/lib/auth-guards";
 import { canManageBusiness } from "@/lib/business-owner-access";
+import { getStoredPhotoUrls, mergeBusinessPhotoUrls } from "@/lib/business-photos";
 import { getCurrentLocale } from "@/lib/locale";
 import { buildPhoneCountryOptions } from "@/lib/phone-country-options";
 import { prisma } from "@/lib/prisma";
@@ -146,7 +147,10 @@ export default async function EditBusinessPage({ params, searchParams }: EditBus
     requestedStep && editSteps.has(requestedStep)
       ? (requestedStep as OwnerEditStep)
       : undefined;
-  const imageUrls = business.images.map((image) => image.url).filter(Boolean);
+  const imageUrls = mergeBusinessPhotoUrls(
+    business.images.map((image) => image.url),
+    getStoredPhotoUrls(latestSubmission?.photoUrls),
+  );
   const facebook = getSocialLink(business.socialLinks, "facebook") || latestSubmission?.facebook || "";
   const instagram = getSocialLink(business.socialLinks, "instagram") || latestSubmission?.instagram || "";
 

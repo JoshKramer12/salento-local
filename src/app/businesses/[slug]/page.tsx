@@ -18,6 +18,7 @@ import {
   normalizeInstagramUrl,
   normalizeUrlInput,
 } from "@/lib/business-links";
+import { getStoredPhotoUrls, mergeBusinessPhotoUrls } from "@/lib/business-photos";
 import { getBusinessHoursStatus, getBusinessHoursStatusDetail, resolveBusinessHours } from "@/lib/business-hours";
 import { getCurrentLocale } from "@/lib/locale";
 import { prisma } from "@/lib/prisma";
@@ -184,20 +185,28 @@ function buildGalleryImages(
     name: string;
     town: { heroImageSeed: string; imageUrl: string | null; name: string; slug: string };
   },
+  submissionPhotoUrls: unknown,
 ) {
   const fallbackImage = buildBusinessImage(business, business.category.slug, 1800);
   const seen = new Set<string>();
-  const gallery = business.images
-    .map((image, index) => ({
-      alt: image.alt || `${business.name} photo ${index + 1}`,
-      id: image.id,
-      src:
-        buildBusinessPhoto(image.url, index === 0 ? 1800 : 800, {
-          label: business.name,
-          seed: business.heroImageSeed,
-          type: business.category.slug === "beaches" ? "beach" : "business",
-        }) ?? fallbackImage,
-    }))
+  const gallery = mergeBusinessPhotoUrls(
+    business.images.map((image) => image.url),
+    getStoredPhotoUrls(submissionPhotoUrls),
+  )
+    .map((url, index) => {
+      const image = business.images.find((entry) => entry.url === url);
+
+      return {
+        alt: image?.alt || `${business.name} photo ${index + 1}`,
+        id: image?.id || `submission-photo-${index}`,
+        src:
+          buildBusinessPhoto(url, index === 0 ? 1800 : 800, {
+            label: business.name,
+            seed: business.heroImageSeed,
+            type: business.category.slug === "beaches" ? "beach" : "business",
+          }) ?? fallbackImage,
+      };
+    })
     .filter((image) => {
       if (seen.has(image.src)) {
         return false;
@@ -287,6 +296,11 @@ export default async function BusinessPage({ params, searchParams }: BusinessPag
           sortOrder: "asc",
         },
       },
+      submissions: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { photoUrls: true },
+      },
       locality: true,
       reviews: {
         orderBy: {
@@ -364,7 +378,7 @@ export default async function BusinessPage({ params, searchParams }: BusinessPag
   const schedule = resolveBusinessHours(business.hours, business.openingHoursText);
   const hoursStatus = getBusinessHoursStatus(schedule);
   const hoursDetail = getBusinessHoursStatusDetail(schedule);
-  const heroGallery = buildGalleryImages(business);
+  const heroGallery = buildGalleryImages(business, business.submissions[0]?.photoUrls);
   const offerings = buildOfferingItems(business, locale);
   const intro = buildBusinessIntro(business, locale);
   const hasAnyHoursSignal = Boolean(schedule?.length || business.openingHoursText || business.isOpenNow);

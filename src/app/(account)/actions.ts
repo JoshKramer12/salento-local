@@ -45,6 +45,7 @@ import {
   normalizeInstagramUrl,
   normalizeSubmissionSocialValue,
 } from "@/lib/business-links";
+import { mergeBusinessPhotoUrls } from "@/lib/business-photos";
 import {
   getBusinessNameCandidateSearchTerms,
   getBusinessNameMatchStrength,
@@ -3196,9 +3197,11 @@ export async function updateOwnedBusinessWithWizardAction(
     .split(/\r?\n/)
     .map((value) => value.trim())
     .filter(Boolean);
-  const photoUrls = [...(parsed.data.photoUrls ?? []), ...preservedPhotoUrls].filter(
-    (url, index, values) => values.indexOf(url) === index,
+  const submittedPhotoUrls = mergeBusinessPhotoUrls(
+    parsed.data.photoUrls ?? [],
+    preservedPhotoUrls,
   );
+  let savedPhotoUrls = submittedPhotoUrls;
   const currentSocialLinks =
     business.socialLinks && typeof business.socialLinks === "object" && !Array.isArray(business.socialLinks)
       ? { ...business.socialLinks }
@@ -3216,6 +3219,33 @@ export async function updateOwnedBusinessWithWizardAction(
     : (parsed.data.googleMapsUrl ?? "").trim() || business.mapsUrl;
 
   await prisma.$transaction(async (tx) => {
+    const existingImages = await tx.businessImage.findMany({
+      where: { businessId: business.id },
+      orderBy: { sortOrder: "asc" },
+      select: { id: true, url: true },
+    });
+    // A save from an earlier edit step must not erase an established gallery
+    // when photo fields are absent. The Photos step sends a non-empty list for
+    // a real replacement or removal.
+    const photoUrls = submittedPhotoUrls.length
+      ? submittedPhotoUrls
+      : existingImages.map((image) => image.url);
+    savedPhotoUrls = photoUrls;
+    const existingImagesByUrl = new Map<string, Array<{ id: string }>>();
+
+    for (const image of existingImages) {
+      const matches = existingImagesByUrl.get(image.url) ?? [];
+      matches.push({ id: image.id });
+      existingImagesByUrl.set(image.url, matches);
+    }
+
+    const imageUpdates = photoUrls.map((url, index) => ({
+      existingImage: existingImagesByUrl.get(url)?.shift(),
+      index,
+      url,
+    }));
+    const imageIdsToDelete = [...existingImagesByUrl.values()].flat().map((image) => image.id);
+
     await tx.business.update({
       where: { id: business.id },
       data: {
@@ -3232,14 +3262,6 @@ export async function updateOwnedBusinessWithWizardAction(
         categoryId: category.id,
         description: buildBusinessDescription(parsed.data.shortDescription, parsed.data.longDescription),
         email: (parsed.data.email ?? "").trim() || null,
-        images: {
-          create: photoUrls.map((url, index) => ({
-            alt: `${parsed.data.businessName} photo ${index + 1}`,
-            sortOrder: index,
-            url,
-          })),
-          deleteMany: {},
-        },
         latitude: selectedAddressStorage.addressLatitude ?? business.latitude,
         longitude: selectedAddressStorage.addressLongitude ?? business.longitude,
         mapsUrl: mapsUrl || null,
@@ -3252,6 +3274,31 @@ export async function updateOwnedBusinessWithWizardAction(
         website: parsed.data.website?.trim() || null,
       },
     });
+
+    if (imageIdsToDelete.length) {
+      await tx.businessImage.deleteMany({ where: { id: { in: imageIdsToDelete } } });
+    }
+
+    await Promise.all(
+      imageUpdates.map(({ existingImage, index, url }) =>
+        existingImage
+          ? tx.businessImage.update({
+              where: { id: existingImage.id },
+              data: {
+                alt: `${parsed.data.businessName} photo ${index + 1}`,
+                sortOrder: index,
+              },
+            })
+          : tx.businessImage.create({
+              data: {
+                alt: `${parsed.data.businessName} photo ${index + 1}`,
+                businessId: business.id,
+                sortOrder: index,
+                url,
+              },
+            }),
+      ),
+    );
 
     const latestSubmission = await tx.businessSubmission.findFirst({
       where: { createdBusinessId: business.id },
@@ -3309,7 +3356,7 @@ export async function updateOwnedBusinessWithWizardAction(
     notice: locale === "it" ? "Modifiche salvate." : "Changes saved.",
     submission: {
       ...rawSubmission,
-      photoUrls: photoUrls.join("\n"),
+      photoUrls: savedPhotoUrls.join("\n"),
     },
   };
 }

@@ -56,7 +56,10 @@ test("Business Owner navigation is one exact three-pill set, separate from share
 
 test("owner edit stops after Photos while the create publishing flow remains available", () => {
   assert.match(editPage, /requestedStep && editSteps\.has\(requestedStep\)/);
-  assert.match(publishForm, /editMode\?\.initialStep \?\? getResumeWizardStep/);
+  assert.match(
+    publishForm,
+    /editMode \? editMode\.initialStep \?\? "business" : getResumeWizardStep/,
+  );
   assert.match(publishForm, /wizardStep === "photos" \? <button/);
   assert.match(publishForm, /isEditMode \? requestDraftSave\("manual", true, null, "listing"\) : goToNextStep\("review"\)/);
   assert.match(publishForm, /isEditMode \? updateOwnedBusinessWithWizardAction : saveBusinessSubmissionAction/);
