@@ -1,11 +1,11 @@
 "use server";
 
 import bcrypt from "bcryptjs";
-import type {
-  PaymentStatus,
+import {
   Prisma,
-  SubmissionStatus,
-  VerificationChannel,
+  type PaymentStatus,
+  type SubmissionStatus,
+  type VerificationChannel,
 } from "@prisma/client";
 import { AuthError } from "next-auth";
 import { revalidatePath } from "next/cache";
@@ -3047,6 +3047,271 @@ export async function updateOwnedBusinessProfileAction(
   revalidatePath(`/businesses/${business.slug}`);
   revalidatePath(`/towns/${business.town.slug}`);
   redirect(`/businesses/${business.slug}`);
+}
+
+/**
+ * Updates an already-published listing from the shared owner wizard. This is
+ * intentionally separate from the submission action: an owner edit must never
+ * create a submission or revisit payment, commission, or legal-acceptance
+ * state.
+ */
+export async function updateOwnedBusinessWithWizardAction(
+  _previousState: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const locale = getLocaleFromForm(formData);
+  const viewer = await requireCompletedViewer();
+  const businessId = getStringValue(formData.get("businessId")).trim();
+
+  if (viewer.role !== "BUSINESS_OWNER" || !businessId) {
+    return { error: formCopy[locale].notAllowed };
+  }
+
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: {
+      addressCountry: true,
+      addressCountryCode: true,
+      addressLocality: true,
+      addressPlaceId: true,
+      addressPostalCode: true,
+      addressProvince: true,
+      addressRegion: true,
+      addressRoute: true,
+      addressStreetNumber: true,
+      id: true,
+      latitude: true,
+      longitude: true,
+      mapsUrl: true,
+      slug: true,
+      socialLinks: true,
+      town: { select: { slug: true } },
+    },
+  });
+
+  if (!business || !(await canManageBusiness({ businessId, userId: viewer.id }))) {
+    return { error: formCopy[locale].notAllowed };
+  }
+
+  const rawSubmission: SubmissionFormValues = {
+    address: getStringValue(formData.get("address")),
+    addressCountry: getStringValue(formData.get("addressCountry")),
+    addressCountryCode: getStringValue(formData.get("addressCountryCode")),
+    addressLatitude: getStringValue(formData.get("addressLatitude")),
+    addressLocality: getStringValue(formData.get("addressLocality")),
+    addressLongitude: getStringValue(formData.get("addressLongitude")),
+    addressPlaceId: getStringValue(formData.get("addressPlaceId")),
+    addressPostalCode: getStringValue(formData.get("addressPostalCode")),
+    addressProvince: getStringValue(formData.get("addressProvince")),
+    addressRegion: getStringValue(formData.get("addressRegion")),
+    addressRoute: getStringValue(formData.get("addressRoute")),
+    addressStreetNumber: getStringValue(formData.get("addressStreetNumber")),
+    agreementAccepted: false,
+    agreementSignature: getStringValue(formData.get("agreementSignature")),
+    businessSummary: getStringValue(formData.get("businessSummary")),
+    businessName: getStringValue(formData.get("businessName")),
+    categoryId: getStringValue(formData.get("categoryId")),
+    email: getStringValue(formData.get("email")),
+    facebook: getStringValue(formData.get("facebook")),
+    googleMapsUrl: getStringValue(formData.get("googleMapsUrl")),
+    id: getStringValue(formData.get("submissionId")) || undefined,
+    instagram: getStringValue(formData.get("instagram")),
+    longDescription: getStringValue(formData.get("longDescription")),
+    openingHours: getStringValue(formData.get("openingHours")),
+    ownerEmail: getStringValue(formData.get("ownerEmail")),
+    ownerHasNoEmail: getStringValue(formData.get("ownerHasNoEmail")) === "on",
+    ownerName: getStringValue(formData.get("ownerName")),
+    ownerPhone: getStringValue(formData.get("ownerPhone")),
+    paymentMethod: getStringValue(formData.get("paymentMethod")) || undefined,
+    phone: getStringValue(formData.get("phone")),
+    photoUrls: getStringValue(formData.get("photoUrls")),
+    shortDescription: getStringValue(formData.get("shortDescription")),
+    signerFullName: getStringValue(formData.get("signerFullName")),
+    signerRole: getStringValue(formData.get("signerRole")),
+    signerRoleOther: getStringValue(formData.get("signerRoleOther")),
+    townId: getStringValue(formData.get("townId")),
+    website: getStringValue(formData.get("website")),
+    whatsapp: getStringValue(formData.get("whatsapp")),
+  };
+  const parsed = businessSubmissionDraftSchema.safeParse({
+    ...rawSubmission,
+    signerRole: rawSubmission.signerRole || undefined,
+  });
+
+  if (!parsed.success) {
+    const invalidFields = parsed.error.issues.map((issue) => String(issue.path[0] ?? "form"));
+
+    return {
+      error: formCopy[locale].invalidForm,
+      fieldErrors: buildSubmissionFieldErrors(invalidFields, locale),
+      invalidFields,
+      submission: rawSubmission,
+    };
+  }
+
+  const [town, category] = await Promise.all([
+    prisma.town.findUnique({ where: { id: parsed.data.townId }, select: { id: true } }),
+    prisma.category.findUnique({ where: { id: parsed.data.categoryId }, select: { id: true } }),
+  ]);
+
+  if (!town || !category) {
+    return {
+      error: formCopy[locale].unknownTown,
+      fieldErrors: { categoryId: formCopy[locale].unknownTown, townId: formCopy[locale].unknownTown },
+      invalidFields: ["categoryId", "townId"],
+      submission: rawSubmission,
+    };
+  }
+
+  const selectedAddress = buildSelectedAddressFromStoredFields({
+    address: parsed.data.address,
+    addressCountry: parsed.data.addressCountry,
+    addressCountryCode: parsed.data.addressCountryCode,
+    addressLatitude: parsed.data.addressLatitude,
+    addressLocality: parsed.data.addressLocality,
+    addressLongitude: parsed.data.addressLongitude,
+    addressPlaceId: parsed.data.addressPlaceId,
+    addressPostalCode: parsed.data.addressPostalCode,
+    addressProvince: parsed.data.addressProvince,
+    addressRegion: parsed.data.addressRegion,
+    addressRoute: parsed.data.addressRoute,
+    addressStreetNumber: parsed.data.addressStreetNumber,
+  });
+  const selectedAddressStorage = selectedAddress
+    ? buildAddressSelectionStorage(selectedAddress)
+    : {
+        addressCountry: business.addressCountry,
+        addressCountryCode: business.addressCountryCode,
+        addressLatitude: business.latitude,
+        addressLocality: business.addressLocality,
+        addressLongitude: business.longitude,
+        addressPlaceId: business.addressPlaceId,
+        addressPostalCode: business.addressPostalCode,
+        addressProvince: business.addressProvince,
+        addressRegion: business.addressRegion,
+        addressRoute: business.addressRoute,
+        addressStreetNumber: business.addressStreetNumber,
+      };
+  const preservedPhotoUrls = getStringValue(formData.get("preservedPhotoUrls"))
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const photoUrls = [...(parsed.data.photoUrls ?? []), ...preservedPhotoUrls].filter(
+    (url, index, values) => values.indexOf(url) === index,
+  );
+  const currentSocialLinks =
+    business.socialLinks && typeof business.socialLinks === "object" && !Array.isArray(business.socialLinks)
+      ? { ...business.socialLinks }
+      : {};
+  const facebook = normalizeFacebookUrl(parsed.data.facebook);
+  const instagram = normalizeInstagramUrl(parsed.data.instagram);
+
+  if (facebook) currentSocialLinks.facebook = facebook;
+  else delete currentSocialLinks.facebook;
+  if (instagram) currentSocialLinks.instagram = instagram;
+  else delete currentSocialLinks.instagram;
+
+  const mapsUrl = selectedAddress
+    ? buildGoogleMapsSearchUrl(selectedAddress)
+    : (parsed.data.googleMapsUrl ?? "").trim() || business.mapsUrl;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.business.update({
+      where: { id: business.id },
+      data: {
+        address: parsed.data.address,
+        addressCountry: selectedAddressStorage.addressCountry,
+        addressCountryCode: selectedAddressStorage.addressCountryCode,
+        addressLocality: selectedAddressStorage.addressLocality,
+        addressPlaceId: selectedAddressStorage.addressPlaceId,
+        addressPostalCode: selectedAddressStorage.addressPostalCode,
+        addressProvince: selectedAddressStorage.addressProvince,
+        addressRegion: selectedAddressStorage.addressRegion,
+        addressRoute: selectedAddressStorage.addressRoute,
+        addressStreetNumber: selectedAddressStorage.addressStreetNumber,
+        categoryId: category.id,
+        description: buildBusinessDescription(parsed.data.shortDescription, parsed.data.longDescription),
+        email: (parsed.data.email ?? "").trim() || null,
+        images: {
+          create: photoUrls.map((url, index) => ({
+            alt: `${parsed.data.businessName} photo ${index + 1}`,
+            sortOrder: index,
+            url,
+          })),
+          deleteMany: {},
+        },
+        latitude: selectedAddressStorage.addressLatitude ?? business.latitude,
+        longitude: selectedAddressStorage.addressLongitude ?? business.longitude,
+        mapsUrl: mapsUrl || null,
+        name: parsed.data.businessName,
+        openingHoursText: buildOpeningHoursSummary(parsed.data.openingHours, locale),
+        phone: parsed.data.phone.trim() || null,
+        shortDescription: parsed.data.shortDescription,
+        socialLinks: Object.keys(currentSocialLinks).length ? currentSocialLinks : Prisma.JsonNull,
+        townId: town.id,
+        website: parsed.data.website?.trim() || null,
+      },
+    });
+
+    const latestSubmission = await tx.businessSubmission.findFirst({
+      where: { createdBusinessId: business.id },
+      orderBy: { createdAt: "desc" },
+      select: { id: true },
+    });
+
+    if (latestSubmission) {
+      await tx.businessSubmission.update({
+        where: { id: latestSubmission.id },
+        data: {
+          address: parsed.data.address,
+          addressCountry: selectedAddressStorage.addressCountry,
+          addressCountryCode: selectedAddressStorage.addressCountryCode,
+          addressLatitude: selectedAddressStorage.addressLatitude,
+          addressLocality: selectedAddressStorage.addressLocality,
+          addressLongitude: selectedAddressStorage.addressLongitude,
+          addressPlaceId: selectedAddressStorage.addressPlaceId,
+          addressPostalCode: selectedAddressStorage.addressPostalCode,
+          addressProvince: selectedAddressStorage.addressProvince,
+          addressRegion: selectedAddressStorage.addressRegion,
+          addressRoute: selectedAddressStorage.addressRoute,
+          addressStreetNumber: selectedAddressStorage.addressStreetNumber,
+          businessName: parsed.data.businessName,
+          categoryId: category.id,
+          email: parsed.data.email,
+          facebook: normalizeSubmissionSocialValue(parsed.data.facebook),
+          googleMapsUrl: mapsUrl || "",
+          instagram: normalizeSubmissionSocialValue(parsed.data.instagram),
+          longDescription: parsed.data.longDescription,
+          openingHours: parsed.data.openingHours,
+          ownerEmail: parsed.data.ownerEmail,
+          ownerHasNoEmail: parsed.data.ownerHasNoEmail,
+          ownerName: parsed.data.ownerName,
+          ownerPhone: parsed.data.ownerPhone,
+          phone: parsed.data.phone,
+          photoUrls: photoUrls.length ? photoUrls : Prisma.JsonNull,
+          shortDescription: parsed.data.shortDescription,
+          townId: town.id,
+          website: parsed.data.website,
+          whatsapp: parsed.data.whatsapp,
+        },
+      });
+    }
+  });
+
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/businesses");
+  revalidatePath("/directory");
+  revalidatePath("/explore");
+  revalidatePath(`/businesses/${business.slug}`);
+  revalidatePath(`/towns/${business.town.slug}`);
+
+  return {
+    notice: locale === "it" ? "Modifiche salvate." : "Changes saved.",
+    submission: {
+      ...rawSubmission,
+      photoUrls: photoUrls.join("\n"),
+    },
+  };
 }
 
 export async function verifyBusinessSubmissionCodeAction(

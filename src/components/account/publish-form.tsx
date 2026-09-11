@@ -43,6 +43,7 @@ import {
 
 import {
   saveBusinessSubmissionAction,
+  updateOwnedBusinessWithWizardAction,
   type DuplicateBusinessMatch,
   type FormState,
   type SubmissionFormValues,
@@ -136,6 +137,11 @@ type PublishFormProps = {
   locale: Locale;
   phoneCountryOptions: PhoneCountryOption[];
   previousSuccessfulSubmissionCount?: number;
+  editMode?: {
+    businessId: string;
+    initialStep?: OwnerEditStep;
+    preservedPhotoUrls?: string[];
+  };
   role?: "ADMIN" | "BUSINESS_OWNER" | "GETTER" | "USER";
   showPossibleMatchesOnLoad?: boolean;
   submission: SubmissionDraft;
@@ -179,6 +185,11 @@ type WizardStep =
   | "agreement"
   | "signature"
   | "payment";
+
+export type OwnerEditStep = Extract<
+  WizardStep,
+  "business" | "contact" | "owner" | "about" | "hours" | "photos"
+>;
 
 const optionalPhotoSlots = ["extra1", "extra2", "extra3"] as const satisfies readonly PhotoSlot[];
 
@@ -812,6 +823,7 @@ function getResumeWizardStep(values: SubmissionFormValues): WizardStep {
 export function PublishForm({
   adminMode = false,
   categories,
+  editMode,
   googlePlacesApiKey,
   locale,
   phoneCountryOptions,
@@ -822,11 +834,15 @@ export function PublishForm({
   towns,
 }: PublishFormProps) {
   const router = useRouter();
+  const isEditMode = Boolean(editMode);
   const initialSubmissionValues = buildSubmissionFormValues(submission);
   const initialSelectedAddress = buildSelectedAddressFromStoredFields(initialSubmissionValues);
   const initialOfferItems = parseOfferItems(initialSubmissionValues.longDescription);
   const generatedInitialSummary = buildShortDescription(initialOfferItems);
-  const [state, action, actionPending] = useActionState(saveBusinessSubmissionAction, initialState);
+  const [state, action, actionPending] = useActionState(
+    isEditMode ? updateOwnedBusinessWithWizardAction : saveBusinessSubmissionAction,
+    initialState,
+  );
   const [currentSubmissionId, setCurrentSubmissionId] = useState(submission.id ?? "");
   const [businessName, setBusinessName] = useState(initialSubmissionValues.businessName);
   const [categoryId, setCategoryId] = useState(initialSubmissionValues.categoryId);
@@ -897,7 +913,9 @@ export function PublishForm({
   const [duplicateDecision, setDuplicateDecision] = useState<"" | "new">("");
   const [duplicateRejected, setDuplicateRejected] = useState(false);
   const [ownerDetailsExpanded, setOwnerDetailsExpanded] = useState(false);
-  const [wizardStep, setWizardStep] = useState<WizardStep>(() => getResumeWizardStep(initialSubmissionValues));
+  const [wizardStep, setWizardStep] = useState<WizardStep>(() =>
+    editMode?.initialStep ?? getResumeWizardStep(initialSubmissionValues),
+  );
   const offerInputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const photoInputRefs = useRef<Partial<Record<PhotoSlot, HTMLInputElement | null>>>({});
   const formRef = useRef<HTMLFormElement | null>(null);
@@ -1547,7 +1565,7 @@ export function PublishForm({
       });
 
       if (exitAfterSave) {
-        router.push("/dashboard/businesses");
+        router.push(isEditMode ? "/dashboard" : "/dashboard/businesses");
         return;
       }
 
@@ -1561,7 +1579,7 @@ export function PublishForm({
     startTransition(() => {
       restoreSubmission(submission);
     });
-  }, [adminMode, role, router, state.duplicateMatches, state.error, state.submission]);
+  }, [adminMode, isEditMode, role, router, state.duplicateMatches, state.error, state.submission]);
 
   useEffect(() => {
     return () => {
@@ -1575,6 +1593,11 @@ export function PublishForm({
 
   useEffect(() => {
     if (!selectedAddress) {
+      if (isEditMode) {
+        startTransition(() => setSelectedTownId(initialSubmissionValues.townId));
+        return;
+      }
+
       startTransition(() => setSelectedTownId(""));
 
       return;
@@ -1598,7 +1621,15 @@ export function PublishForm({
         current === copy.addressUnsupportedTown ? "" : current,
       );
     });
-  }, [address, copy.addressSelectRequired, copy.addressUnsupportedTown, selectedAddress, towns]);
+  }, [
+    address,
+    copy.addressSelectRequired,
+    copy.addressUnsupportedTown,
+    initialSubmissionValues.townId,
+    isEditMode,
+    selectedAddress,
+    towns,
+  ]);
 
   const generatedOfferSummary = useMemo(() => buildShortDescription(offerItems), [offerItems]);
   const offerItemsCount = useMemo(() => countOfferItems(offerItems), [offerItems]);
@@ -1902,7 +1933,7 @@ export function PublishForm({
     }
 
     if (intentInputRef.current) {
-      intentInputRef.current.value = "draft";
+      intentInputRef.current.value = isEditMode ? "edit" : "draft";
     }
 
     if (exitAfterDraftSaveInputRef.current) {
@@ -1937,6 +1968,10 @@ export function PublishForm({
   }
 
   useEffect(() => {
+    if (isEditMode) {
+      return;
+    }
+
     if (typeof window === "undefined") {
       return;
     }
@@ -1948,9 +1983,14 @@ export function PublishForm({
         updatedAt: new Date().toISOString(),
       }),
     );
-  }, [currentDraftSnapshot, storageKey]);
+  }, [currentDraftSnapshot, isEditMode, storageKey]);
 
   useEffect(() => {
+    if (isEditMode) {
+      lastServerSavedPayloadRef.current = currentDraftPayload;
+      return;
+    }
+
     if (typeof window === "undefined" || initialDraftRestoreCheckedRef.current) {
       return;
     }
@@ -1987,7 +2027,7 @@ export function PublishForm({
       );
       setDraftSaveMode("local");
     });
-  }, [currentDraftPayload, currentSubmissionId, locale, storageKey]);
+  }, [currentDraftPayload, currentSubmissionId, isEditMode, locale, storageKey]);
 
   useEffect(() => {
     if (!state.notice) {
@@ -2193,6 +2233,14 @@ export function PublishForm({
       return true;
     }
 
+    if (
+      isEditMode &&
+      selectedTownId &&
+      address.trim() === initialSubmissionValues.address.trim()
+    ) {
+      return false;
+    }
+
     setAddressSelectionError(copy.addressSelectRequired);
     return true;
   }
@@ -2309,7 +2357,13 @@ export function PublishForm({
   function goToNextStep(next: WizardStep) {
     let error = "";
     if (wizardStep === "business") {
-      if (!businessName.trim() || !categoryId || !isValidSelectedAddress(selectedAddress) || !selectedTownId) {
+      const hasUsableAddress =
+        isValidSelectedAddress(selectedAddress) ||
+        (isEditMode &&
+          Boolean(selectedTownId) &&
+          address.trim() === initialSubmissionValues.address.trim());
+
+      if (!businessName.trim() || !categoryId || !hasUsableAddress || !selectedTownId) {
         error = locale === "it" ? "Inserisci nome e categoria e scegli un indirizzo dai suggerimenti." : "Add the name and category, then choose an address from the suggestions.";
       }
     } else if (wizardStep === "contact" && (!businessPhone || !isPossiblePhoneNumber(businessPhone))) {
@@ -2332,6 +2386,11 @@ export function PublishForm({
     }
 
     setDraftNotice("");
+    if (isEditMode) {
+      moveToWizardStep(next);
+      return;
+    }
+
     requestDraftSave("autosave", false, next);
   }
 
@@ -2470,11 +2529,14 @@ export function PublishForm({
       className={`publish-form-shell mx-auto grid w-full max-w-3xl gap-6 ${wizardStep === "hours" ? "publish-form-shell-hours" : ""}`}
       onSubmitCapture={(event) => {
         const intent = intentInputRef.current?.value;
-        if (intent === "submit" && validateAddressSelection()) event.preventDefault();
+        if ((intent === "submit" || intent === "edit") && validateAddressSelection()) {
+          event.preventDefault();
+        }
       }}
     >
       <input type="hidden" name="adminMode" value={adminMode ? "true" : ""} />
       <input type="hidden" name="locale" value={locale} />
+      <input type="hidden" name="businessId" value={editMode?.businessId ?? ""} />
       <input ref={intentInputRef} type="hidden" name="intent" defaultValue="draft" />
       <input ref={exitAfterDraftSaveInputRef} type="hidden" name="exitAfterDraftSave" defaultValue="" />
       <input type="hidden" name="submissionId" value={currentSubmissionId} />
@@ -2482,17 +2544,17 @@ export function PublishForm({
       <input type="hidden" name="businessName" value={businessName} />
       <input type="hidden" name="categoryId" value={categoryId} />
       <input type="hidden" name="address" value={address} />
-      <input type="hidden" name="addressCountry" value={selectedAddress?.country ?? ""} />
-      <input type="hidden" name="addressCountryCode" value={selectedAddress?.countryCode ?? ""} />
-      <input type="hidden" name="addressLatitude" value={selectedAddress?.latitude ?? ""} />
-      <input type="hidden" name="addressLongitude" value={selectedAddress?.longitude ?? ""} />
-      <input type="hidden" name="addressLocality" value={selectedAddress?.locality ?? ""} />
-      <input type="hidden" name="addressPlaceId" value={selectedAddress?.placeId ?? ""} />
-      <input type="hidden" name="addressPostalCode" value={selectedAddress?.postalCode ?? ""} />
-      <input type="hidden" name="addressProvince" value={selectedAddress?.administrativeAreaLevel2 ?? ""} />
-      <input type="hidden" name="addressRegion" value={selectedAddress?.administrativeAreaLevel1 ?? ""} />
-      <input type="hidden" name="addressRoute" value={selectedAddress?.route ?? ""} />
-      <input type="hidden" name="addressStreetNumber" value={selectedAddress?.streetNumber ?? ""} />
+      <input type="hidden" name="addressCountry" value={selectedAddress?.country ?? initialSubmissionValues.addressCountry} />
+      <input type="hidden" name="addressCountryCode" value={selectedAddress?.countryCode ?? initialSubmissionValues.addressCountryCode} />
+      <input type="hidden" name="addressLatitude" value={selectedAddress?.latitude ?? initialSubmissionValues.addressLatitude} />
+      <input type="hidden" name="addressLongitude" value={selectedAddress?.longitude ?? initialSubmissionValues.addressLongitude} />
+      <input type="hidden" name="addressLocality" value={selectedAddress?.locality ?? initialSubmissionValues.addressLocality} />
+      <input type="hidden" name="addressPlaceId" value={selectedAddress?.placeId ?? initialSubmissionValues.addressPlaceId} />
+      <input type="hidden" name="addressPostalCode" value={selectedAddress?.postalCode ?? initialSubmissionValues.addressPostalCode} />
+      <input type="hidden" name="addressProvince" value={selectedAddress?.administrativeAreaLevel2 ?? initialSubmissionValues.addressProvince} />
+      <input type="hidden" name="addressRegion" value={selectedAddress?.administrativeAreaLevel1 ?? initialSubmissionValues.addressRegion} />
+      <input type="hidden" name="addressRoute" value={selectedAddress?.route ?? initialSubmissionValues.addressRoute} />
+      <input type="hidden" name="addressStreetNumber" value={selectedAddress?.streetNumber ?? initialSubmissionValues.addressStreetNumber} />
       <input type="hidden" name="townId" value={selectedTownId} />
       <input type="hidden" name="phone" value={businessPhone} />
       <input type="hidden" name="whatsapp" value={businessWhatsapp} />
@@ -2509,6 +2571,7 @@ export function PublishForm({
       <input type="hidden" name="longDescription" value={longDescriptionValue} />
       <input type="hidden" name="openingHours" value={openingHoursValue} />
       <input type="hidden" name="photoUrls" value={photoUrlsValue} />
+      <input type="hidden" name="preservedPhotoUrls" value={editMode?.preservedPhotoUrls?.join("\n") ?? ""} />
       <input type="hidden" name="signerFullName" value={signerFullName} />
       <input type="hidden" name="signerRole" value={signerRole} />
       <input type="hidden" name="signerRoleOther" value={signerRoleOther} />
@@ -2516,18 +2579,34 @@ export function PublishForm({
       <input type="hidden" name="agreement" value={agreementAccepted ? "on" : ""} />
       <input ref={paymentMethodInputRef} type="hidden" name="paymentMethod" value={paymentMethod} readOnly />
 
-      {wizardStep === "business" ? (
+      {wizardStep === "business" || isEditMode ? (
         <header className="publish-form-intro">
           <p className="section-kicker mb-2">
-            {locale === "it" ? "Nuova attività" : "New business"}
+            {isEditMode
+              ? locale === "it"
+                ? "Modifica attività"
+                : "Edit business"
+              : locale === "it"
+                ? "Nuova attività"
+                : "New business"}
           </p>
           <h1 className="font-serif text-4xl text-[var(--foreground)]">
-            {locale === "it" ? "Aggiungi un'attività" : "Add a business"}
+            {isEditMode
+              ? locale === "it"
+                ? "Aggiorna le informazioni della tua attività"
+                : "Update your business information"
+              : locale === "it"
+                ? "Aggiungi un'attività"
+                : "Add a business"}
           </h1>
           <p className="mt-4 max-w-2xl text-[var(--muted)]">
-            {locale === "it"
-              ? "Ti guideremo passo dopo passo per pubblicare questa attività su Salento Local."
-              : "We'll guide you through everything you need to get this business listed on Salento Local."}
+            {isEditMode
+              ? locale === "it"
+                ? "Rivedi e aggiorna ogni sezione. Salveremo le modifiche senza modificare il tuo abbonamento o i pagamenti."
+                : "Review and update each section. Your changes will not affect your membership or payment."
+              : locale === "it"
+                ? "Ti guideremo passo dopo passo per pubblicare questa attività su Salento Local."
+                : "We'll guide you through everything you need to get this business listed on Salento Local."}
           </p>
         </header>
       ) : null}
@@ -2589,7 +2668,7 @@ export function PublishForm({
       <div className={`publish-form-card card overflow-visible sm:overflow-hidden ${wizardStep === "hours" ? "publish-form-card-hours" : ""}`}>
       <section className="publish-form-content p-5 sm:p-7">
         {wizardStep === "business" ? <div className="grid gap-5">
-          <div><p className="section-kicker">1. {locale === "it" ? "Attività" : "Business"}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? "Quale attività stai aggiungendo?" : "Which business are you adding?"}</h1><p className="mt-3 text-sm leading-6 text-[var(--muted)]">{locale === "it" ? "Chiedi il nome esatto, poi cerca e seleziona l'indirizzo verificato." : "Ask for the exact name, then search and select the verified address."}</p></div>
+          <div><p className="section-kicker">1. {locale === "it" ? "Attività" : "Business"}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{isEditMode ? (locale === "it" ? "Aggiorna le informazioni della tua attività" : "Update your business information") : (locale === "it" ? "Quale attività stai aggiungendo?" : "Which business are you adding?")}</h1><p className="mt-3 text-sm leading-6 text-[var(--muted)]">{isEditMode ? (locale === "it" ? "Aggiorna il nome, la categoria o l'indirizzo e scegli un nuovo indirizzo verificato se lo modifichi." : "Update the name, category, or address. If you change the address, select a new verified result.") : (locale === "it" ? "Chiedi il nome esatto, poi cerca e seleziona l'indirizzo verificato." : "Ask for the exact name, then search and select the verified address.")}</p></div>
           <label className="field-label"><FieldLabel title={copy.businessName} required={copy.required} /><input value={businessName} onChange={(event) => setBusinessName(event.target.value)} className={getFieldInputClass(hasFieldError("businessName"))} /></label>
           <label className="field-label"><FieldLabel title={copy.category} required={copy.required} /><select value={categoryId} onChange={(event) => setCategoryId(event.target.value)} className={getFieldInputClass(hasFieldError("categoryId"))}><option value="">{locale === "it" ? "Seleziona" : "Select"}</option>{categories.map((category) => <option key={category.id} value={category.id}>{getCategoryLabel(category.slug, category.name, locale)}</option>)}</select></label>
           <div className="field-label"><FieldLabel title={copy.address} description={copy.addressHelp} required={copy.required} /><AddressAutocomplete initialGooglePlacesApiKey={googlePlacesApiKey} locale={locale} query={address} selectedAddress={selectedAddress} onQueryChange={setAddress} onSelectedAddressChange={setSelectedAddress} clientError={addressSelectionError} emphasizeError={addressSelectionError === copy.addressUnsupportedTown} onClientErrorChange={setAddressSelectionError} serverError={state.fieldErrors?.address} />{selectedAddress ? <p className="rounded-2xl bg-[rgba(42,98,87,0.08)] px-4 py-3 text-sm text-[var(--foreground)]">✓ {buildStreetAddressLine(selectedAddress)}<br />{selectedAddress.locality}, {selectedAddress.administrativeAreaLevel2} {selectedAddress.postalCode}</p> : null}</div>
@@ -2955,13 +3034,13 @@ export function PublishForm({
         </div>
         </> : <>
         {previousWizardStep ? <button type="button" disabled={draftSavePending || actionPending} onClick={goToPreviousStep} className="btn-secondary disabled:cursor-wait disabled:opacity-50">{showFooterButtonIcons ? <IconArrowLeft size={18} aria-hidden="true" /> : null}{locale === "it" ? "Indietro" : "Back"}</button> : null}
-        <button type="button" disabled={draftSavePending || actionPending} onClick={() => requestDraftSave("manual", true)} className="btn-secondary disabled:cursor-wait disabled:opacity-50">{showFooterButtonIcons && !(draftSavePending || actionPending) ? <IconDeviceFloppy size={18} aria-hidden="true" /> : null}{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : locale === "it" ? "Salva ed esci" : "Save & exit"}</button>
+        <button type="button" disabled={draftSavePending || actionPending} onClick={() => requestDraftSave("manual", true)} className="btn-secondary disabled:cursor-wait disabled:opacity-50">{showFooterButtonIcons && !(draftSavePending || actionPending) ? <IconDeviceFloppy size={18} aria-hidden="true" /> : null}{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : isEditMode ? (locale === "it" ? "Salva modifiche" : "Save changes") : locale === "it" ? "Salva ed esci" : "Save & exit"}</button>
         {wizardStep === "business" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep("contact")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
         {wizardStep === "contact" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep("owner")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
         {wizardStep === "owner" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep("about")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
         {wizardStep === "about" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep("hours")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
         {wizardStep === "hours" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep("photos")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
-        {wizardStep === "photos" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep("review")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Rivedi l'attività" : "Review business"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
+        {wizardStep === "photos" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => isEditMode ? requestDraftSave("manual", true) : goToNextStep("review")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : isEditMode ? (locale === "it" ? "Salva modifiche" : "Save changes") : <>{locale === "it" ? "Rivedi l'attività" : "Review business"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
         {wizardStep === "owner-review" ? <button type="button" disabled={!ownerInformationConfirmed || draftSavePending || actionPending} onClick={() => requestDraftSave("autosave", false, "agreement")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : locale === "it" ? "Continua" : "Continue"}</button> : null}
         </>}
       </div> : null}
