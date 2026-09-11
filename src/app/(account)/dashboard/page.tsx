@@ -283,6 +283,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             },
             take: 2,
           },
+          submissions: {
+            orderBy: { createdAt: "desc" },
+            select: { photoUrls: true },
+            take: 1,
+          },
           shortDescription: true,
           slug: true,
           tags: { select: { tag: { select: { name: true } } } },

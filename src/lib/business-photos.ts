@@ -29,3 +29,13 @@ export function mergeBusinessPhotoUrls(...sources: ReadonlyArray<ReadonlyArray<s
     }, []),
   );
 }
+
+export function getBusinessPhotoUrls(
+  images: ReadonlyArray<{ url: string }>,
+  submissionPhotoUrls: unknown,
+): string[] {
+  return mergeBusinessPhotoUrls(
+    images.map((image) => image.url),
+    getStoredPhotoUrls(submissionPhotoUrls),
+  );
+}

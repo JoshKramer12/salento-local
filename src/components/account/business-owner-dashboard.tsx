@@ -19,6 +19,7 @@ import {
 import { BusinessOwnerAccountNav } from "@/components/account/business-owner-account-nav";
 import { HardNavigationLink } from "@/components/hard-navigation-link";
 import { normalizeUrlInput } from "@/lib/business-links";
+import { getBusinessPhotoUrls } from "@/lib/business-photos";
 import type { Locale } from "@/lib/i18n";
 import { LISTING_OFFER } from "@/lib/listing-offer";
 import { buildBusinessImage, buildBusinessPhoto, getCategoryLabel } from "@/lib/site";
@@ -52,6 +53,7 @@ type OwnerBusiness = {
     rating: number;
     title: string;
   }>;
+  submissions: Array<{ photoUrls: unknown }>;
   shortDescription: string;
   slug: string;
   tags: Array<{ tag: { name: string } }>;
@@ -254,11 +256,15 @@ function OwnerBusinessSection({ business, copy, locale }: { business: OwnerBusin
   const italian = locale === "it";
   const category = getCategoryLabel(business.category.slug, business.category.name, locale);
   const fallbackImage = buildBusinessImage({ heroImageSeed: business.heroImageSeed, name: business.name }, business.category.slug, 1500);
-  const gallery = business.images.map((image, index) => ({
-    alt: image.alt || `${business.name} ${index + 1}`,
-    id: image.id,
-    src: buildBusinessPhoto(image.url, index === 0 ? 1500 : 400, { label: business.name, seed: business.heroImageSeed, type: business.category.slug === "beaches" ? "beach" : "business" }) ?? fallbackImage,
-  }));
+  const gallery = getBusinessPhotoUrls(business.images, business.submissions[0]?.photoUrls).map((url, index) => {
+    const image = business.images.find((entry) => entry.url === url);
+
+    return {
+      alt: image?.alt || `${business.name} ${index + 1}`,
+      id: image?.id || `submission-photo-${index}`,
+      src: buildBusinessPhoto(url, index === 0 ? 1500 : 400, { label: business.name, seed: business.heroImageSeed, type: business.category.slug === "beaches" ? "beach" : "business" }) ?? fallbackImage,
+    };
+  });
   const visibleImages = gallery.slice(0, 4);
   const hero = gallery[0] ?? { alt: business.name, id: "fallback-image", src: fallbackImage };
   const payment = business.payments[0];
@@ -278,7 +284,7 @@ function OwnerBusinessSection({ business, copy, locale }: { business: OwnerBusin
           <div className="mt-2 grid grid-cols-4 gap-2">
             {visibleImages.slice(1).map((image) => <img key={image.id} src={image.src} alt={image.alt} className="aspect-[1.25/0.8] min-w-0 rounded-xl object-cover" />)}
             {visibleImages.length === 1 ? <div className="col-span-3" /> : null}
-            {business.images.length > 4 ? <div className="relative aspect-[1.25/0.8] overflow-hidden rounded-xl bg-[var(--primary)] text-white"><img src={gallery[3]?.src ?? fallbackImage} alt="" className="h-full w-full object-cover opacity-45" /><span className="absolute inset-0 flex items-center justify-center text-sm font-semibold">+{business.images.length - 4}</span></div> : null}
+            {gallery.length > 4 ? <div className="relative aspect-[1.25/0.8] overflow-hidden rounded-xl bg-[var(--primary)] text-white"><img src={gallery[3]?.src ?? fallbackImage} alt="" className="h-full w-full object-cover opacity-45" /><span className="absolute inset-0 flex items-center justify-center text-sm font-semibold">+{gallery.length - 4}</span></div> : null}
           </div>
         </div>
 

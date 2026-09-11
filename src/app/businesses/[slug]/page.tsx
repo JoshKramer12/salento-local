@@ -18,7 +18,7 @@ import {
   normalizeInstagramUrl,
   normalizeUrlInput,
 } from "@/lib/business-links";
-import { getStoredPhotoUrls, mergeBusinessPhotoUrls } from "@/lib/business-photos";
+import { getBusinessPhotoUrls } from "@/lib/business-photos";
 import { getBusinessHoursStatus, getBusinessHoursStatusDetail, resolveBusinessHours } from "@/lib/business-hours";
 import { getCurrentLocale } from "@/lib/locale";
 import { prisma } from "@/lib/prisma";
@@ -189,10 +189,7 @@ function buildGalleryImages(
 ) {
   const fallbackImage = buildBusinessImage(business, business.category.slug, 1800);
   const seen = new Set<string>();
-  const gallery = mergeBusinessPhotoUrls(
-    business.images.map((image) => image.url),
-    getStoredPhotoUrls(submissionPhotoUrls),
-  )
+  const gallery = getBusinessPhotoUrls(business.images, submissionPhotoUrls)
     .map((url, index) => {
       const image = business.images.find((entry) => entry.url === url);
 
