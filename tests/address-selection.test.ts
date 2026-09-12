@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildGoogleMapsBusinessSearchUrl,
   buildGoogleMapsDirectionsUrl,
   buildGoogleMapsSearchUrl,
   buildSelectedAddressFromPlaceDetails,
@@ -191,6 +192,27 @@ test("maps helpers preserve place ids for search and directions links", () => {
 
   assert.equal(new URL(searchUrl).searchParams.get("query_place_id"), "place-123");
   assert.equal(new URL(directionsUrl ?? "").searchParams.get("destination_place_id"), "place-123");
+});
+
+test("business address maps searches include the business and structured location", () => {
+  const mapsUrl = buildGoogleMapsBusinessSearchUrl({
+    businessName: "Trattoria da Nonna",
+    country: "Italy",
+    formattedAddress: "Via Vittorio Emanuele 12",
+    locality: "Otranto",
+    placeId: "place-otranto-12",
+    province: "Lecce",
+  });
+  const parsedUrl = new URL(mapsUrl);
+
+  assert.equal(parsedUrl.origin, "https://www.google.com");
+  assert.equal(parsedUrl.pathname, "/maps/search/");
+  assert.equal(parsedUrl.searchParams.get("api"), "1");
+  assert.equal(
+    parsedUrl.searchParams.get("query"),
+    "Trattoria da Nonna, Via Vittorio Emanuele 12, Otranto, Lecce, Italy",
+  );
+  assert.equal(parsedUrl.searchParams.get("query_place_id"), "place-otranto-12");
 });
 
 test("mobile address suggestions use the available visual viewport height", () => {

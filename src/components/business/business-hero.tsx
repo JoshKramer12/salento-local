@@ -7,6 +7,7 @@ type BusinessHeroImage = { alt: string; id: string; src: string };
 
 type BusinessHeroProps = {
   address: string;
+  addressHref: string;
   businessName: string;
   callHref?: string | null;
   categoryLabel: string;
@@ -28,6 +29,7 @@ type BusinessHeroProps = {
 
 export function BusinessHero({
   address,
+  addressHref,
   businessName,
   callHref,
   categoryLabel,
@@ -62,7 +64,17 @@ export function BusinessHero({
         <h1 className="mt-4 font-serif text-[2.65rem] leading-[0.95] tracking-[-0.035em] text-[var(--foreground)] sm:text-5xl">{businessName}</h1>
         <div className="mt-4 flex items-start gap-2 text-sm leading-6 text-[var(--muted-strong)]">
           <IconMapPin size={17} className="mt-0.5 shrink-0 text-[var(--accent)]" />
-          <p>{localityLabel ? <>{address}{" "}<a href={townHref} className="font-medium text-[var(--primary)] hover:underline">{localityLabel}</a></> : <a href={townHref} className="font-medium text-[var(--primary)] hover:underline">{address}</a>}</p>
+          <p>
+            <a
+              href={addressHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-[var(--primary)] hover:underline"
+            >
+              {address}
+            </a>
+            {localityLabel ? <>{" "}<a href={townHref} className="font-medium text-[var(--primary)] hover:underline">{localityLabel}</a></> : null}
+          </p>
         </div>
         {openDetail ? <p className="mt-2 text-sm font-medium text-[var(--primary)]">{openDetail}</p> : null}
         {highlights.length ? <div className="mt-5 flex flex-wrap gap-2">{highlights.map((highlight) => <span key={highlight} className="rounded-full bg-[rgba(111,143,78,0.12)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)]">{highlight}</span>)}</div> : null}

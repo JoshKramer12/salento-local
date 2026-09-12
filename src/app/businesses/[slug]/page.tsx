@@ -8,9 +8,11 @@ import { BusinessOpeningHours } from "@/components/business/business-opening-hou
 import { BusinessReviews } from "@/components/business/business-reviews";
 import { ReviewComposer } from "@/components/review-composer";
 import {
+  buildGoogleMapsBusinessSearchUrl,
   buildGoogleMapsDirectionsUrl,
   buildGoogleMapsSearchUrl,
 } from "@/lib/address-selection";
+import { buildBusinessOriginHref } from "@/lib/business-listing-navigation";
 import {
   getSocialDisplayLabel,
   getWebsiteDisplayLabel,
@@ -362,6 +364,15 @@ export default async function BusinessPage({ params, searchParams }: BusinessPag
       formattedAddress: business.address,
       placeId: business.addressPlaceId ?? "",
     });
+  const addressSearchUrl = buildGoogleMapsBusinessSearchUrl({
+    businessName: business.name,
+    country: business.addressCountry,
+    formattedAddress: business.address,
+    locality: business.addressLocality ?? business.locality?.name ?? business.town.name,
+    placeId: business.addressPlaceId ?? "",
+    province: business.addressProvince ?? business.town.province,
+  });
+  const townHref = buildBusinessOriginHref(`/towns/${business.town.slug}`, business.slug);
   const categoryLabel = getCategoryLabel(business.category.slug, business.category.name, locale);
   const localityLabel = business.locality
     ? `${business.locality.name}, ${business.town.name}`
@@ -416,10 +427,10 @@ export default async function BusinessPage({ params, searchParams }: BusinessPag
           </Link>
         </div>
       ) : null}
-      <BusinessHero address={business.address} businessName={business.name} callHref={business.phone ? `tel:${business.phone}` : null} categoryLabel={categoryLabel} description={intro} directionsHref={directionsUrl} highlights={offerings} imageAlt={business.name} images={heroGallery} locale={locale} localityLabel={heroLocalityLabel} openDetail={heroOpenDetail} openLabel={heroOpenLabel} openTone={hoursStatus?.isOpen ? "open" : "closed"} phone={business.phone} townHref={`/towns/${business.town.slug}`} websiteHref={businessWebsite} websiteLabel={businessWebsiteLabel} />
+      <BusinessHero address={business.address} addressHref={addressSearchUrl} businessName={business.name} callHref={business.phone ? `tel:${business.phone}` : null} categoryLabel={categoryLabel} description={intro} directionsHref={directionsUrl} highlights={offerings} imageAlt={business.name} images={heroGallery} locale={locale} localityLabel={heroLocalityLabel} openDetail={heroOpenDetail} openLabel={heroOpenLabel} openTone={hoursStatus?.isOpen ? "open" : "closed"} phone={business.phone} townHref={townHref} websiteHref={businessWebsite} websiteLabel={businessWebsiteLabel} />
 
       <div className="mt-4 space-y-4 sm:mt-6 sm:space-y-5">
-        <Link href={`/towns/${business.town.slug}`} className="flex items-center gap-3 rounded-[1.5rem] border border-[var(--border)] bg-[var(--card)] p-3 shadow-[0_8px_20px_rgba(66,51,31,0.04)] transition hover:border-[rgba(42,98,87,0.28)]">
+        <Link href={townHref} className="flex items-center gap-3 rounded-[1.5rem] border border-[var(--border)] bg-[var(--card)] p-3 shadow-[0_8px_20px_rgba(66,51,31,0.04)] transition hover:border-[rgba(42,98,87,0.28)]">
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[var(--secondary)] text-xl text-[var(--primary)]">⌂</span>
           <span className="min-w-0 flex-1"><span className="block font-serif text-2xl text-[var(--primary)]">{business.town.name} →</span><span className="mt-0.5 block text-sm text-[var(--muted)]">{copy.townExplore}</span></span>
           <span className="h-14 w-20 shrink-0 rounded-2xl bg-cover bg-center" style={{ backgroundImage: `url("${buildTownImage(business.town, 500)}")` }} />
@@ -427,7 +438,7 @@ export default async function BusinessPage({ params, searchParams }: BusinessPag
 
         {hasDistinctAbout ? <section className="rounded-[1.7rem] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[0_10px_26px_rgba(66,51,31,0.05)] sm:p-6"><h2 className="font-serif text-3xl text-[var(--foreground)]">{copy.about}</h2><p className="mt-3 text-[0.98rem] leading-7 text-[var(--muted-strong)]">{aboutDescription}</p></section> : null}
         <BusinessOpeningHours locale={locale} openingHoursText={business.openingHoursText} schedule={schedule} />
-        <BusinessContactCard address={business.address} callHref={business.phone ? `tel:${business.phone}` : null} directionsHref={directionsUrl} email={business.email} locale={locale} phone={business.phone} socialLinks={socialLinks} townLine={townLine} websiteHref={businessWebsite} websiteLabel={businessWebsiteLabel} />
+        <BusinessContactCard address={business.address} addressHref={addressSearchUrl} callHref={business.phone ? `tel:${business.phone}` : null} directionsHref={directionsUrl} email={business.email} locale={locale} phone={business.phone} socialLinks={socialLinks} townLine={townLine} websiteHref={businessWebsite} websiteLabel={businessWebsiteLabel} />
         <BusinessReviews locale={locale} rating={business.rating} reviewCount={business.reviewCount} reviews={business.reviews.map((review) => ({ ...review, createdAt: new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-GB", { dateStyle: "medium" }).format(review.createdAt) }))} />
         <ReviewComposer businessId={business.id} businessName={business.name} locale={locale} />
       </div>

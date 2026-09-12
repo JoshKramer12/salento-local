@@ -11,6 +11,7 @@ import type { Locale } from "@/lib/i18n";
 
 type BusinessContactCardProps = {
   address: string;
+  addressHref: string;
   callHref?: string | null;
   directionsHref: string;
   email?: string | null;
@@ -28,6 +29,7 @@ type BusinessContactCardProps = {
 
 export function BusinessContactCard({
   address,
+  addressHref,
   callHref,
   directionsHref,
   email,
@@ -74,10 +76,15 @@ export function BusinessContactCard({
         <div className="rounded-2xl bg-[var(--secondary)] p-3.5">
           <div className="flex items-start gap-3">
             <IconMapPin size={16} className="mt-1 shrink-0 text-[var(--accent)]" />
-            <div>
-              <p className="leading-7 text-[var(--foreground)]">{address}</p>
-              <p className="text-[var(--muted)]">{townLine}</p>
-            </div>
+            <a
+              href={addressHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="min-w-0 rounded-sm leading-7 text-[var(--foreground)] hover:text-[var(--primary)] hover:underline"
+            >
+              <span className="block">{address}</span>
+              <span className="block text-[var(--muted)]">{townLine}</span>
+            </a>
           </div>
         </div>
 

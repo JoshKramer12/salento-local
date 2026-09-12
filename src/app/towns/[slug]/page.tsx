@@ -10,6 +10,10 @@ import {
 import { BusinessExplorer } from "@/components/business-explorer";
 import { CategoryIconGlyph } from "@/components/category-icon-glyph";
 import { TownCategoryCard } from "@/components/town-category-card";
+import {
+  getBusinessOriginSlug,
+  resolveBusinessBackLink,
+} from "@/lib/business-listing-navigation";
 import { getLocaleTag } from "@/lib/i18n";
 import { getCurrentLocale } from "@/lib/locale";
 import { prisma } from "@/lib/prisma";
@@ -179,12 +183,16 @@ export default async function TownPage({
   const localityFilter = getSingleParam(resolvedSearchParams.locality);
   const sort = getSingleParam(resolvedSearchParams.sort);
   const view = getSingleParam(resolvedSearchParams.view);
+  const businessOriginSlug = getBusinessOriginSlug(
+    getSingleParam(resolvedSearchParams.fromBusiness),
+  );
   const copy =
     locale === "it"
       ? {
           area: "Superficie",
           areasButton: "Vedi tutte le aree",
           back: "Torna ai comuni",
+          backToBusiness: "Torna a",
           browseAll: "Esplora tutti i luoghi",
           elevation: "Altitudine",
           exploreKicker: "Esplora tutto",
@@ -203,6 +211,7 @@ export default async function TownPage({
           area: "Area",
           areasButton: "View all areas",
           back: "Back to towns",
+          backToBusiness: "Back to",
           browseAll: "Explore All Places",
           elevation: "Elevation",
           exploreKicker: "Explore everything",
@@ -273,6 +282,26 @@ export default async function TownPage({
 
     notFound();
   }
+
+  const businessOrigin = businessOriginSlug
+    ? await prisma.business.findUnique({
+        where: { slug: businessOriginSlug },
+        select: {
+          name: true,
+          slug: true,
+          townId: true,
+        },
+      })
+    : null;
+  const businessBackLink = resolveBusinessBackLink(
+    businessOriginSlug,
+    businessOrigin,
+    town.id,
+  );
+  const backHref = businessBackLink?.href ?? "/towns";
+  const backLabel = businessBackLink
+    ? `${copy.backToBusiness} ${businessBackLink.name}`
+    : copy.back;
 
   const allCategoryCounts = town.businesses.reduce<Record<string, number>>((accumulator, business) => {
     accumulator[business.category.slug] = (accumulator[business.category.slug] ?? 0) + 1;
@@ -371,11 +400,11 @@ export default async function TownPage({
           <div className="absolute inset-0 bg-gradient-to-t from-[rgba(26,23,20,0.78)] via-[rgba(26,23,20,0.32)] to-transparent" />
           <div className="shell absolute inset-x-0 top-0 z-10 px-4 pt-5 sm:px-6 sm:pt-6">
             <Link
-              href="/towns"
-              className="inline-flex items-center gap-2 rounded-full border border-[rgba(255,255,255,0.62)] bg-[rgba(255,255,255,0.74)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] shadow-[0_16px_36px_rgba(0,0,0,0.18)] backdrop-blur-md transition-all hover:bg-[rgba(255,255,255,0.9)] hover:shadow-[0_20px_42px_rgba(0,0,0,0.24)]"
+              href={backHref}
+              className="inline-flex max-w-full items-center gap-2 rounded-full border border-[rgba(255,255,255,0.62)] bg-[rgba(255,255,255,0.74)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] shadow-[0_16px_36px_rgba(0,0,0,0.18)] backdrop-blur-md transition-all hover:bg-[rgba(255,255,255,0.9)] hover:shadow-[0_20px_42px_rgba(0,0,0,0.24)]"
             >
-              <IconArrowLeft size={16} />
-              {copy.back}
+              <IconArrowLeft size={16} className="shrink-0" />
+              <span className="truncate">{backLabel}</span>
             </Link>
           </div>
           <div className="shell absolute inset-x-0 bottom-0 px-4 pb-8 sm:px-6 sm:pb-12">

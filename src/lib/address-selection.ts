@@ -291,6 +291,30 @@ export function buildGoogleMapsSearchUrl(address: Pick<SelectedAddress, "formatt
   return url.toString();
 }
 
+export function buildGoogleMapsBusinessSearchUrl(
+  business: Pick<SelectedAddress, "formattedAddress" | "placeId"> & {
+    businessName: string;
+    country?: string | null;
+    locality?: string | null;
+    province?: string | null;
+  },
+) {
+  const queryParts = [
+    business.businessName,
+    business.formattedAddress,
+    business.locality,
+    business.province,
+    business.country || "Italy",
+  ]
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part));
+
+  return buildGoogleMapsSearchUrl({
+    formattedAddress: queryParts.join(", "),
+    placeId: business.placeId,
+  });
+}
+
 export function buildGoogleMapsDirectionsUrl(
   address:
     | Pick<SelectedAddress, "latitude" | "longitude" | "placeId">
