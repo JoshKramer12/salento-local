@@ -4,7 +4,6 @@ import type { Locale } from "@/lib/i18n";
 
 export type AccountNavigationKey =
   | "businesses"
-  | "claim"
   | "dashboard"
   | "earnings"
   | "guide"
@@ -75,15 +74,6 @@ export function getAccountNavigationItems(
             href: "/partner/guide",
             key: "guide" as const,
             label: italian ? "Guida" : "Guide",
-          },
-        ]
-      : []),
-    ...(role === "BUSINESS_OWNER" || role === "ADMIN"
-      ? [
-          {
-            href: "/claim",
-            key: "claim" as const,
-            label: italian ? "Rivendica attivita" : "Claim business",
           },
         ]
       : []),

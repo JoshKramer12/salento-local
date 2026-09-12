@@ -42,8 +42,8 @@ export default async function ClaimVerifyPage({ searchParams }: ClaimVerifyPageP
   if (
     !claim ||
     claim.userId !== viewer.id ||
-    !claim.verificationChannel ||
-    claim.verificationChannel === "MANUAL"
+    claim.verificationChannel !== "EMAIL" ||
+    claim.status !== "AWAITING_VERIFICATION"
   ) {
     redirect("/claim");
   }
@@ -61,7 +61,6 @@ export default async function ClaimVerifyPage({ searchParams }: ClaimVerifyPageP
           <div className="mt-8">
             <BusinessClaimVerifyForm
               businessName={claim.business.name}
-              channel={claim.verificationChannel}
               claimId={claim.id}
               contact={maskVerificationRecipient(claim.verificationChannel, claim.verificationSentTo)}
               locale={locale}

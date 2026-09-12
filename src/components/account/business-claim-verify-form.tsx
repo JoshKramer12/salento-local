@@ -1,21 +1,20 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useRef, useState } from "react";
 
 import {
   resendBusinessClaimCodeAction,
   verifyBusinessClaimCodeAction,
   type FormState,
 } from "@/app/(account)/actions";
-import type { ClaimVerificationMethod } from "@/lib/business-claim-verification";
 import { FormSubmitButton } from "@/components/form-submit-button";
 import type { Locale } from "@/lib/i18n";
 
 const initialState: FormState = {};
+const codeLength = 6;
 
 type BusinessClaimVerifyFormProps = {
   businessName: string;
-  channel: ClaimVerificationMethod;
   claimId: string;
   contact: string | null;
   locale: Locale;
@@ -23,39 +22,56 @@ type BusinessClaimVerifyFormProps = {
 
 export function BusinessClaimVerifyForm({
   businessName,
-  channel,
   claimId,
   contact,
   locale,
 }: BusinessClaimVerifyFormProps) {
   const [verifyState, verifyAction] = useActionState(verifyBusinessClaimCodeAction, initialState);
   const [resendState, resendAction] = useActionState(resendBusinessClaimCodeAction, initialState);
+  const [digits, setDigits] = useState<string[]>(() => Array.from({ length: codeLength }, () => ""));
+  const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const copy =
     locale === "it"
       ? {
-          body:
-            channel === "EMAIL"
-              ? "Abbiamo inviato un codice di 6 cifre all'email personale registrata per il proprietario o manager di questa scheda. Inseriscilo qui per collegarla al tuo account."
-              : "Abbiamo inviato un codice di 6 cifre al numero personale registrato per il proprietario o manager di questa scheda. Inseriscilo qui per collegarla al tuo account.",
+          body: "Abbiamo inviato un codice di 6 cifre all'email registrata per questa attività. Inseriscilo qui per collegarla al tuo account.",
           code: "Codice a 6 cifre",
           cta: "Conferma codice",
           pending: "Verifica in corso...",
           resend: "Invia di nuovo il codice",
           resendPending: "Invio nuovo codice...",
-          sentTo: channel === "EMAIL" ? "Codice inviato a" : "SMS inviato a",
+          sentTo: "Codice inviato a",
         }
       : {
-          body:
-            channel === "EMAIL"
-              ? "We sent a 6-digit code to the personal email registered for the owner or manager of this listing. Enter it here to connect the listing to your account."
-              : "We sent a 6-digit code by SMS to the personal phone number registered for the owner or manager of this listing. Enter it here to connect the listing to your account.",
+          body: "We sent a 6-digit code to the email registered for this business. Enter it here to connect the listing to your account.",
           code: "6-digit code",
           cta: "Confirm code",
           pending: "Verifying...",
           resend: "Send code again",
           resendPending: "Sending new code...",
-          sentTo: channel === "EMAIL" ? "Code sent to" : "SMS sent to",
+          sentTo: "Code sent to",
         };
+
+  function applyDigits(index: number, value: string) {
+    const incoming = value.replace(/\D/g, "").slice(0, codeLength - index);
+
+    setDigits((current) => {
+      const next = [...current];
+
+      if (!incoming) {
+        next[index] = "";
+        return next;
+      }
+
+      incoming.split("").forEach((digit, offset) => {
+        next[index + offset] = digit;
+      });
+
+      return next;
+    });
+
+    const nextIndex = Math.min(index + Math.max(incoming.length, 1), codeLength - 1);
+    requestAnimationFrame(() => inputRefs.current[nextIndex]?.focus());
+  }
 
   return (
     <div className="grid gap-5">
@@ -74,7 +90,35 @@ export function BusinessClaimVerifyForm({
         <input type="hidden" name="claimId" value={claimId} />
         <label className="field-label">
           <span>{copy.code}</span>
-          <input name="code" inputMode="numeric" maxLength={6} className="input-field" />
+          <input name="code" type="hidden" value={digits.join("")} />
+          <span className="grid grid-cols-6 gap-2 sm:gap-3" role="group" aria-label={copy.code}>
+            {digits.map((digit, index) => (
+              <input
+                aria-label={`${copy.code} ${index + 1}`}
+                autoComplete={index === 0 ? "one-time-code" : "off"}
+                className="input-field min-w-0 px-0 text-center text-xl font-semibold sm:text-2xl"
+                inputMode="numeric"
+                key={index}
+                maxLength={codeLength}
+                onChange={(event) => applyDigits(index, event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Backspace" && !digits[index] && index > 0) {
+                    requestAnimationFrame(() => inputRefs.current[index - 1]?.focus());
+                  }
+                  if (event.key === "ArrowLeft" && index > 0) inputRefs.current[index - 1]?.focus();
+                  if (event.key === "ArrowRight" && index < codeLength - 1) inputRefs.current[index + 1]?.focus();
+                }}
+                onPaste={(event) => {
+                  event.preventDefault();
+                  applyDigits(index, event.clipboardData.getData("text"));
+                }}
+                pattern="[0-9]*"
+                ref={(element) => { inputRefs.current[index] = element; }}
+                type="text"
+                value={digit}
+              />
+            ))}
+          </span>
         </label>
         {verifyState.error ? <p className="text-sm text-[var(--accent)]">{verifyState.error}</p> : null}
         {resendState.notice ? (

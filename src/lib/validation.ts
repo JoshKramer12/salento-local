@@ -520,9 +520,6 @@ export const localPartnerOnboardingSchema = z.object({
 
 export const businessClaimRequestSchema = z.object({
   businessId: z.string().trim().min(1),
-  claimantName: z.string().trim().min(2).max(120),
-  claimantPosition: z.string().trim().min(2).max(80),
-  verificationChannel: z.enum(verificationChannelValues),
 });
 
 export const ownedBusinessProfileSchema = z.object({

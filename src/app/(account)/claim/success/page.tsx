@@ -47,8 +47,8 @@ export default async function ClaimSuccessPage({
       ? {
           body:
             "Complimenti. Questa attivita e ora collegata al tuo account e puoi iniziare a gestirne il profilo.",
-          cta: "Vai alla pagina dell'attivita",
-          edit: "Modifica profilo attivita",
+          cta: "Vai alla pagina dell'attività",
+          edit: "Modifica il profilo dell'attività",
           eyebrow: "Rivendicazione completata",
           title: `${business.name} ora e registrata a tuo nome`,
         }
@@ -69,11 +69,11 @@ export default async function ClaimSuccessPage({
           <h1 className="font-serif text-4xl text-[var(--foreground)]">{copy.title}</h1>
           <p className="mt-4 max-w-2xl text-[var(--muted)]">{copy.body}</p>
           <div className="mt-8 flex flex-wrap gap-3">
-            <Link href={`/businesses/${business.slug}`} className="btn-primary">
-              {copy.cta}
-            </Link>
-            <Link href={`/businesses/${business.slug}/edit?step=business`} className="btn-secondary">
+            <Link href={`/businesses/${business.slug}/edit?step=business`} className="btn-primary">
               {copy.edit}
+            </Link>
+            <Link href={`/businesses/${business.slug}`} className="btn-secondary">
+              {copy.cta}
             </Link>
           </div>
         </section>

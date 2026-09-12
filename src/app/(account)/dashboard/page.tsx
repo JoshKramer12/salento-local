@@ -622,11 +622,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             <HardNavigationLink href="/publish" className="btn-primary">
               {primaryBusinessCta}
             </HardNavigationLink>
-            {viewer.role === "BUSINESS_OWNER" ? (
-              <HardNavigationLink href="/claim" className="btn-secondary">
-                {locale === "it" ? "Rivendica attività esistente" : "Claim an existing business"}
-              </HardNavigationLink>
-            ) : null}
           </div>
         )}
       </div>

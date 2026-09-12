@@ -125,7 +125,6 @@ export function BusinessOwnerDashboard({
         add: "Aggiungi un'altra attività",
         average: "Valutazione media",
         basedOn: "Basata su",
-        claim: "Rivendica un'attività",
         contact: "Contatta il supporto",
         currentPeriodEnds: "Il periodo della tua scheda termina il",
         daysLeft: "giorni rimanenti",
@@ -133,7 +132,7 @@ export function BusinessOwnerDashboard({
         edit: "Modifica informazioni attività",
         editListing: "Modifica scheda",
         empty: "Non hai ancora attività collegate al tuo account.",
-        emptyBody: "Aggiungi una nuova attività o rivendica una scheda esistente per iniziare a gestirla qui.",
+        emptyBody: "Aggiungi una nuova attività per iniziare a gestirla qui.",
         emptyReviews: "Ancora nessuna recensione.",
         help: "Hai bisogno di aiuto?",
         helpBody: "Se hai domande o hai bisogno di supporto, siamo qui per aiutarti.",
@@ -164,7 +163,6 @@ export function BusinessOwnerDashboard({
         add: "Add another business",
         average: "Average rating",
         basedOn: "Based on",
-        claim: "Claim a business",
         contact: "Contact support",
         currentPeriodEnds: "Your current listing period ends on",
         daysLeft: "days left",
@@ -172,7 +170,7 @@ export function BusinessOwnerDashboard({
         edit: "Edit business information",
         editListing: "Edit listing",
         empty: "You do not have any businesses connected to your account yet.",
-        emptyBody: "Add a new business or claim an existing listing to start managing it here.",
+        emptyBody: "Add a new business to start managing it here.",
         emptyReviews: "No reviews yet.",
         help: "Need help?",
         helpBody: "If you have any questions or need support, we’re here to help.",
@@ -213,9 +211,6 @@ export function BusinessOwnerDashboard({
           <HardNavigationLink href="/publish" className="btn-primary min-h-12 justify-center whitespace-nowrap">
             <IconPlus size={18} /> {copy.add}
           </HardNavigationLink>
-          <HardNavigationLink href="/claim" className="btn-secondary min-h-12 justify-center whitespace-nowrap">
-            {copy.claim}
-          </HardNavigationLink>
         </div>
       </section>
 
@@ -234,9 +229,8 @@ export function BusinessOwnerDashboard({
           </div>
           <h2 className="mt-5 font-serif text-3xl text-[var(--foreground)]">{copy.empty}</h2>
           <p className="mx-auto mt-3 max-w-lg leading-7 text-[var(--muted)]">{copy.emptyBody}</p>
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <div className="mt-6 grid gap-3 sm:grid-cols-1">
             <HardNavigationLink href="/publish" className="btn-primary min-h-12 justify-center"><IconPlus size={18} /> {copy.add}</HardNavigationLink>
-            <HardNavigationLink href="/claim" className="btn-secondary min-h-12 justify-center">{copy.claim}</HardNavigationLink>
           </div>
         </section>
       )}

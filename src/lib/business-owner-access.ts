@@ -172,6 +172,30 @@ export async function ensureOwnerAccessForPublishedSubmission(params: {
   const phone = noEmailOwner ? normalizePhoneNumber(submission.ownerPhone) : null;
   if (!email && !phone) return null;
 
+  // Payment webhook retries and historical backfills can run after a listing
+  // has been claimed. An active access record is the current ownership source
+  // of truth; never reapply the historical submission contact over it.
+  const activeAccess = await db.businessOwnerAccess.findFirst({
+    where: {
+      businessId: submission.createdBusinessId,
+      userId: { not: null },
+    },
+    select: {
+      activatedAt: true,
+      businessId: true,
+      email: true,
+      id: true,
+      phone: true,
+      sourceSubmissionId: true,
+      userId: true,
+      verifiedAt: true,
+    },
+  });
+
+  if (activeAccess) {
+    return activeAccess;
+  }
+
   const ownerUser = email
     ? await findUserByNormalizedEmail({ db, email })
     : await findUserByNormalizedPhone({ db, phone: phone! });

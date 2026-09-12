@@ -44,7 +44,6 @@ type MobileNavigationDrawerProps = {
 
 const accountIcons = {
   businesses: IconClipboardText,
-  claim: IconBuildingStore,
   dashboard: IconLayoutDashboard,
   earnings: IconWallet,
   guide: IconBook2,

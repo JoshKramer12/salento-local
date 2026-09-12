@@ -15,6 +15,12 @@ export async function GET(request: NextRequest) {
   const businesses = await prisma.business.findMany({
     where: {
       isLikelyClosed: false,
+      ownerAccesses: {
+        none: {
+          userId: { not: null },
+        },
+      },
+      ownerUserId: null,
       OR: [
         { name: { contains: query } },
         { shortDescription: { contains: query } },

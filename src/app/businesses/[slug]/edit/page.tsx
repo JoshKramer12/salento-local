@@ -70,6 +70,11 @@ export default async function EditBusinessPage({ params, searchParams }: EditBus
         orderBy: { createdAt: "desc" },
         take: 1,
       },
+      ownerAccesses: {
+        where: { userId: viewer.id },
+        select: { email: true },
+        take: 1,
+      },
     },
   });
 
@@ -85,6 +90,7 @@ export default async function EditBusinessPage({ params, searchParams }: EditBus
   }
 
   const latestSubmission = business.submissions[0];
+  const activeOwnerEmail = business.ownerAccesses[0]?.email ?? latestSubmission?.ownerEmail ?? "";
 
   // Preserve the existing admin-facing edit screen. The shared wizard below is
   // intentionally the Business Owner account experience only.
@@ -191,7 +197,7 @@ export default async function EditBusinessPage({ params, searchParams }: EditBus
           instagram,
           longDescription: latestSubmission?.longDescription || business.description,
           openingHours: latestSubmission?.openingHours || buildHoursDraft(business.hours),
-          ownerEmail: latestSubmission?.ownerEmail ?? "",
+          ownerEmail: activeOwnerEmail,
           ownerHasNoEmail: latestSubmission?.ownerHasNoEmail ?? false,
           ownerName: latestSubmission?.ownerName ?? "",
           ownerPhone: latestSubmission?.ownerPhone ?? "",

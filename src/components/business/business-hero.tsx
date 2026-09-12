@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { IconExternalLink, IconMapPin, IconPhone, IconRoute } from "@tabler/icons-react";
 
 import { BusinessImageGallery } from "@/components/business/business-image-gallery";
@@ -10,6 +11,7 @@ type BusinessHeroProps = {
   addressHref: string;
   businessName: string;
   callHref?: string | null;
+  claimHref?: string | null;
   categoryLabel: string;
   description?: string | null;
   directionsHref?: string | null;
@@ -32,6 +34,7 @@ export function BusinessHero({
   addressHref,
   businessName,
   callHref,
+  claimHref,
   categoryLabel,
   description,
   directionsHref,
@@ -50,8 +53,8 @@ export function BusinessHero({
 }: BusinessHeroProps) {
   const gallery = images.length ? images : [{ alt: imageAlt, id: "fallback", src: "" }];
   const copy = locale === "it"
-    ? { call: "Chiama", directions: "Indicazioni", website: "Sito web" }
-    : { call: "Call", directions: "Directions", website: "Website" };
+    ? { call: "Chiama", claim: "Rivendica attività", directions: "Indicazioni", website: "Sito web" }
+    : { call: "Call", claim: "Claim listing", directions: "Directions", website: "Website" };
 
   return (
     <section className="overflow-hidden rounded-[1.7rem] border border-[var(--border)] bg-[color:rgba(255,255,255,0.9)] shadow-[0_12px_32px_rgba(66,51,31,0.07)] sm:rounded-[2rem] lg:grid lg:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)]">
@@ -83,6 +86,7 @@ export function BusinessHero({
           {phone && callHref ? <a href={callHref} className="btn-primary min-h-12 px-5"><IconPhone size={17} />{copy.call}</a> : null}
           {directionsHref ? <a href={directionsHref} target="_blank" rel="noreferrer" className="btn-secondary min-h-12 border-[var(--primary)] px-5 !text-[var(--primary)]"><IconRoute size={17} />{copy.directions}</a> : null}
         </div>
+        {claimHref ? <Link href={claimHref} className="mt-5 inline-flex w-fit max-w-full items-center text-sm font-medium text-[var(--muted-strong)] underline decoration-[var(--border)] underline-offset-4 transition hover:text-[var(--primary)] hover:decoration-[var(--primary)]">{copy.claim}</Link> : null}
         {websiteHref && websiteLabel ? <a href={websiteHref} target="_blank" rel="noreferrer" className="mt-5 inline-flex max-w-full items-center gap-1.5 text-sm text-[var(--primary)] hover:underline"><span className="font-medium">{copy.website}</span><span className="truncate">{websiteLabel}</span><IconExternalLink size={13} className="shrink-0" /></a> : null}
       </div>
     </section>

@@ -14,12 +14,11 @@ import { redirect } from "next/navigation";
 import { buildPaymentStatusForMethod, isDraftLikeSubmission } from "@/lib/account";
 import {
   CLAIM_VERIFICATION_EXPIRY_MINUTES,
+  CLAIM_VERIFICATION_MAX_ATTEMPTS,
+  CLAIM_VERIFICATION_MAX_RESENDS,
   CLAIM_VERIFICATION_RESEND_COOLDOWN_MINUTES,
   evaluateClaimCodeAttempt,
   evaluateClaimResend,
-  isVerificationMethodEnabled,
-  normalizeVerificationPhone,
-  resolveClaimVerificationRecipient,
 } from "@/lib/business-claim-verification";
 import {
   canUsePrimaryAdminUsername,
@@ -34,7 +33,12 @@ import {
   normalizeAddressSelectionValue,
 } from "@/lib/address-selection";
 import { signIn } from "@/lib/auth";
-import { canManageBusiness } from "@/lib/business-owner-access";
+import { canManageBusiness, findUserByNormalizedEmail } from "@/lib/business-owner-access";
+import {
+  getBusinessClaimVerificationEmail,
+  isBusinessAlreadyManaged,
+  shouldShowClaimEmailChoice,
+} from "@/lib/business-claim";
 import {
   requireAdminViewer,
   requireCompletedViewer,
@@ -54,11 +58,7 @@ import {
   normalizeDuplicatePhone,
   normalizedAddressValuesMatch,
 } from "@/lib/duplicate-business-matching";
-import {
-  checkTwilioVerifyCode,
-  hasTwilioVerifyConfiguration,
-  sendVerificationCode,
-} from "@/lib/claim-delivery";
+import { sendVerificationCode } from "@/lib/claim-delivery";
 import type { Locale } from "@/lib/i18n";
 import {
   hasAcceptedCurrentLegalDocuments,
@@ -858,34 +858,28 @@ async function issueSubmissionVerificationCode({
 async function issueBusinessClaimVerificationCode({
   claimId,
   locale,
+  resend = false,
 }: {
   claimId: string;
   locale: Locale;
+  resend?: boolean;
 }) {
   const claim = await prisma.businessClaim.findUnique({
     where: { id: claimId },
     select: {
       businessContactEmail: true,
-      businessContactWhatsapp: true,
       verificationChannel: true,
       id: true,
-      resendCount: true,
     },
   });
 
-  if (
-    !claim?.verificationChannel ||
-    claim.verificationChannel === "MANUAL" ||
-    !isVerificationMethodEnabled(claim.verificationChannel)
-  ) {
+  if (!claim || claim.verificationChannel !== "EMAIL") {
     return null;
   }
 
-  const recipient = resolveClaimVerificationRecipient({
-    channel: claim.verificationChannel,
-    email: claim.businessContactEmail,
-    phone: claim.businessContactWhatsapp,
-    whatsapp: claim.businessContactWhatsapp,
+  const recipient = getBusinessClaimVerificationEmail({
+    ownerEmail: claim.businessContactEmail,
+    ownerHasNoEmail: false,
   });
 
   if (!recipient) {
@@ -893,9 +887,22 @@ async function issueBusinessClaimVerificationCode({
   }
 
   const code = createVerificationCode();
+  const now = new Date();
 
-  await prisma.businessClaim.update({
-    where: { id: claim.id },
+  const issued = await prisma.businessClaim.updateMany({
+    where: resend
+      ? {
+          id: claim.id,
+          resendAvailableAt: { lte: now },
+          resendCount: { lt: CLAIM_VERIFICATION_MAX_RESENDS + 1 },
+          status: "AWAITING_VERIFICATION",
+          verificationChannel: "EMAIL",
+        }
+      : {
+          id: claim.id,
+          status: "REQUESTED",
+          verificationChannel: "EMAIL",
+        },
     data: {
       resendAvailableAt: buildVerificationResendAt(CLAIM_VERIFICATION_RESEND_COOLDOWN_MINUTES),
       resendCount: {
@@ -909,6 +916,10 @@ async function issueBusinessClaimVerificationCode({
       verificationSentTo: recipient,
     },
   });
+
+  if (!issued.count) {
+    return null;
+  }
 
   await sendVerificationCode({
     channel: claim.verificationChannel,
@@ -2518,9 +2529,6 @@ export async function requestBusinessClaimAction(
 
   const parsed = businessClaimRequestSchema.safeParse({
     businessId: getStringValue(formData.get("businessId")),
-    claimantName: getStringValue(formData.get("claimantName")),
-    claimantPosition: getStringValue(formData.get("claimantPosition")),
-    verificationChannel: getStringValue(formData.get("verificationChannel")),
   });
 
   if (!parsed.success) {
@@ -2537,23 +2545,89 @@ export async function requestBusinessClaimAction(
   if (requiresBusinessLegalAcceptance && getStringValue(formData.get("businessTermsAccepted")) !== "on") {
     return {
       error: formCopy[locale].missingBusinessTerms,
-      fieldErrors: {
-        businessTermsAccepted: formCopy[locale].missingBusinessTerms,
-      },
+      fieldErrors: { businessTermsAccepted: formCopy[locale].missingBusinessTerms },
     };
   }
 
-  if (!isVerificationMethodEnabled(parsed.data.verificationChannel)) {
+  const business = await prisma.business.findUnique({
+    where: {
+      id: parsed.data.businessId,
+    },
+    select: {
+      id: true,
+      ownerAccesses: { select: { userId: true } },
+      ownerUserId: true,
+      slug: true,
+      submissions: {
+        orderBy: {
+          createdAt: "desc",
+        },
+        take: 1,
+        select: {
+          ownerEmail: true,
+          ownerHasNoEmail: true,
+        },
+      },
+    },
+  });
+
+  if (!business) {
     return {
-      error: formCopy[locale].verificationMethodUnavailable,
-      fieldErrors: {
-        verificationChannel: formCopy[locale].verificationMethodUnavailable,
-      },
+      error: formCopy[locale].unknownTown,
     };
   }
 
-  // Limit claim creation per account regardless of source address. Individual
-  // code attempts and resends remain protected by their separate limits.
+  if (isBusinessAlreadyManaged({
+    ownerAccessUserIds: business.ownerAccesses.map((access) => access.userId),
+    ownerUserId: business.ownerUserId,
+  })) {
+    return {
+      error: locale === "it"
+        ? "Questa attività è già gestita su Salento Local."
+        : "This business is already managed on Salento Local.",
+    };
+  }
+
+  const verificationEmail = getBusinessClaimVerificationEmail({
+    ownerEmail: business.submissions[0]?.ownerEmail,
+    ownerHasNoEmail: business.submissions[0]?.ownerHasNoEmail ?? true,
+  });
+
+  if (!verificationEmail) {
+    return {
+      error: locale === "it"
+        ? "Questa attività non può ancora essere rivendicata online perché non è disponibile un'email registrata per la verifica."
+        : "This business can't be claimed online yet because no registered verification email is available.",
+    };
+  }
+
+  const reusableClaim = await prisma.businessClaim.findFirst({
+    where: {
+      businessId: business.id,
+      status: "AWAITING_VERIFICATION",
+      userId: viewer.id,
+      verificationChannel: "EMAIL",
+      verificationCodeExpiresAt: { gt: new Date() },
+      verificationCodeHash: { not: null },
+    },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true },
+  });
+
+  if (reusableClaim) {
+    redirect(`/claim/verify?claim=${encodeURIComponent(reusableClaim.id)}`);
+  }
+
+  await prisma.businessClaim.updateMany({
+    where: {
+      businessId: business.id,
+      status: "AWAITING_VERIFICATION",
+      userId: viewer.id,
+      verificationCodeExpiresAt: { lte: new Date() },
+    },
+    data: { status: "EXPIRED" },
+  });
+
   const claimCreationLimit = await consumeSecurityRateLimit({
     clientAddress: "account",
     limit: 5,
@@ -2566,68 +2640,15 @@ export async function requestBusinessClaimAction(
     return { error: formCopy[locale].invalidForm };
   }
 
-  const business = await prisma.business.findUnique({
-    where: {
-      id: parsed.data.businessId,
-    },
-    select: {
-      id: true,
-      slug: true,
-      submissions: {
-        orderBy: {
-          createdAt: "desc",
-        },
-        take: 1,
-        select: {
-          ownerEmail: true,
-          ownerHasNoEmail: true,
-          ownerPhone: true,
-        },
-      },
-    },
-  });
-
-  if (!business) {
-    return {
-      error: formCopy[locale].unknownTown,
-    };
-  }
-
-  const latestSubmission = business.submissions[0];
-  const registeredOwnerEmail =
-    latestSubmission && !latestSubmission.ownerHasNoEmail
-      ? latestSubmission.ownerEmail.trim() || null
-      : null;
-  const registeredOwnerPhone = latestSubmission?.ownerPhone
-    ? normalizeVerificationPhone(latestSubmission.ownerPhone)
-    : null;
-
-  const autoVerificationRecipient = resolveClaimVerificationRecipient({
-    channel: parsed.data.verificationChannel,
-    email: registeredOwnerEmail,
-    phone: registeredOwnerPhone,
-    whatsapp: registeredOwnerPhone,
-  });
-
-  if (!autoVerificationRecipient) {
-    return {
-      error: formCopy[locale].verificationContactMissing,
-      fieldErrors: {
-        verificationChannel: formCopy[locale].verificationContactMissing,
-      },
-    };
-  }
-
   const claim = await prisma.businessClaim.create({
     data: {
       businessId: business.id,
-      businessContactEmail: registeredOwnerEmail,
-      claimantName: parsed.data.claimantName,
-      businessContactWhatsapp: registeredOwnerPhone,
-      claimantPosition: parsed.data.claimantPosition,
+      businessContactEmail: verificationEmail,
+      claimantName: viewer.name?.trim() || viewer.username,
+      claimantPosition: "OWNER",
       status: "REQUESTED",
       userId: viewer.id,
-      verificationChannel: parsed.data.verificationChannel,
+      verificationChannel: "EMAIL",
     },
   });
 
@@ -2697,64 +2718,14 @@ export async function verifyBusinessClaimCodeAction(
     };
   }
 
-  if (
-    claim.verificationChannel === "SMS" &&
-    claim.verificationSentTo &&
-    hasTwilioVerifyConfiguration()
-  ) {
-    if (claim.verificationAttempts >= 5) {
-      return {
-        error: formCopy[locale].verificationTooManyAttempts,
-      };
-    }
+  if (claim.status !== "AWAITING_VERIFICATION" || claim.verificationChannel !== "EMAIL") {
+    return {
+      error: locale === "it"
+        ? "Questa verifica non è più disponibile. Torna alla pagina dell'attività per ricominciare."
+        : "This verification is no longer available. Return to the business page to start again.",
+    };
+  }
 
-    const smsVerificationResult = await checkTwilioVerifyCode({
-      code: parsed.data.code,
-      recipient: claim.verificationSentTo,
-    });
-
-    if (smsVerificationResult === "too_many_attempts") {
-      await prisma.businessClaim.update({
-        where: { id: claim.id },
-        data: {
-          status: "EXPIRED",
-          verificationAttempts: 5,
-        },
-      });
-
-      return {
-        error: formCopy[locale].verificationTooManyAttempts,
-      };
-    }
-
-    if (smsVerificationResult === "expired") {
-      await prisma.businessClaim.update({
-        where: { id: claim.id },
-        data: {
-          status: "EXPIRED",
-        },
-      });
-
-      return {
-        error: formCopy[locale].verificationCodeExpired,
-      };
-    }
-
-    if (smsVerificationResult === "invalid") {
-      await prisma.businessClaim.update({
-        where: { id: claim.id },
-        data: {
-          verificationAttempts: {
-            increment: 1,
-          },
-        },
-      });
-
-      return {
-        error: formCopy[locale].verificationCodeInvalid,
-      };
-    }
-  } else {
   if (!claim.verificationCodeHash || !claim.verificationCodeExpiresAt) {
     return {
       error: formCopy[locale].verificationCodeExpired,
@@ -2788,8 +2759,12 @@ export async function verifyBusinessClaimCodeAction(
   }
 
   if (verificationResult === "invalid") {
-    await prisma.businessClaim.update({
-      where: { id: claim.id },
+    const attempted = await prisma.businessClaim.updateMany({
+      where: {
+        id: claim.id,
+        status: "AWAITING_VERIFICATION",
+        verificationAttempts: { lt: CLAIM_VERIFICATION_MAX_ATTEMPTS },
+      },
       data: {
         verificationAttempts: {
           increment: 1,
@@ -2797,13 +2772,38 @@ export async function verifyBusinessClaimCodeAction(
       },
     });
 
+    if (!attempted.count) {
+      return {
+        error: formCopy[locale].verificationTooManyAttempts,
+      };
+    }
+
     return {
       error: formCopy[locale].verificationCodeInvalid,
     };
   }
-  }
+  const approved = await prisma.$transaction(async (tx) => {
+    const ownershipUpdate = await tx.business.updateMany({
+      where: {
+        id: claim.business.id,
+        ownerUserId: null,
+        ownerAccesses: { none: { userId: { not: null } } },
+      },
+      data: {
+        email: normalizeEmail(claim.businessContactEmail ?? ""),
+        ownerUserId: viewer.id,
+        verificationStatus: "OWNER_VERIFIED",
+      },
+    });
 
-  await prisma.$transaction(async (tx) => {
+    if (!ownershipUpdate.count) {
+      await tx.businessClaim.updateMany({
+        where: { id: claim.id, status: "AWAITING_VERIFICATION" },
+        data: { status: "REJECTED" },
+      });
+      return false;
+    }
+
     await tx.businessClaim.update({
       where: { id: claim.id },
       data: {
@@ -2816,25 +2816,17 @@ export async function verifyBusinessClaimCodeAction(
       },
     });
 
-    await tx.business.update({
-      where: { id: claim.business.id },
-      data: {
-        ownerUserId: viewer.id,
-        verificationStatus: "OWNER_VERIFIED",
-      },
-    });
-
     await tx.businessOwnerAccess.upsert({
       where: {
         businessId_email: {
           businessId: claim.business.id,
-          email: normalizeEmail(viewer.email),
+          email: normalizeEmail(claim.businessContactEmail ?? ""),
         },
       },
       create: {
         activatedAt: new Date(),
         businessId: claim.business.id,
-        email: normalizeEmail(viewer.email),
+        email: normalizeEmail(claim.businessContactEmail ?? ""),
         userId: viewer.id,
       },
       update: {
@@ -2843,7 +2835,130 @@ export async function verifyBusinessClaimCodeAction(
         verifiedAt: new Date(),
       },
     });
+    return true;
   });
+
+  if (!approved) {
+    return {
+      error: locale === "it"
+        ? "Questa attività è stata collegata a un altro account mentre verificavi il codice."
+        : "This business was connected to another account while you were verifying the code.",
+    };
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/businesses");
+  revalidatePath(`/businesses/${claim.business.slug}`);
+  if (shouldShowClaimEmailChoice(viewer.email, claim.businessContactEmail)) {
+    redirect(`/claim/email?claim=${encodeURIComponent(claim.id)}`);
+  }
+
+  redirect(`/claim/success?business=${encodeURIComponent(claim.business.slug)}`);
+}
+
+export async function completeBusinessClaimEmailChoiceAction(
+  _previousState: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const locale = getLocaleFromForm(formData);
+  const viewer = await requireCompletedViewer();
+  const claimId = getStringValue(formData.get("claimId")).trim();
+  const choice = getStringValue(formData.get("emailChoice"));
+
+  if (choice !== "ACCOUNT" && choice !== "BUSINESS") {
+    return { error: formCopy[locale].invalidForm };
+  }
+
+  const claim = await prisma.businessClaim.findUnique({
+    where: { id: claimId },
+    include: { business: { select: { id: true, ownerUserId: true, slug: true } } },
+  });
+  const currentUser = await prisma.user.findUnique({
+    where: { id: viewer.id },
+    select: { email: true, id: true },
+  });
+
+  if (
+    !claim ||
+    !currentUser?.email ||
+    claim.userId !== viewer.id ||
+    claim.status !== "APPROVED" ||
+    claim.business.ownerUserId !== viewer.id ||
+    !claim.businessContactEmail
+  ) {
+    return { error: formCopy[locale].notAllowed };
+  }
+
+  const accountEmail = normalizeEmail(currentUser.email);
+  const businessEmail = normalizeEmail(claim.businessContactEmail);
+  const selectedEmail = choice === "ACCOUNT" ? accountEmail : businessEmail;
+  const emailOwner = await findUserByNormalizedEmail({ email: selectedEmail });
+
+  if (emailOwner && emailOwner.id !== viewer.id) {
+    return {
+      error: locale === "it"
+        ? "Questa email è già collegata a un altro account Salento Local. Continua con l'email del tuo account."
+        : "That email is already connected to another Salento Local account. Please continue using your current account email.",
+    };
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+    const currentAccess = await tx.businessOwnerAccess.findUnique({
+      where: { businessId_userId: { businessId: claim.business.id, userId: viewer.id } },
+    });
+    const selectedAccess = await tx.businessOwnerAccess.findUnique({
+      where: { businessId_email: { businessId: claim.business.id, email: selectedEmail } },
+    });
+
+    if (selectedAccess?.userId && selectedAccess.userId !== viewer.id) {
+      throw new Error("claim_email_access_conflict");
+    }
+
+    if (selectedAccess && selectedAccess.id !== currentAccess?.id) {
+      if (currentAccess) {
+        await tx.businessOwnerAccess.update({
+          where: { id: currentAccess.id },
+          data: { userId: null },
+        });
+      }
+      await tx.businessOwnerAccess.update({
+        where: { id: selectedAccess.id },
+        data: { activatedAt: new Date(), userId: viewer.id, verifiedAt: new Date() },
+      });
+    } else if (currentAccess) {
+      await tx.businessOwnerAccess.update({
+        where: { id: currentAccess.id },
+        data: { email: selectedEmail, verifiedAt: new Date() },
+      });
+    } else {
+      await tx.businessOwnerAccess.create({
+        data: { activatedAt: new Date(), businessId: claim.business.id, email: selectedEmail, userId: viewer.id },
+      });
+    }
+
+    await tx.business.update({
+      where: { id: claim.business.id },
+      data: { email: selectedEmail },
+    });
+
+    if (selectedEmail !== accountEmail) {
+      await tx.user.update({ where: { id: viewer.id }, data: { email: selectedEmail } });
+    }
+    });
+  } catch (error) {
+    if (
+      (error instanceof Error && error.message === "claim_email_access_conflict") ||
+      (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")
+    ) {
+      return {
+        error: locale === "it"
+          ? "Questa email è già associata a un altro accesso per questa attività."
+          : "That email is already associated with another access record for this business.",
+      };
+    }
+    throw error;
+  }
 
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/businesses");
@@ -2865,6 +2980,7 @@ export async function resendBusinessClaimCodeAction(
       id: true,
       resendAvailableAt: true,
       resendCount: true,
+      status: true,
       userId: true,
       verificationChannel: true,
     },
@@ -2876,13 +2992,11 @@ export async function resendBusinessClaimCodeAction(
     };
   }
 
-  if (
-    !claim.verificationChannel ||
-    claim.verificationChannel === "MANUAL" ||
-    !isVerificationMethodEnabled(claim.verificationChannel)
-  ) {
+  if (claim.verificationChannel !== "EMAIL" || claim.status !== "AWAITING_VERIFICATION") {
     return {
-      error: formCopy[locale].verificationMethodUnavailable,
+      error: locale === "it"
+        ? "Questa verifica non è più disponibile."
+        : "This verification is no longer available.",
     };
   }
 
@@ -2904,10 +3018,17 @@ export async function resendBusinessClaimCodeAction(
   }
 
   try {
-    await issueBusinessClaimVerificationCode({
+    const recipient = await issueBusinessClaimVerificationCode({
       claimId,
       locale,
+      resend: true,
     });
+
+    if (!recipient) {
+      return {
+        error: formCopy[locale].verificationResendRateLimited,
+      };
+    }
   } catch (error) {
     console.error("[claim] failed to resend verification code", error);
     return {
@@ -2915,12 +3036,7 @@ export async function resendBusinessClaimCodeAction(
     };
   }
 
-  return {
-    notice:
-      claim.verificationChannel === "EMAIL"
-        ? formCopy[locale].verificationSentByEmail
-        : formCopy[locale].verificationSentBySms,
-  };
+  return { notice: formCopy[locale].verificationSentByEmail };
 }
 
 export async function updateOwnedBusinessProfileAction(
@@ -3084,6 +3200,11 @@ export async function updateOwnedBusinessWithWizardAction(
       latitude: true,
       longitude: true,
       mapsUrl: true,
+      claims: {
+        where: { status: "APPROVED" },
+        select: { id: true },
+        take: 1,
+      },
       slug: true,
       socialLinks: true,
       town: { select: { slug: true } },
@@ -3093,6 +3214,7 @@ export async function updateOwnedBusinessWithWizardAction(
   if (!business || !(await canManageBusiness({ businessId, userId: viewer.id }))) {
     return { error: formCopy[locale].notAllowed };
   }
+  const hasApprovedClaim = business.claims.length > 0;
 
   const rawSubmission: SubmissionFormValues = {
     address: getStringValue(formData.get("address")),
@@ -3330,10 +3452,14 @@ export async function updateOwnedBusinessWithWizardAction(
           instagram: normalizeSubmissionSocialValue(parsed.data.instagram),
           longDescription: parsed.data.longDescription,
           openingHours: parsed.data.openingHours,
-          ownerEmail: parsed.data.ownerEmail,
-          ownerHasNoEmail: parsed.data.ownerHasNoEmail,
-          ownerName: parsed.data.ownerName,
-          ownerPhone: parsed.data.ownerPhone,
+          ...(hasApprovedClaim
+            ? {}
+            : {
+                ownerEmail: parsed.data.ownerEmail,
+                ownerHasNoEmail: parsed.data.ownerHasNoEmail,
+                ownerName: parsed.data.ownerName,
+                ownerPhone: parsed.data.ownerPhone,
+              }),
           phone: parsed.data.phone,
           photoUrls: photoUrls.length ? photoUrls : Prisma.JsonNull,
           shortDescription: parsed.data.shortDescription,

@@ -226,6 +226,51 @@ test("an existing account is attached without creating a duplicate user", async 
   assert.equal(writes.length, 1);
 });
 
+test("a publication recovery never replaces an already active claimed owner access", async () => {
+  const activeAccess = {
+    activatedAt: new Date("2026-09-12T12:00:00.000Z"),
+    businessId: "business-claimed",
+    email: "account@example.com",
+    id: "access-current",
+    phone: null,
+    sourceSubmissionId: null,
+    userId: "claimant-user",
+    verifiedAt: new Date("2026-09-12T12:00:00.000Z"),
+  };
+  let createCalled = false;
+  let updateCalled = false;
+  const db = {
+    businessOwnerAccess: {
+      create: async () => {
+        createCalled = true;
+        return null;
+      },
+      findFirst: async () => activeAccess,
+      update: async () => {
+        updateCalled = true;
+        return null;
+      },
+    },
+    businessSubmission: {
+      findUnique: async () => ({
+        createdBusinessId: "business-claimed",
+        id: "submission-historical",
+        ownerEmail: "historical@example.com",
+        ownerHasNoEmail: false,
+      }),
+    },
+  };
+
+  const result = await ensureOwnerAccessForPublishedSubmission({
+    db: db as never,
+    submissionId: "submission-historical",
+  });
+
+  assert.deepEqual(result, activeAccess);
+  assert.equal(createCalled, false);
+  assert.equal(updateCalled, false);
+});
+
 test("no access is created for no-email owners without a usable private WhatsApp", async () => {
   const db = {
     businessSubmission: {

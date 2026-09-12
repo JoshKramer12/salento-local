@@ -21,6 +21,7 @@ import {
   normalizeUrlInput,
 } from "@/lib/business-links";
 import { getBusinessPhotoUrls } from "@/lib/business-photos";
+import { isBusinessAlreadyManaged } from "@/lib/business-claim";
 import { getBusinessHoursStatus, getBusinessHoursStatusDetail, resolveBusinessHours } from "@/lib/business-hours";
 import { getCurrentLocale } from "@/lib/locale";
 import { prisma } from "@/lib/prisma";
@@ -301,6 +302,11 @@ export default async function BusinessPage({ params, searchParams }: BusinessPag
         select: { photoUrls: true },
       },
       locality: true,
+      ownerAccesses: {
+        select: {
+          userId: true,
+        },
+      },
       reviews: {
         orderBy: {
           createdAt: "desc",
@@ -320,6 +326,10 @@ export default async function BusinessPage({ params, searchParams }: BusinessPag
   }
 
   const businessWebsite = normalizeUrlInput(business.website);
+  const claimHref = isBusinessAlreadyManaged({
+    ownerAccessUserIds: business.ownerAccesses.map((access) => access.userId),
+    ownerUserId: business.ownerUserId,
+  }) ? null : `/claim?business=${encodeURIComponent(business.slug)}`;
   const businessWebsiteLabel = getWebsiteDisplayLabel(business.website);
   const socialLinks = (() => {
     if (!business.socialLinks || typeof business.socialLinks !== "object" || Array.isArray(business.socialLinks)) {
@@ -427,7 +437,7 @@ export default async function BusinessPage({ params, searchParams }: BusinessPag
           </Link>
         </div>
       ) : null}
-      <BusinessHero address={business.address} addressHref={addressSearchUrl} businessName={business.name} callHref={business.phone ? `tel:${business.phone}` : null} categoryLabel={categoryLabel} description={intro} directionsHref={directionsUrl} highlights={offerings} imageAlt={business.name} images={heroGallery} locale={locale} localityLabel={heroLocalityLabel} openDetail={heroOpenDetail} openLabel={heroOpenLabel} openTone={hoursStatus?.isOpen ? "open" : "closed"} phone={business.phone} townHref={townHref} websiteHref={businessWebsite} websiteLabel={businessWebsiteLabel} />
+      <BusinessHero address={business.address} addressHref={addressSearchUrl} businessName={business.name} callHref={business.phone ? `tel:${business.phone}` : null} categoryLabel={categoryLabel} claimHref={claimHref} description={intro} directionsHref={directionsUrl} highlights={offerings} imageAlt={business.name} images={heroGallery} locale={locale} localityLabel={heroLocalityLabel} openDetail={heroOpenDetail} openLabel={heroOpenLabel} openTone={hoursStatus?.isOpen ? "open" : "closed"} phone={business.phone} townHref={townHref} websiteHref={businessWebsite} websiteLabel={businessWebsiteLabel} />
 
       <div className="mt-4 space-y-4 sm:mt-6 sm:space-y-5">
         <Link href={townHref} className="flex items-center gap-3 rounded-[1.5rem] border border-[var(--border)] bg-[var(--card)] p-3 shadow-[0_8px_20px_rgba(66,51,31,0.04)] transition hover:border-[rgba(42,98,87,0.28)]">
