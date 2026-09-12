@@ -1,6 +1,9 @@
 import { redirect } from "next/navigation";
 
-import { BusinessOwnerAccountNav } from "@/components/account/business-owner-account-nav";
+import {
+  BusinessOwnerAccountNav,
+  BusinessOwnerWorkspaceNav,
+} from "@/components/account/business-owner-account-nav";
 import { DashboardNav, DraftCountBadge } from "@/components/account/dashboard-nav";
 import { OwnedBusinessList } from "@/components/account/owned-business-list";
 import { PartnerWorkspaceNav } from "@/components/account/partner-workspace-nav";
@@ -161,6 +164,9 @@ export default async function DashboardBusinessesPage({
     <>
       {viewer.role === "GETTER" ? (
         <PartnerWorkspaceNav active="businesses" locale={locale} />
+      ) : null}
+      {viewer.role === "BUSINESS_OWNER" ? (
+        <BusinessOwnerWorkspaceNav active="drafts" locale={locale} />
       ) : null}
       <main className="shell px-4 py-12 sm:px-6">
       {viewer.role === "BUSINESS_OWNER" ? (

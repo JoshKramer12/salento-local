@@ -2,10 +2,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import { getBusinessOwnerNavigationItems } from "@/lib/business-owner-navigation";
+
 const editPage = readFileSync("src/app/businesses/[slug]/edit/page.tsx", "utf8");
 const publishForm = readFileSync("src/components/account/publish-form.tsx", "utf8");
 const ownerDashboard = readFileSync("src/components/account/business-owner-dashboard.tsx", "utf8");
 const ownerNav = readFileSync("src/components/account/business-owner-account-nav.tsx", "utf8");
+const accountWorkspaceNav = readFileSync("src/components/account/account-workspace-nav.tsx", "utf8");
+const partnerWorkspaceNav = readFileSync("src/components/account/partner-workspace-nav.tsx", "utf8");
 const businessesPage = readFileSync("src/app/(account)/dashboard/businesses/page.tsx", "utf8");
 const claimPage = readFileSync("src/app/(account)/claim/page.tsx", "utf8");
 const dashboardPage = readFileSync("src/app/(account)/dashboard/page.tsx", "utf8");
@@ -37,18 +41,25 @@ test("shared publish form keeps create mode and ends owner edit mode at the list
   assert.match(publishForm, /locale === "it" \? "Salva ed esci" : "Save & exit"/);
 });
 
-test("Business Owner navigation is one exact three-pill set, separate from shared roles", () => {
+test("Business Owner navigation keeps its three entries while using the shared account navigation treatment", () => {
   assert.match(ownerDashboard, /<BusinessOwnerAccountNav active="businesses" locale=\{locale\} \/>/);
   assert.match(businessesPage, /<BusinessOwnerAccountNav active="drafts" locale=\{locale\} \/>/);
   assert.match(claimPage, /<BusinessOwnerAccountNav active="claims" locale=\{locale\} \/>/);
-  assert.match(ownerNav, /My businesses/);
-  assert.match(ownerNav, /Drafts/);
-  assert.match(ownerNav, /Claims/);
-  assert.match(ownerNav, /href: "\/dashboard"/);
-  assert.match(ownerNav, /href: "\/dashboard\/businesses#drafts"/);
-  assert.match(ownerNav, /href: "\/claim"/);
-  assert.doesNotMatch(ownerNav, /Dashboard/);
-  assert.match(ownerNav, /overflow-x-auto/);
+  assert.deepEqual(getBusinessOwnerNavigationItems("en"), [
+    { href: "/dashboard", key: "businesses", label: "My businesses" },
+    { href: "/dashboard/businesses#drafts", key: "drafts", label: "Drafts" },
+    { href: "/claim", key: "claims", label: "Claims" },
+  ]);
+  assert.match(ownerNav, /<AccountWorkspaceNav/);
+  assert.match(ownerNav, /dashboard-nav flex flex-wrap gap-2/);
+  assert.match(ownerNav, /nav-link \$\{active === item\.key \? "nav-link-active" : ""\}/);
+  assert.doesNotMatch(ownerNav, /bg-\[var\(--primary\)\] text-white/);
+  assert.match(partnerWorkspaceNav, /<AccountWorkspaceNav/);
+  assert.match(accountWorkspaceNav, /grid grid-cols-3 gap-1/);
+  assert.match(accountWorkspaceNav, /bg-white text-\[var\(--foreground\)\] shadow-sm/);
+  assert.match(businessesPage, /<BusinessOwnerWorkspaceNav active="drafts" locale=\{locale\} \/>/);
+  assert.match(claimPage, /<BusinessOwnerWorkspaceNav active="claims" locale=\{locale\} \/>/);
+  assert.match(dashboardPage, /<BusinessOwnerWorkspaceNav active="businesses" locale=\{locale\} \/>/);
   assert.match(businessesPage, /viewer\.role === "BUSINESS_OWNER"/);
   assert.match(businessesPage, /<DashboardNav/);
   assert.match(dashboardPage, /<DashboardNav/);

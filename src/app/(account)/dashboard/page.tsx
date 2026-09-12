@@ -5,7 +5,10 @@ import { AdminPartnerPayoutButton } from "@/components/account/admin-partner-pay
 import { PartnerOutstandingCommissionCard } from "@/components/account/partner-outstanding-commission-card";
 import { PartnerPayoutSummary } from "@/components/account/partner-payout-summary";
 import { PartnerDashboard } from "@/components/account/partner-dashboard";
-import { BusinessOwnerDashboard } from "@/components/account/business-owner-dashboard";
+import {
+  BusinessOwnerDashboard,
+} from "@/components/account/business-owner-dashboard";
+import { BusinessOwnerWorkspaceNav } from "@/components/account/business-owner-account-nav";
 import { OwnedBusinessList } from "@/components/account/owned-business-list";
 import { SubmissionList } from "@/components/account/submission-list";
 import { HardNavigationLink } from "@/components/hard-navigation-link";
@@ -300,11 +303,14 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     const firstName = displayName.split(/\s+/)[0] || viewer.username;
 
     return (
-      <BusinessOwnerDashboard
-        businesses={businesses}
-        firstName={firstName}
-        locale={locale}
-      />
+      <>
+        <BusinessOwnerWorkspaceNav active="businesses" locale={locale} />
+        <BusinessOwnerDashboard
+          businesses={businesses}
+          firstName={firstName}
+          locale={locale}
+        />
+      </>
     );
   }
 
