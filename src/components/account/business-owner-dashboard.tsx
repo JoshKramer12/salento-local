@@ -3,6 +3,7 @@ import {
   IconCalendarDue,
   IconChevronRight,
   IconClock,
+  IconExternalLink,
   IconFileInvoice,
   IconHelpCircle,
   IconMapPin,
@@ -130,6 +131,7 @@ export function BusinessOwnerDashboard({
         daysLeft: "giorni rimanenti",
         drafts: "Bozze",
         edit: "Modifica informazioni attività",
+        editListing: "Modifica scheda",
         empty: "Non hai ancora attività collegate al tuo account.",
         emptyBody: "Aggiungi una nuova attività o rivendica una scheda esistente per iniziare a gestirla qui.",
         emptyReviews: "Ancora nessuna recensione.",
@@ -168,6 +170,7 @@ export function BusinessOwnerDashboard({
         daysLeft: "days left",
         drafts: "Drafts",
         edit: "Edit business information",
+        editListing: "Edit listing",
         empty: "You do not have any businesses connected to your account yet.",
         emptyBody: "Add a new business or claim an existing listing to start managing it here.",
         emptyReviews: "No reviews yet.",
@@ -271,6 +274,8 @@ function OwnerBusinessSection({ business, copy, locale }: { business: OwnerBusin
   const period = getListingPeriod(payment);
   const location = business.locality ? `${business.locality.name}, ${business.town.name}` : business.town.name;
   const description = business.shortDescription.trim() || business.description.trim();
+  const editListingHref = `/businesses/${business.slug}/edit?step=business`;
+  const publicListingHref = `/businesses/${business.slug}`;
   const website = normalizeUrlInput(business.website);
 
   return (
@@ -302,7 +307,10 @@ function OwnerBusinessSection({ business, copy, locale }: { business: OwnerBusin
             {business.reviewCount > 0 && business.rating > 0 ? <span className="inline-flex items-center gap-1.5 font-serif text-2xl text-[var(--foreground)]"><IconStarFilled size={20} className="text-[#e7a13c]" /> {business.rating.toFixed(1)}</span> : <span className="text-sm text-[var(--muted)]">{copy.emptyReviews}</span>}
             <Link href={`/businesses/${business.slug}#reviews`} className="text-sm font-semibold text-[var(--primary)] underline underline-offset-4">{business.reviewCount} {copy.reviews} →</Link>
           </div>
-          <HardNavigationLink href={`/businesses/${business.slug}`} className="btn-primary mt-5 min-h-12 w-full justify-center sm:w-auto">{copy.viewPublic}</HardNavigationLink>
+          <div className="mt-5 grid gap-3 sm:flex sm:flex-wrap">
+            <HardNavigationLink href={editListingHref} className="btn-secondary min-h-12 w-full justify-center sm:w-auto"><IconPencil size={18} />{copy.editListing}</HardNavigationLink>
+            <HardNavigationLink href={publicListingHref} className="btn-primary min-h-12 w-full justify-center sm:w-auto">{copy.viewPublic}<IconExternalLink size={18} /></HardNavigationLink>
+          </div>
         </div>
       </article>
 

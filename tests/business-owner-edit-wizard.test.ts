@@ -26,6 +26,16 @@ test("Business Owner edit route uses the shared wizard and supports direct hours
   assert.match(ownerDashboard, /\/edit\?step=hours/);
 });
 
+test("Business Owner listing cards expose the explicit step-one edit action beside the public listing", () => {
+  assert.match(ownerDashboard, /const editListingHref = `\/businesses\/\$\{business\.slug\}\/edit\?step=business`/);
+  assert.match(ownerDashboard, /const publicListingHref = `\/businesses\/\$\{business\.slug\}`/);
+  assert.match(ownerDashboard, /href=\{editListingHref\} className="btn-secondary min-h-12 w-full justify-center sm:w-auto"/);
+  assert.match(ownerDashboard, /<IconPencil size=\{18\} \/>\{copy\.editListing\}/);
+  assert.match(ownerDashboard, /href=\{publicListingHref\} className="btn-primary min-h-12 w-full justify-center sm:w-auto"/);
+  assert.match(ownerDashboard, /<IconExternalLink size=\{18\} \/>/);
+  assert.match(ownerDashboard, /className="mt-5 grid gap-3 sm:flex sm:flex-wrap"/);
+});
+
 test("shared publish form keeps create mode and ends owner edit mode at the listing", () => {
   assert.match(
     publishForm,
