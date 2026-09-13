@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { BusinessExplorer } from "@/components/business-explorer";
 import { getCurrentLocale } from "@/lib/locale";
 import { getDirectoryCatalog, getDirectoryPage } from "@/lib/public-data";
-import { buildTownImage, getMultiParam, getSingleParam } from "@/lib/site";
+import { getMultiParam, getSingleParam } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "Directory | Salento Local",
@@ -56,8 +56,6 @@ export default async function DirectoryPage({
   const { towns, localities, categories } = catalog;
 
   const townSlugById = new Map(towns.map((town) => [town.id, town.slug]));
-  const exploreHeroTown = towns.find((town) => town.slug === "otranto") ?? towns[0];
-
   return (
     <main className="directory-page overflow-x-clip pb-12 sm:pb-16">
       <BusinessExplorer
@@ -75,7 +73,7 @@ export default async function DirectoryPage({
           towns: townFilters,
           view,
         }}
-        heroImageUrl={exploreHeroTown ? buildTownImage(exploreHeroTown, 1800) : undefined}
+        heroImageUrl="/explore-hero/ports-of-call-otranto.webp"
         heroIntro={copy.intro}
         heroTitle={copy.title}
         locale={locale}
