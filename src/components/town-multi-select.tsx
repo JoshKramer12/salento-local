@@ -16,16 +16,22 @@ export type TownFilterOption = {
 };
 
 type TownMultiSelectProps = {
+  compact?: boolean;
+  label?: string;
   locale?: Locale;
   onChange: (slugs: string[]) => void;
   options: TownFilterOption[];
+  placeholder?: string;
   selectedSlugs: string[];
 };
 
 export function TownMultiSelect({
+  compact = false,
+  label,
   locale = "it",
   onChange,
   options,
+  placeholder,
   selectedSlugs,
 }: TownMultiSelectProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -99,21 +105,25 @@ export function TownMultiSelect({
   }
 
   return (
-    <div ref={containerRef} className="field-label relative">
-      <span>{copy.town}</span>
+    <div ref={containerRef} className={compact ? "relative h-full min-w-0" : "field-label relative"}>
+      {!compact ? <span>{label ?? copy.town}</span> : null}
       <div
-        className="input-field flex min-h-[58px] flex-wrap items-center gap-2 py-2.5"
+        className={compact ? "flex min-h-[5.1rem] flex-wrap items-center gap-2 rounded-[1.25rem] border border-[var(--border)] bg-white px-4 py-3 lg:rounded-none lg:border-0" : "input-field flex min-h-[58px] flex-wrap items-center gap-2 py-2.5"}
         onClick={() => {
           setOpen(true);
           inputRef.current?.focus();
         }}
       >
+        {compact ? <IconMapPin size={23} className="shrink-0 text-[var(--foreground)]" /> : null}
+        <div className={compact ? "min-w-0 flex-1" : "contents"}>
+          {compact ? <span className="block text-sm font-semibold text-[var(--foreground)]">{label ?? copy.town}</span> : null}
+        <div className={compact ? "flex min-w-0 flex-wrap items-center gap-2 pt-1" : "contents"}>
         {selectedTowns.map((town) => (
           <span
             key={town.slug}
             className="inline-flex items-center gap-2 rounded-full bg-[var(--secondary)] px-3 py-1.5 text-sm text-[var(--foreground)]"
           >
-            <IconMapPin size={13} className="text-[var(--primary)]" />
+            {!compact ? <IconMapPin size={13} className="text-[var(--primary)]" /> : null}
             {town.name}
             <button
               type="button"
@@ -129,8 +139,8 @@ export function TownMultiSelect({
           </span>
         ))}
 
-        <div className="flex min-w-[12rem] flex-1 items-center gap-2">
-          <IconSearch size={15} className="shrink-0 text-[var(--muted)]" />
+        <div className="flex min-w-[8rem] flex-1 items-center gap-2">
+          {!compact ? <IconSearch size={15} className="shrink-0 text-[var(--muted)]" /> : null}
           <input
             ref={inputRef}
             value={query}
@@ -144,10 +154,12 @@ export function TownMultiSelect({
                 removeTown(selectedSlugs[selectedSlugs.length - 1]);
               }
             }}
-            placeholder={selectedTowns.length ? copy.placeholder : copy.placeholder}
-            className="min-w-[8rem] flex-1 bg-transparent text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--muted)]"
-            aria-label={copy.placeholder}
+            placeholder={placeholder ?? copy.placeholder}
+            className="min-w-[7rem] flex-1 bg-transparent text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--muted)]"
+            aria-label={label ?? copy.placeholder}
           />
+        </div>
+        </div>
         </div>
 
         <button
@@ -158,7 +170,7 @@ export function TownMultiSelect({
             inputRef.current?.focus();
           }}
           className="ml-auto rounded-full p-1 text-[var(--muted)] transition-colors hover:text-[var(--foreground)]"
-          aria-label={copy.town}
+          aria-label={label ?? copy.town}
         >
           <IconChevronDown size={16} />
         </button>

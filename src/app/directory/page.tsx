@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { BusinessExplorer } from "@/components/business-explorer";
 import { getCurrentLocale } from "@/lib/locale";
 import { getDirectoryCatalog, getDirectoryPage } from "@/lib/public-data";
-import { getMultiParam, getSingleParam } from "@/lib/site";
+import { buildTownImage, getMultiParam, getSingleParam } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "Directory | Salento Local",
@@ -56,18 +56,10 @@ export default async function DirectoryPage({
   const { towns, localities, categories } = catalog;
 
   const townSlugById = new Map(towns.map((town) => [town.id, town.slug]));
+  const exploreHeroTown = towns.find((town) => town.slug === "otranto") ?? towns[0];
 
   return (
-    <main className="shell px-4 py-9 sm:px-6 sm:py-12">
-      <div className="mb-6 sm:mb-8">
-        <h1 className="font-serif text-3xl tracking-[-0.025em] text-[var(--foreground)] sm:text-4xl">
-          {copy.title}
-        </h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted)] sm:text-[15px]">
-          {copy.intro}
-        </p>
-      </div>
-
+    <main className="directory-page overflow-x-clip pb-12 sm:pb-16">
       <BusinessExplorer
         key={`${query}:${townFilter}:${townFilters.join(",")}:${localityFilter}:${categoryFilter}:${sort}:${view}:${resultPage.page}`}
         businesses={resultPage.businesses}
@@ -83,6 +75,9 @@ export default async function DirectoryPage({
           towns: townFilters,
           view,
         }}
+        heroImageUrl={exploreHeroTown ? buildTownImage(exploreHeroTown, 1800) : undefined}
+        heroIntro={copy.intro}
+        heroTitle={copy.title}
         locale={locale}
         localities={localities.map((locality) => ({
           name: locality.name,
@@ -93,6 +88,7 @@ export default async function DirectoryPage({
         resultLabel={copy.results}
         searchPlaceholder={copy.placeholder}
         showCategoryChips
+        showExploreHero
         showLocalityFilter
         showTownFilter
         townFilterMode="multi"

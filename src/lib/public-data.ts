@@ -327,7 +327,9 @@ async function loadDirectoryCatalog() {
   const [towns, localities, categories] = await Promise.all([
       prisma.town.findMany({
         select: {
+          heroImageSeed: true,
           id: true,
+          imageUrl: true,
           name: true,
           slug: true,
         },
