@@ -5,6 +5,7 @@ import { AdminPartnerPayoutButton } from "@/components/account/admin-partner-pay
 import { PartnerOutstandingCommissionCard } from "@/components/account/partner-outstanding-commission-card";
 import { PartnerPayoutSummary } from "@/components/account/partner-payout-summary";
 import { PartnerDashboard } from "@/components/account/partner-dashboard";
+import { PartnerFirstBusinessDashboard } from "@/components/account/partner-first-business-dashboard";
 import {
   BusinessOwnerDashboard,
 } from "@/components/account/business-owner-dashboard";
@@ -27,6 +28,7 @@ import {
 import { requireCompletedViewer } from "@/lib/auth-guards";
 import { getCurrentLocale } from "@/lib/locale";
 import { getPartnerNextRoute } from "@/lib/partner-onboarding";
+import { shouldShowPartnerFirstBusinessDashboard } from "@/lib/partner-first-business-dashboard";
 import { getPartnerPayoutSetupSummary } from "@/lib/partner-connect";
 import {
   getPartnerBalanceSummary,
@@ -570,6 +572,10 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       : 0;
 
   if (viewer.role === "GETTER" && partnerBalances) {
+    if (shouldShowPartnerFirstBusinessDashboard(submissions.length)) {
+      return <PartnerFirstBusinessDashboard locale={locale} username={viewer.username} />;
+    }
+
     return (
       <PartnerDashboard
         balances={partnerBalances}
