@@ -1,55 +1,150 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  IconArrowLeft, IconArrowRight, IconBulb, IconBrowser, IconCheck, IconConfetti,
+  IconCreditCard, IconCurrencyEuro, IconEye, IconFileText, IconPlus, IconSettings,
+  IconUsersGroup, type TablerIcon,
+} from "@tabler/icons-react";
 
 import { completePartnerFirstRunOnboardingAction } from "@/app/(account)/actions";
+import { getNextPartnerFirstRunStep, getPreviousPartnerFirstRunStep, type PartnerFirstRunStep } from "@/lib/partner-first-run-navigation";
 import type { Locale } from "@/lib/i18n";
 
 import styles from "./partner-first-run-onboarding.module.css";
 
-type Copy = { first: string; then: string; owner: string; thatsIt: string; partner: string; titleStart: string; titleEnd: string; intro: string; find: string; findBody: string; create: string; createBody: string; approves: string; approvesBody: string; earn: string; earnBody: string; neverCollect: string; showHow: string; firstBusiness: string; helloStart: string; helloEnd: string; helloIntro: string; script: string; interested: string; guide: string; ready: string; back: string };
-
-const copyByLocale: Record<Locale, Copy> = {
-  en: { first: "FIRST", then: "THEN", owner: "THE OWNER", thatsIt: "THAT'S IT", partner: "LOCAL PARTNER", titleStart: "Find a business.", titleEnd: "Earn €50.", intro: "Help a local business join Salento Local. We’ll guide you through everything else.", find: "Find a business", findBody: "Talk to the owner or manager.", create: "Create their page", createBody: "We guide you step by step.", approves: "Approves & pays", approvesBody: "Payment goes straight to Salento Local.", earn: "You earn €50", earnBody: "Your commission appears in your account.", neverCollect: "You never collect payment yourself.", showHow: "Show me how", firstBusiness: "YOUR FIRST BUSINESS", helloStart: "Start with", helloEnd: "a simple hello.", helloIntro: "Ask for the owner or manager. That’s all you need to remember.", script: "Hi! I’m working with Salento Local. We help people discover local businesses around Salento. Could I quickly show you how it works?", interested: "If they’re interested, start their page.", guide: "Salento Local will guide you through what to ask, the photos, approval and payment.", ready: "I’m ready", back: "Back" },
-  it: { first: "PRIMA", then: "POI", owner: "IL TITOLARE", thatsIt: "TUTTO QUI", partner: "LOCAL PARTNER", titleStart: "Trova un'attività.", titleEnd: "Guadagna €50.", intro: "Aiuta un'attività locale a entrare in Salento Local. Ti guidiamo noi in tutto il resto.", find: "Trova un'attività", findBody: "Parla con il titolare o responsabile.", create: "Crea la loro pagina", createBody: "Ti guidiamo passo dopo passo.", approves: "Approva e paga", approvesBody: "Il pagamento va direttamente a Salento Local.", earn: "Tu guadagni €50", earnBody: "La commissione appare nel tuo account.", neverCollect: "Non raccogli mai il pagamento di persona.", showHow: "Fammi vedere come", firstBusiness: "LA TUA PRIMA ATTIVITÀ", helloStart: "Inizia con", helloEnd: "un semplice ciao.", helloIntro: "Chiedi del titolare o responsabile. È tutto quello che devi ricordare.", script: "Ciao! Collaboro con Salento Local. Aiutiamo le persone a scoprire le attività del Salento. Posso mostrarti velocemente come funziona?", interested: "Se sono interessati, iniziate la loro pagina.", guide: "Salento Local ti guiderà su cosa chiedere, le foto, l'approvazione e il pagamento.", ready: "Sono pronto", back: "Indietro" },
+type Color = "blue" | "green" | "orange" | "yellow";
+type Item = { body: React.ReactNode; color: Color; icon: TablerIcon; title: string };
+type Conversation = { body: React.ReactNode; hint: string; title: string };
+type Copy = {
+  back: string; benefitCallout: string; benefits: Item[]; businessIntro: string; businessTitle: React.ReactNode;
+  conversation: Conversation[]; conversationIntro: string; conversationTitle: string; done: string; guideDone: string; guideLabel: string;
+  howFlow: Item[]; howIntro: string; howTitle: React.ReactNode; next: string; nextCallout: string; nextCalloutBody: string;
+  nextIntro: string; nextSteps: Item[]; nextTitle: React.ReactNode; partner: string; progress: [string, string, string, string];
+  step: string; tip: string; tipBody: string; you: string;
 };
 
-function Storefront() { return <svg viewBox="0 0 64 64" aria-hidden="true"><path d="M13 28h38v25H13z"/><path d="M10 28l5-14h34l5 14"/><path d="M20 28v25M44 28v25"/><path d="M26 53V38h12v15"/><path d="M10 28c0 5 8 5 8 0 0 5 8 5 8 0 0 5 8 5 8 0 0 5 8 5 8 0 0 5 8 5 8 0"/></svg>; }
-function Phone() { return <svg viewBox="0 0 64 64" aria-hidden="true"><rect x="18" y="8" width="28" height="48" rx="5"/><path d="M25 19h14M25 27h14M25 35h8"/><circle cx="32" cy="48" r="1.5"/><path d="M49 18v12M43 24h12"/></svg>; }
-function Owner() { return <svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="26" cy="22" r="9"/><path d="M10 50c2-10 8-15 16-15s14 5 16 15"/><circle cx="46" cy="39" r="12"/><path d="M40 39l4 4 8-9"/></svg>; }
-function Arrow() { return <div className={styles.arrow} aria-hidden="true"><span/><b>→</b></div>; }
+const copyByLocale: Record<Locale, Copy> = {
+  en: {
+    back: "Back",
+    benefits: [
+      { title: "Their own mini website", body: "A professional page for their business on an established site — no need to build or promote a website themselves.", color: "green", icon: IconBrowser },
+      { title: "More visibility", body: "They can be found by tourists and locals who are exploring Salento and looking for places to eat, stay, shop and more.", color: "orange", icon: IconUsersGroup },
+      { title: "€100 for the first year", body: <>Then just €50 per year to renew. That’s <strong>less than €2 per week</strong> for great exposure.</>, color: "yellow", icon: IconCurrencyEuro },
+      { title: "A complete page", body: "Their photos, opening hours, contact details, directions and key information — all in one place. You help set it up, and they review everything before paying.", color: "blue", icon: IconSettings },
+    ],
+    benefitCallout: "A small investment. A bigger presence in Salento.",
+    businessIntro: "For €100, they get a professional business page on Salento Local — a trusted local guide that helps people discover the best places in Salento.",
+    businessTitle: <>What are business<br/><span>owners paying for?</span></>,
+    conversation: [
+      { title: "Start with a simple hello.", hint: "Ask for the owner or manager.", body: <>Hi! I’m working with Salento Local. We help local businesses get discovered in Salento. Could I quickly show you how it works?</> },
+      { title: "Explain what it is.", hint: "If they’re interested, give a quick summary.", body: <>It’s a mini website page for your business on Salento Local. It includes your photos, opening hours, contact details and directions — all in one place.</> },
+      { title: "Mention the price.", hint: "Be clear and simple.", body: <>The first year is <strong>€100</strong>, then <strong>€50</strong> per year to renew. That’s <strong>less than €2 per week.</strong></> },
+      { title: "Make it easy.", hint: "Reassure them.", body: <>If you’d like, I can prepare the page with you. You’ll review everything before deciding and paying.</> },
+    ],
+    conversationIntro: "Here’s a simple conversation you can use. Keep it natural and friendly.", conversationTitle: "What to say.", done: "I’m ready", guideDone: "Back to dashboard", guideLabel: "Partner guide",
+    howFlow: [
+      { title: "Find a business", body: "Talk to the owner or manager.", color: "green", icon: IconBrowser },
+      { title: "Create their page", body: "We guide you step by step.", color: "orange", icon: IconFileText },
+      { title: "Owner approves & pays", body: "They pay €100 for the first year directly to Salento Local.", color: "yellow", icon: IconCreditCard },
+      { title: "You earn €50", body: "Your commission appears in your account.", color: "blue", icon: IconConfetti },
+    ],
+    howIntro: "Help a local business join Salento Local. We’ll guide you through everything else.", howTitle: <>Find a business.<br/><span>Earn €50.</span></>, next: "Next",
+    nextCallout: "You don’t need to remember everything.", nextCalloutBody: "The form will guide you, and you can always come back to this tutorial from your dashboard.",
+    nextIntro: "Great! Here’s what to do next. We’ll guide you step by step.",
+    nextSteps: [
+      { title: "Tap Add Business", body: "Start a new submission in your account.", color: "green", icon: IconPlus },
+      { title: "Follow the steps", body: "Add the business details, photos, hours and owner information.", color: "orange", icon: IconFileText },
+      { title: "Owner reviews", body: "The owner checks everything and confirms their page is correct.", color: "blue", icon: IconEye },
+      { title: "They pay directly", body: "The owner pays €100 for the first year (then €50 per year) directly to Salento Local.", color: "yellow", icon: IconCreditCard },
+      { title: "You earn €50", body: "After the business is published, your €50 commission appears in your account.", color: "green", icon: IconConfetti },
+    ],
+    nextTitle: <>They’re interested.<br/><span>Now what?</span></>, partner: "LOCAL PARTNER", progress: ["How it works", "What businesses get", "What to say", "Next steps"], step: "STEP",
+    tip: "Tip: Be yourself.", tipBody: "Keep it friendly, clear and short. Most business owners are happy to learn more.", you: "You",
+  },
+  it: {
+    back: "Indietro",
+    benefits: [
+      { title: "Il loro mini sito", body: "Una pagina professionale per la loro attività su un sito già affermato — senza dover creare o promuovere un sito da soli.", color: "green", icon: IconBrowser },
+      { title: "Più visibilità", body: "Possono farsi trovare da turisti e persone del posto che esplorano il Salento e cercano dove mangiare, dormire, fare acquisti e molto altro.", color: "orange", icon: IconUsersGroup },
+      { title: "€100 per il primo anno", body: <>Poi solo €50 all’anno per rinnovare. <strong>Meno di €2 a settimana</strong> per una grande visibilità.</>, color: "yellow", icon: IconCurrencyEuro },
+      { title: "Una pagina completa", body: "Foto, orari di apertura, contatti, indicazioni e informazioni importanti — tutto in un unico posto. Tu aiuti a prepararla e loro controllano tutto prima di pagare.", color: "blue", icon: IconSettings },
+    ],
+    benefitCallout: "Un piccolo investimento. Una presenza più grande nel Salento.",
+    businessIntro: "Con €100 ottengono una pagina professionale su Salento Local — una guida locale affidabile che aiuta le persone a scoprire i posti migliori del Salento.",
+    businessTitle: <>Per cosa pagano i titolari<br/><span>delle attività?</span></>,
+    conversation: [
+      { title: "Inizia con un semplice ciao.", hint: "Chiedi del titolare o del responsabile.", body: <>Ciao! Collaboro con Salento Local. Aiutiamo le attività locali a farsi trovare nel Salento. Posso mostrarti velocemente come funziona?</> },
+      { title: "Spiega di cosa si tratta.", hint: "Se sono interessati, fai un breve riassunto.", body: <>È una pagina web per la tua attività su Salento Local. Include foto, orari di apertura, contatti e indicazioni — tutto in un unico posto.</> },
+      { title: "Parla del prezzo.", hint: "Sii chiaro e semplice.", body: <>Il primo anno costa <strong>€100</strong>, poi <strong>€50</strong> all’anno per rinnovare. Sono <strong>meno di €2 a settimana.</strong></> },
+      { title: "Rendi tutto semplice.", hint: "Rassicurali.", body: <>Se vuoi, posso preparare la pagina insieme a te. Potrai controllare tutto prima di decidere e pagare.</> },
+    ],
+    conversationIntro: "Ecco una semplice conversazione che puoi usare. Mantienila naturale e amichevole.", conversationTitle: "Cosa dire.", done: "Sono pronto", guideDone: "Torna al dashboard", guideLabel: "Guida Partner",
+    howFlow: [
+      { title: "Trova un’attività", body: "Parla con il titolare o il responsabile.", color: "green", icon: IconBrowser },
+      { title: "Crea la loro pagina", body: "Ti guidiamo passo dopo passo.", color: "orange", icon: IconFileText },
+      { title: "Il titolare approva e paga", body: "Paga €100 per il primo anno direttamente a Salento Local.", color: "yellow", icon: IconCreditCard },
+      { title: "Tu guadagni €50", body: "La commissione appare nel tuo account.", color: "blue", icon: IconConfetti },
+    ],
+    howIntro: "Aiuta un’attività locale a entrare in Salento Local. Ti guidiamo noi in tutto il resto.", howTitle: <>Trova un’attività.<br/><span>Guadagna €50.</span></>, next: "Avanti",
+    nextCallout: "Non devi ricordare tutto.", nextCalloutBody: "Il modulo ti guiderà e potrai sempre tornare a questo tutorial dal dashboard.",
+    nextIntro: "Ottimo! Ecco cosa fare dopo. Ti guideremo passo dopo passo.",
+    nextSteps: [
+      { title: "Tocca Aggiungi attività", body: "Avvia una nuova segnalazione dal tuo account.", color: "green", icon: IconPlus },
+      { title: "Segui i passaggi", body: "Aggiungi i dettagli dell’attività, foto, orari e informazioni sul titolare.", color: "orange", icon: IconFileText },
+      { title: "Il titolare controlla", body: "Il titolare verifica tutto e conferma che la pagina sia corretta.", color: "blue", icon: IconEye },
+      { title: "Paga direttamente", body: "Il titolare paga €100 per il primo anno (poi €50 all’anno) direttamente a Salento Local.", color: "yellow", icon: IconCreditCard },
+      { title: "Tu guadagni €50", body: "Dopo la pubblicazione dell’attività, la commissione di €50 appare nel tuo account.", color: "green", icon: IconConfetti },
+    ],
+    nextTitle: <>Sono interessati.<br/><span>E adesso?</span></>, partner: "PARTNER LOCALE", progress: ["Come funziona", "Cosa ottengono le attività", "Cosa dire", "Prossimi passi"], step: "PASSAGGIO",
+    tip: "Consiglio: sii te stesso.", tipBody: "Sii amichevole, chiaro e breve. Molti titolari sono felici di saperne di più.", you: "Tu",
+  },
+};
 
-export function PartnerFirstRunOnboarding({ locale }: { locale: Locale }) {
-  const [screen, setScreen] = useState<1 | 2>(1);
-  const copy = copyByLocale[locale];
+function Progress({ copy, screen }: { copy: Copy; screen: PartnerFirstRunStep }) {
+  return <ol className={styles.progress} aria-label={`${copy.partner}: ${copy.step} ${screen} ${copy.step === "PASSAGGIO" ? "di" : "of"} 4`}>
+    {copy.progress.map((label, index) => {
+      const step = (index + 1) as PartnerFirstRunStep;
+      const state = step < screen ? "complete" : step === screen ? "current" : "future";
+      return <li className={styles[`progress${state[0].toUpperCase()}${state.slice(1)}`]} key={label} aria-current={step === screen ? "step" : undefined}>
+        <span className={styles.progressDot}>{step < screen ? <IconCheck size={18} stroke={2.8} /> : step}</span><span className={styles.progressLabel}>{label}</span>
+      </li>;
+    })}
+  </ol>;
+}
+
+function FlowCards({ items, screen }: { items: Item[]; screen: 1 | 4 }) {
+  return <div className={screen === 1 ? styles.howFlow : styles.nextFlow}>{items.map(({ body, color, icon: Icon, title }, index) => <div className={styles.flowItem} key={title}>
+    <article className={`${styles.flowCard} ${screen === 4 && index === 4 ? styles.flowFinal : ""}`}>
+      {screen === 4 ? <span className={`${styles.number} ${styles[color]}`}>{index + 1}</span> : null}
+      <span className={`${styles.icon} ${styles[color]}`}><Icon aria-hidden="true" size={screen === 1 ? 31 : 34} stroke={1.8}/></span><h2>{title}</h2><p>{body}</p>
+    </article>{index < items.length - 1 ? <span className={styles.flowArrow} aria-hidden="true"><i/><IconArrowRight size={22}/></span> : null}
+  </div>)}</div>;
+}
+
+export function PartnerFirstRunOnboarding({ isGuide = false, locale }: { isGuide?: boolean; locale: Locale }) {
+  const [screen, setScreen] = useState<PartnerFirstRunStep>(1);
+  const copy = useMemo(() => copyByLocale[locale], [locale]);
+  const previous = getPreviousPartnerFirstRunStep(screen);
+  const following = getNextPartnerFirstRunStep(screen);
 
   useEffect(() => {
-    const frameId = window.requestAnimationFrame(() => {
-      window.scrollTo({ behavior: "smooth", top: 0 });
-    });
-
+    const frameId = window.requestAnimationFrame(() => window.scrollTo({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", top: 0 }));
     return () => window.cancelAnimationFrame(frameId);
   }, [screen]);
 
-  const steps = [
-    [copy.first, copy.find, copy.findBody, <Storefront key="store"/>],
-    [copy.then, copy.create, copy.createBody, <Phone key="phone"/>],
-    [copy.owner, copy.approves, copy.approvesBody, <Owner key="owner"/>],
-    [copy.thatsIt, copy.earn, copy.earnBody, <span className={styles.money} key="money">€50</span>],
-  ] as const;
-
-  return <div className={styles.app}>
-    <div className={styles.top}><div className={styles.brand}>SALENTO <span>LOCAL</span></div><div className={styles.progress} aria-label={`Onboarding ${screen} of 2`}><i className={styles.active}/><i className={screen === 2 ? styles.active : undefined}/></div></div>
-    <section className={styles.surface}>
-      {screen === 1 ? <div className={styles.content}>
-        <p className={styles.kicker}>{copy.partner}</p><h1>{copy.titleStart}<br/><span>{copy.titleEnd}</span></h1><p className={styles.intro}>{copy.intro}</p>
-        <div className={styles.flow} aria-label="How earning works">{steps.map(([label, title, body, icon], index) => <div className={styles.flowItem} key={title}><div className={`${styles.flowStep} ${index === 3 ? styles.finalStep : ""}`}><div className={`${styles.illustration} ${index === 3 ? styles.moneyIllustration : ""}`}>{icon}</div><div className={styles.flowCopy}><span>{label}</span><strong>{title}</strong><p>{body}</p></div></div>{index < 3 ? <Arrow/> : null}</div>)}</div>
-        <div className={styles.bottom}><p><span>✦</span>{copy.neverCollect}</p><button type="button" onClick={() => setScreen(2)}>{copy.showHow}<b>→</b></button></div>
-      </div> : <div className={`${styles.content} ${styles.second}`}>
-        <button type="button" className={styles.back} onClick={() => setScreen(1)} aria-label={copy.back}>←</button><p className={styles.kicker}>{copy.firstBusiness}</p><h1>{copy.helloStart}<br/><span>{copy.helloEnd}</span></h1><p className={styles.intro}>{copy.helloIntro}</p>
-        <div className={styles.say}><div>“</div><p>{copy.script}</p></div><div className={styles.micro}><div>✓</div><div><b>{copy.interested}</b><p>{copy.guide}</p></div></div>
-        <form action={completePartnerFirstRunOnboardingAction}><button className={styles.mainButton}>{copy.ready}<span>→</span></button></form>
-      </div>}
-    </section>
-  </div>;
+  const nextLabel = screen === 1 ? `${copy.next}: ${copy.progress[1]}` : screen === 2 ? `${copy.next}: ${copy.progress[2]}` : screen === 3 ? `${copy.next}: ${locale === "it" ? "Sono interessati" : "They said yes"}` : copy.done;
+  return <div className={styles.app}><section className={styles.surface} aria-label={copy.guideLabel}>
+    <div className={styles.meta}><div><p>{copy.partner}</p><span>{copy.step} {screen} {locale === "it" ? "DI" : "OF"} 4</span></div><Progress copy={copy} screen={screen}/></div>
+    <div className={styles.content}>
+      {screen === 1 ? <><h1>{copy.howTitle}</h1><p className={styles.intro}>{copy.howIntro}</p><FlowCards items={copy.howFlow} screen={1}/><div className={styles.reassurance}><IconCheck aria-hidden="true" size={19}/><p>{locale === "it" ? "Non riscuoti mai personalmente il pagamento." : "You never collect payment yourself."}</p></div></> : null}
+      {screen === 2 ? <><h1>{copy.businessTitle}</h1><p className={styles.intro}>{copy.businessIntro}</p><div className={styles.benefits}>{copy.benefits.map(({ body, color, icon: Icon, title }) => <article className={styles.benefit} key={title}><span className={`${styles.icon} ${styles[color]}`}><Icon aria-hidden="true" size={33} stroke={1.8}/></span><h2>{title}</h2><p>{body}</p></article>)}</div><aside className={styles.callout}><IconBulb aria-hidden="true" size={28}/><p>{copy.benefitCallout}</p></aside></> : null}
+      {screen === 3 ? <><h1>{copy.conversationTitle}</h1><p className={styles.intro}>{copy.conversationIntro}</p><div className={styles.conversations}>{copy.conversation.map(({ body, hint, title }, index) => <article className={styles.conversation} key={title}><div className={styles.conversationHead}><span>{index + 1}</span><div><h2>{title}</h2><p>{hint}</p></div></div><div className={styles.speech}><span className={styles.person}><IconUsersGroup aria-hidden="true" size={20}/></span><div><b>{copy.you}</b><p>{body}</p></div></div></article>)}</div><aside className={styles.callout}><IconBulb aria-hidden="true" size={28}/><div><strong>{copy.tip}</strong><p>{copy.tipBody}</p></div></aside></> : null}
+      {screen === 4 ? <><h1>{copy.nextTitle}</h1><p className={styles.intro}>{copy.nextIntro}</p><FlowCards items={copy.nextSteps} screen={4}/><aside className={styles.callout}><IconBulb aria-hidden="true" size={28}/><div><strong>{copy.nextCallout}</strong><p>{copy.nextCalloutBody}</p></div></aside></> : null}
+      <nav className={styles.navigation} aria-label={locale === "it" ? "Navigazione del tutorial" : "Tutorial navigation"}>
+        {previous ? <button className={styles.back} type="button" onClick={() => setScreen(previous)}><IconArrowLeft size={18}/>{copy.back}</button> : <span/>}
+        {following ? <button className={styles.next} type="button" onClick={() => setScreen(following)}>{nextLabel}<IconArrowRight size={19}/></button> : isGuide ? <a className={styles.next} href="/dashboard">{copy.guideDone}<IconArrowRight size={19}/></a> : <form action={completePartnerFirstRunOnboardingAction}><button className={styles.next} type="submit">{nextLabel}<IconArrowRight size={19}/></button></form>}
+      </nav>
+    </div>
+  </section></div>;
 }
