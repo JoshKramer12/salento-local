@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import { buildStripeCheckoutMetadata } from "@/lib/payment";
+
 const publishForm = readFileSync("src/components/account/publish-form.tsx", "utf8");
 const submissionActions = readFileSync("src/app/(account)/actions.ts", "utf8");
 const stripeCheckout = readFileSync("src/lib/stripe-checkout.ts", "utf8");
@@ -46,6 +48,51 @@ test("card and bank-transfer choices pass the existing renewal mode into the cur
   assert.match(submissionActions, /Choose automatic or manual renewal before continuing/);
   assert.match(submissionActions, /Scegli prima il rinnovo automatico o manuale/);
   assert.match(stripeCheckout, /mode: automaticRenewal \? "subscription" : "payment"/);
+});
+
+test("the initial QR preparation preserves automatic renewal for the Checkout helper", () => {
+  const initialOnlinePreparation = submissionActions.slice(
+    submissionActions.indexOf("prepareOnline: () =>"),
+    submissionActions.indexOf("submissionId: id,"),
+  );
+
+  // Regression for the production defect: the selection was saved, but the
+  // initial QR action reconstructed a Checkout submission without this field.
+  assert.match(
+    initialOnlinePreparation,
+    /automaticRenewalAtAcceptance:\s*baseSubmissionData\.automaticRenewalAtAcceptance/,
+  );
+
+  // true creates the existing annual subscription Checkout; false stays a
+  // one-time Checkout without a recurring price configuration.
+  assert.match(
+    stripeCheckout,
+    /const automaticRenewal = Boolean\(params\.submission\.automaticRenewalAtAcceptance\)/,
+  );
+  assert.match(
+    stripeCheckout,
+    /\.\.\.\(automaticRenewal \? \{ recurring: \{ interval: "year" as const \} \} : \{\}\)/,
+  );
+  assert.match(stripeCheckout, /mode: automaticRenewal \? "subscription" : "payment"/);
+  assert.match(stripeCheckout, /automaticRenewal,/);
+  assert.match(stripeCheckout, /automaticRenewal: true/);
+
+  assert.equal(
+    buildStripeCheckoutMetadata({
+      automaticRenewal: true,
+      businessSubmissionId: "automatic-submission",
+      userId: "user-1",
+    }).automaticRenewal,
+    "true",
+  );
+  assert.equal(
+    buildStripeCheckoutMetadata({
+      automaticRenewal: false,
+      businessSubmissionId: "manual-submission",
+      userId: "user-1",
+    }).automaticRenewal,
+    "false",
+  );
 });
 
 test("the established QR, polling, webhook, and publication path remains in place", () => {

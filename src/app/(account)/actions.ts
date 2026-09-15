@@ -2072,6 +2072,8 @@ async function saveBusinessSubmission(
         ensureStripeCheckoutSession({
           submission: {
             amountOwedCents,
+            automaticRenewalAtAcceptance:
+              baseSubmissionData.automaticRenewalAtAcceptance,
             businessName: paymentSubmission.businessName,
             email: publicEmail,
             id,
