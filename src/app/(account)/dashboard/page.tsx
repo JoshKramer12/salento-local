@@ -259,6 +259,17 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             select: { alt: true, id: true, url: true },
           },
           locality: { select: { name: true } },
+          membership: {
+            select: {
+              annualPriceCents: true,
+              automaticRenewal: true,
+              currentPeriodEnd: true,
+              entitlementRevokedAt: true,
+              graceEndsAt: true,
+              stripeCancelAtPeriodEnd: true,
+              stripeSubscriptionStatus: true,
+            },
+          },
           name: true,
           payments: {
             where: { status: "PAID" },
@@ -267,6 +278,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
               createdAt: true,
               paidAt: true,
               status: true,
+              purpose: true,
               businessSubmission: {
                 select: { id: true, listingTermMonthsAtAcceptance: true },
               },
@@ -667,6 +679,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
       {viewer.role === "ADMIN" && adminDashboard ? (
         <>
+          <div className="mb-6">
+            <HardNavigationLink className="btn-secondary" href="/dashboard/admin/memberships">
+              {locale === "it" ? "Visualizza membership" : "View memberships"}
+            </HardNavigationLink>
+          </div>
           {payoutBannerCopy ? (
             <section className="mb-8 rounded-[1.4rem] border border-[var(--border)] bg-[color:rgba(247,244,239,0.62)] px-5 py-4 text-sm text-[var(--foreground)]">
               {payoutBannerCopy}

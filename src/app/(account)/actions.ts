@@ -102,6 +102,7 @@ import {
   ensureStripeCheckoutSession,
 } from "@/lib/stripe-checkout";
 import { publishSubmissionAfterPayment } from "@/lib/submission-publication";
+import { ensureInitialBusinessMembership } from "@/lib/business-membership";
 import {
   buildVerificationExpiry,
   buildVerificationResendAt,
@@ -1394,6 +1395,18 @@ export async function openBusinessSubmissionPaymentAction(
     };
   }
 
+  if (
+    paymentMethod === "ONLINE" &&
+    !["AUTO", "MANUAL"].includes(getStringValue(formData.get("renewalPreference")))
+  ) {
+    return {
+      error: locale === "it"
+        ? "Scegli prima il rinnovo automatico o manuale."
+        : "Choose automatic or manual renewal before continuing.",
+      ok: false,
+    };
+  }
+
   // This dedicated action is the only client contract for a payment-choice
   // click. It cannot accidentally become a draft save after a UI refactor.
   formData.set("intent", "submit");
@@ -1990,7 +2003,9 @@ async function saveBusinessSubmission(
     addressRoute: selectedAddressStorage?.addressRoute ?? null,
     addressStreetNumber: selectedAddressStorage?.addressStreetNumber ?? null,
     agreementSignature: parsed.data.agreementSignature,
-    automaticRenewalAtAcceptance: wantsPaymentStep ? LISTING_OFFER.automaticRenewal : null,
+    // Bank transfer is always manual. Online automatic renewal requires the
+    // explicit, visible selection sent by the payment step.
+    automaticRenewalAtAcceptance: wantsPaymentStep && parsed.data.paymentMethod === "ONLINE" && getStringValue(formData.get("renewalPreference")) === "AUTO",
     businessTermsAcceptedAt: wantsPaymentStep && rawSubmission.agreementAccepted ? new Date() : null,
     businessTermsVersion: wantsPaymentStep ? LISTING_OFFER.businessTermsVersion : null,
     businessName: parsed.data.businessName,
@@ -1998,7 +2013,7 @@ async function saveBusinessSubmission(
     contractualEmail: publicEmail || null,
     email: publicEmail,
     facebook: normalizeSubmissionSocialValue(parsed.data.facebook),
-    firstYearPriceCentsAtAcceptance: wantsPaymentStep ? LISTING_OFFER.firstYearPriceCents : null,
+    firstYearPriceCentsAtAcceptance: wantsPaymentStep ? LISTING_OFFER.annualPriceCents : null,
     googleMapsUrl: selectedAddress ? buildGoogleMapsSearchUrl(selectedAddress) : "",
     instagram: normalizeSubmissionSocialValue(parsed.data.instagram),
     localityId: null,
@@ -3652,6 +3667,7 @@ export async function confirmBankTransferReceivedAction(formData: FormData) {
   const reference = submission.bankTransferReference || getBankTransferReference(submission.id);
   let publishedBusinessSlug = "";
   let publishedTownSlug = "";
+  const confirmedAt = new Date();
 
   await prisma.$transaction(async (tx) => {
     const latestPayment = await tx.payment.findFirst({
@@ -3675,7 +3691,7 @@ export async function confirmBankTransferReceivedAction(formData: FormData) {
         data: {
           bankTransferReference: reference,
           businessId: submission.createdBusinessId,
-          paidAt: new Date(),
+          paidAt: confirmedAt,
           status: "PAID",
         },
       });
@@ -3687,7 +3703,7 @@ export async function confirmBankTransferReceivedAction(formData: FormData) {
           businessId: submission.createdBusinessId,
           businessSubmissionId: submission.id,
           method: "BANK_TRANSFER",
-          paidAt: new Date(),
+          paidAt: confirmedAt,
           partnerUserId: getPartnerUserIdForSubmission(submission.user),
           status: "PAID",
           userId: submission.userId,
@@ -3714,6 +3730,14 @@ export async function confirmBankTransferReceivedAction(formData: FormData) {
 
     publishedBusinessSlug = publishedBusiness?.slug ?? "";
     publishedTownSlug = publishedBusiness?.town.slug ?? "";
+    if (publishedBusiness) {
+      await ensureInitialBusinessMembership({
+        businessId: publishedBusiness.id,
+        db: tx,
+        paidAt: confirmedAt,
+        submissionId: submission.id,
+      });
+    }
   });
 
   revalidatePath("/dashboard");

@@ -112,6 +112,26 @@ enum PaymentRecordMethod {
   BANK_TRANSFER
 }
 
+// A payment is kept against the original submission for receipt/access
+// compatibility, while this field describes which membership term it bought.
+enum PaymentPurpose {
+  INITIAL_MEMBERSHIP
+  ANNUAL_RENEWAL
+  REACTIVATION
+}
+
+enum MembershipReminderType {
+  AUTO_30_DAYS
+  AUTO_7_DAYS
+  MANUAL_30_DAYS
+  MANUAL_14_DAYS
+  MANUAL_7_DAYS
+  GRACE_START
+  GRACE_7_DAYS_LEFT
+  EXPIRES_TOMORROW
+  EXPIRED
+}
+
 enum VerificationChannel {
   EMAIL
   SMS
@@ -282,6 +302,7 @@ model User {
   payments         Payment[]            @relation("SubmissionPayer")
   partnerPayments  Payment[]            @relation("SubmissionPartner")
   partnerCommissions PartnerCommission[]
+  originatingBusinessMemberships BusinessMembership[] @relation("OriginatingPartner")
   partnerPayouts   PartnerPayout[]
   localPartnerProfile LocalPartnerProfile?
   legalAcceptances LegalAcceptance[]
@@ -396,6 +417,7 @@ model Business {
   sources          BusinessSource[]
   submissions      BusinessSubmission[]
   tags             BusinessTag[]
+  membership       BusinessMembership?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
@@ -403,6 +425,49 @@ model Business {
   @@index([isLikelyClosed, categoryId, isFeatured, reviewCount, rating, name])
   @@index([isLikelyClosed, localityId, isFeatured, reviewCount, rating, name])
   @@index([ownerUserId, updatedAt])
+}
+
+// A membership is scoped to one business page. It intentionally does not
+// belong to an owner so one owner can hold different membership states across
+// multiple businesses.
+model BusinessMembership {
+  id                       String   @id @default(cuid())
+  businessId               String   @unique
+  annualPriceCents         Int
+  currentPeriodStart       DateTime
+  currentPeriodEnd         DateTime
+  graceEndsAt              DateTime
+  automaticRenewal         Boolean  @default(false)
+  originatingPartnerUserId String?
+  stripeCustomerId         String?
+  stripeSubscriptionId     String?
+  stripeSubscriptionStatus String?
+  stripeCancelAtPeriodEnd  Boolean  @default(false)
+  recurringPaymentReady    Boolean  @default(false)
+  entitlementRevokedAt     DateTime?
+  business                 Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  reminders                MembershipReminder[]
+  originatingPartnerUser   User?    @relation("OriginatingPartner", fields: [originatingPartnerUserId], references: [id], onDelete: SetNull)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  @@index([originatingPartnerUserId])
+  @@index([currentPeriodEnd, graceEndsAt])
+}
+
+model MembershipReminder {
+  id           String                 @id @default(cuid())
+  membershipId String
+  // The exact entitlement boundary is the durable cycle key. This is not a
+  // calendar year: memberships are always an exact 365-day term.
+  cycleEndsAt  DateTime
+  type         MembershipReminderType
+  sentAt       DateTime               @default(now())
+  membership   BusinessMembership     @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, cycleEndsAt, type])
+  @@index([membershipId, cycleEndsAt])
+  @@index([sentAt])
 }
 
 // A verified business-owner email is retained independently from the account
@@ -570,9 +635,11 @@ model Payment {
   amountCents            Int
   currency               String              @default("eur")
   method                 PaymentRecordMethod
+  purpose                PaymentPurpose       @default(INITIAL_MEMBERSHIP)
   status                 PaymentStatus       @default(PENDING_PAYMENT)
   stripeCheckoutSessionId String?            @unique
   stripePaymentIntentId  String?
+  stripeInvoiceId        String?             @unique
   stripeLastEventId      String?             @unique
   bankTransferReference  String?
   paidAt                 DateTime?

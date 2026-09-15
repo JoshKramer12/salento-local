@@ -1,9 +1,12 @@
 import type { CategoryGroup, Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { getPublicBusinessMembershipWhere } from "@/lib/business-membership";
 import { homeCategorySlugs } from "@/lib/site";
 
-const PUBLIC_DATA_REVALIDATE_SECONDS = 60 * 60;
+// Membership eligibility is time-sensitive at the grace boundary. Do not
+// retain public discovery results past the request that evaluated it.
+const PUBLIC_DATA_REVALIDATE_SECONDS = 0;
 const thingsToDoGroups: CategoryGroup[] = ["TOURISM", "BEACH", "STAY"];
 const PUBLIC_DATA_REVALIDATE_MS = PUBLIC_DATA_REVALIDATE_SECONDS * 1000;
 
@@ -48,6 +51,7 @@ const getTownCountMaps = createMemoryCache(
         by: ["townId"],
         where: {
           isLikelyClosed: false,
+          ...getPublicBusinessMembershipWhere(),
         },
         _count: {
           _all: true,
@@ -57,6 +61,7 @@ const getTownCountMaps = createMemoryCache(
         by: ["townId"],
         where: {
           isLikelyClosed: false,
+          ...getPublicBusinessMembershipWhere(),
           category: {
             group: {
               in: thingsToDoGroups,
@@ -96,7 +101,7 @@ const getHomePageDataCached = createMemoryCache(
             slug: true,
             _count: {
               select: {
-                businesses: true,
+                businesses: { where: getPublicBusinessMembershipWhere() },
               },
             },
           },
@@ -124,6 +129,7 @@ const getHomePageDataCached = createMemoryCache(
           where: {
             isFeatured: true,
             isLikelyClosed: false,
+            ...getPublicBusinessMembershipWhere(),
           },
           select: {
             address: true,
@@ -178,7 +184,7 @@ const getHomePageDataCached = createMemoryCache(
         prisma.locality.findMany({
           where: {
             businesses: {
-              some: {},
+              some: getPublicBusinessMembershipWhere(),
             },
           },
           select: {
@@ -204,7 +210,7 @@ const getHomePageDataCached = createMemoryCache(
         }),
         prisma.town.count(),
         prisma.locality.count(),
-        prisma.business.count(),
+        prisma.business.count({ where: getPublicBusinessMembershipWhere() }),
         getTownCountMaps(),
       ]);
 
@@ -245,7 +251,7 @@ const getTownsIndexDataCached = createMemoryCache(
         select: {
           _count: {
             select: {
-              businesses: true,
+              businesses: { where: getPublicBusinessMembershipWhere() },
             },
           },
           featured: true,
@@ -268,7 +274,7 @@ const getTownsIndexDataCached = createMemoryCache(
         },
         where: {
           businesses: {
-            some: {},
+            some: getPublicBusinessMembershipWhere(),
           },
         },
         orderBy: [{ featured: "desc" }, { name: "asc" }],
@@ -293,7 +299,7 @@ const getLocalitiesIndexDataCached = createMemoryCache(
       select: {
         _count: {
           select: {
-            businesses: true,
+            businesses: { where: getPublicBusinessMembershipWhere() },
           },
         },
         featured: true,
@@ -316,7 +322,7 @@ const getLocalitiesIndexDataCached = createMemoryCache(
       },
       where: {
         businesses: {
-          some: {},
+          some: getPublicBusinessMembershipWhere(),
         },
       },
       orderBy: [{ featured: "desc" }, { name: "asc" }],
@@ -434,6 +440,7 @@ export async function getDirectoryPage(filters: DirectoryPageFilters) {
   const townSlugs = (filters.townSlugs ?? []).filter(Boolean).slice(0, 12);
   const where: Prisma.BusinessWhereInput = {
     isLikelyClosed: false,
+    ...getPublicBusinessMembershipWhere(),
     ...(townSlugs.length ? { town: { slug: { in: townSlugs } } } : {}),
     ...(filters.locality ? { locality: { slug: filters.locality } } : {}),
     ...(group && categoryGroups.includes(group)

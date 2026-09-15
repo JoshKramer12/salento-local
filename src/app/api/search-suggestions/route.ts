@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { defaultLocale, isLocale } from "@/lib/i18n";
+import { getPublicBusinessMembershipWhere } from "@/lib/business-membership";
 import { prisma } from "@/lib/prisma";
 import { type SearchSuggestion } from "@/lib/search-suggestions";
 import { getCategoryLabel } from "@/lib/site";
@@ -102,6 +103,7 @@ export async function GET(request: NextRequest) {
     prisma.business.findMany({
       where: {
         isLikelyClosed: false,
+        ...getPublicBusinessMembershipWhere(),
         OR: [
           { name: { contains: query } },
           { shortDescription: { contains: query } },

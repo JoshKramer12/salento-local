@@ -10,6 +10,7 @@ import {
 import { BusinessExplorer } from "@/components/business-explorer";
 import { BusinessCard } from "@/components/business-card";
 import { getCurrentLocale } from "@/lib/locale";
+import { getPublicBusinessMembershipWhere } from "@/lib/business-membership";
 import { prisma } from "@/lib/prisma";
 import {
   buildLocalityImage,
@@ -125,6 +126,7 @@ export default async function LocalityPage({
     include: {
       town: true,
       businesses: {
+        where: getPublicBusinessMembershipWhere(),
         include: {
           town: true,
           locality: true,
@@ -158,6 +160,7 @@ export default async function LocalityPage({
           not: locality.id,
         },
         isLikelyClosed: false,
+        ...getPublicBusinessMembershipWhere(),
       },
       include: {
         town: true,
@@ -181,9 +184,9 @@ export default async function LocalityPage({
         },
       },
       include: {
-        _count: {
-          select: {
-            businesses: true,
+          _count: {
+            select: {
+              businesses: { where: getPublicBusinessMembershipWhere() },
           },
         },
       },

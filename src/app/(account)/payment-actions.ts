@@ -29,6 +29,7 @@ export async function startStripeCheckoutAction(formData: FormData) {
     },
     select: {
       amountOwedCents: true,
+      automaticRenewalAtAcceptance: true,
       businessName: true,
       createdBusinessId: true,
       id: true,
@@ -58,6 +59,7 @@ export async function startStripeCheckoutAction(formData: FormData) {
     appUrl,
     submission: {
       amountOwedCents: submission.amountOwedCents,
+      automaticRenewalAtAcceptance: submission.automaticRenewalAtAcceptance,
       businessName: submission.businessName,
       createdBusinessId: submission.createdBusinessId,
       email: submission.email,

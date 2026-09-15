@@ -9,12 +9,16 @@ export const LISTING_SIGNER_ROLE_VALUES = [
 
 export type ListingSignerRole = (typeof LISTING_SIGNER_ROLE_VALUES)[number];
 
+export const BUSINESS_MEMBERSHIP_ANNUAL_PRICE_CENTS = 10000;
+
 export const LISTING_OFFER = {
   automaticRenewal: false,
+  annualPriceCents: BUSINESS_MEMBERSHIP_ANNUAL_PRICE_CENTS,
   businessTermsVersion: LEGAL_DOCUMENTS.businessTerms.version,
-  firstYearPriceCents: 10000,
+  // Snapshot field compatibility: the initial payment is the annual price.
+  firstYearPriceCents: BUSINESS_MEMBERSHIP_ANNUAL_PRICE_CENTS,
   privacyPolicyVersion: LEGAL_DOCUMENTS.privacyPolicy.version,
-  renewalPriceCents: 5000,
+  renewalPriceCents: BUSINESS_MEMBERSHIP_ANNUAL_PRICE_CENTS,
   specificApproval: null as
     | null
     | {

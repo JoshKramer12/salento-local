@@ -23,6 +23,10 @@ import { normalizeUrlInput } from "@/lib/business-links";
 import { getBusinessPhotoUrls } from "@/lib/business-photos";
 import type { Locale } from "@/lib/i18n";
 import { LISTING_OFFER } from "@/lib/listing-offer";
+import { getBusinessMembershipStatus, type BusinessMembershipStatus } from "@/lib/business-membership";
+import { startMembershipBankTransferAction, startMembershipRenewalAction, turnOnMembershipAutoRenewAction } from "@/app/(account)/membership-actions";
+import { getPaymentPurposeLabel } from "@/lib/membership-renewal";
+import { AutoRenewCancelControl } from "@/components/account/auto-renew-cancel-control";
 import { buildBusinessImage, buildBusinessPhoto, getCategoryLabel } from "@/lib/site";
 
 type OwnerBusiness = {
@@ -33,11 +37,21 @@ type OwnerBusiness = {
   id: string;
   images: Array<{ alt: string; id: string; url: string }>;
   locality: { name: string } | null;
+  membership: {
+    annualPriceCents: number;
+    automaticRenewal: boolean;
+    currentPeriodEnd: Date;
+    entitlementRevokedAt: Date | null;
+    graceEndsAt: Date;
+    stripeCancelAtPeriodEnd: boolean;
+    stripeSubscriptionStatus: string | null;
+  } | null;
   name: string;
   payments: Array<{
     createdAt: Date;
     paidAt: Date | null;
     status: string;
+    purpose: "INITIAL_MEMBERSHIP" | "ANNUAL_RENEWAL" | "REACTIVATION";
     businessSubmission: {
       id: string;
       listingTermMonthsAtAcceptance: number | null;
@@ -102,6 +116,68 @@ function getListingPeriod(payment: OwnerBusiness["payments"][number] | undefined
     end,
     progress: Math.min(100, Math.max(0, (remaining / total) * 100)),
   };
+}
+
+function getMembershipStatusDetails(
+  membership: OwnerBusiness["membership"],
+  locale: Locale,
+) {
+  if (!membership) {
+    return null;
+  }
+
+  const status = getBusinessMembershipStatus({
+    currentPeriodEnd: membership.currentPeriodEnd,
+    entitlementRevokedAt: membership.entitlementRevokedAt,
+    graceEndsAt: membership.graceEndsAt,
+  });
+  const italian = locale === "it";
+  const details: Record<BusinessMembershipStatus, {
+    body: string;
+    date: Date;
+    dateLabel: string;
+    note?: string;
+    status: string;
+    tone: string;
+  }> = {
+    ACTIVE: {
+      body: italian
+        ? "La tua Pagina Attività è online su Salento Local."
+        : "Your Business Page is live on Salento Local.",
+      date: membership.currentPeriodEnd,
+      dateLabel: italian ? "Attiva fino al" : "Active until",
+      status: "ACTIVE",
+      tone: "border-[rgba(42,98,87,0.28)] bg-[rgba(237,248,242,0.86)] text-[var(--primary)]",
+    },
+    GRACE: {
+      body: italian
+        ? "Il periodo pagato è terminato, ma la tua Pagina Attività resterà visibile durante i 14 giorni di grazia."
+        : "Your paid term has ended, but your Business Page will remain visible during the 14-day grace period.",
+      date: membership.graceEndsAt,
+      dateLabel: italian ? "Il periodo di grazia termina il" : "Grace period ends",
+      note: italian
+        ? "Rinnova entro questa data per mantenere visibile la tua Pagina Attività."
+        : "Renew before this date to keep your Business Page visible.",
+      status: membership.stripeSubscriptionStatus === "past_due"
+        ? (italian ? "PAGAMENTO NON RIUSCITO" : "PAYMENT FAILED")
+        : (italian ? "PAGAMENTO DOVUTO" : "PAYMENT DUE"),
+      tone: "border-[rgba(191,121,32,0.28)] bg-[rgba(255,245,220,0.9)] text-[#9a620c]",
+    },
+    EXPIRED: {
+      body: italian
+        ? "La tua Pagina Attività non è più visibile su Salento Local perché la membership è scaduta."
+        : "Your Business Page is no longer visible on Salento Local because the membership has expired.",
+      date: membership.entitlementRevokedAt ?? membership.graceEndsAt,
+      dateLabel: italian ? "Scaduta il" : "Expired on",
+      note: italian
+        ? "Le informazioni della tua attività sono ancora salvate. Dopo la riattivazione della membership, la stessa Pagina Attività potrà tornare visibile."
+        : "Your business information is still saved. Once you reactivate the membership, the same Business Page can become visible again.",
+      status: italian ? "INATTIVA" : "INACTIVE",
+      tone: "border-[rgba(170,65,56,0.28)] bg-[rgba(255,238,236,0.9)] text-[#a33d35]",
+    },
+  };
+
+  return { ...details[status], annualPriceCents: membership.annualPriceCents };
 }
 
 function getInitials(name: string) {
@@ -266,6 +342,7 @@ function OwnerBusinessSection({ business, copy, locale }: { business: OwnerBusin
   const hero = gallery[0] ?? { alt: business.name, id: "fallback-image", src: fallbackImage };
   const payment = business.payments[0];
   const period = getListingPeriod(payment);
+  const membershipStatus = getMembershipStatusDetails(business.membership, locale);
   const location = business.locality ? `${business.locality.name}, ${business.town.name}` : business.town.name;
   const description = business.shortDescription.trim() || business.description.trim();
   const editListingHref = `/businesses/${business.slug}/edit?step=business`;
@@ -313,10 +390,13 @@ function OwnerBusinessSection({ business, copy, locale }: { business: OwnerBusin
         <SummaryCard icon={<IconMessageCircle size={25} />} label={copy.totalReviews} value={business.reviewCount} detail={business.reviewCount ? copy.truthfulReviews : copy.emptyReviews} />
       </div>
 
+      {membershipStatus ? <article className={`rounded-[1.55rem] border p-5 shadow-[0_10px_26px_rgba(66,51,31,0.045)] sm:p-6 ${membershipStatus.tone}`}>
+        <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-bold tracking-[0.14em]">{membershipStatus.status}</p><h3 className="mt-2 font-serif text-2xl text-[var(--foreground)]">{copy.membership}</h3><p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--foreground)]">{membershipStatus.body}</p></div><span className="rounded-full bg-white/70 px-3 py-1.5 text-sm font-semibold text-[var(--foreground)]">{new Intl.NumberFormat(locale === "it" ? "it-IT" : "en-IE", { currency: "EUR", style: "currency" }).format(membershipStatus.annualPriceCents / 100)}{locale === "it" ? "/anno" : "/year"}</span></div><p className="mt-4 text-sm font-semibold text-[var(--foreground)]">{membershipStatus.dateLabel}: {formatDate(locale, membershipStatus.date)}</p><p className="mt-2 text-sm font-medium text-[var(--foreground)]">{italian ? "Rinnovo automatico:" : "Automatic renewal:"} {business.membership?.automaticRenewal ? (italian ? "ATTIVO" : "ON") : (italian ? "DISATTIVATO" : "OFF")}</p>{business.membership?.automaticRenewal ? <p className="mt-1 text-sm text-[var(--foreground)]">{italian ? "Prossimo rinnovo:" : "Next renewal:"} {formatDate(locale, business.membership.currentPeriodEnd)}</p> : null}{membershipStatus.note ? <p className="mt-2 text-sm leading-6 text-[var(--foreground)]">{membershipStatus.note}</p> : null}<div className="mt-5 flex flex-wrap gap-3">{business.membership?.automaticRenewal ? <AutoRenewCancelControl businessId={business.id} endDate={formatDate(locale, business.membership.currentPeriodEnd)} locale={locale} /> : <form action={turnOnMembershipAutoRenewAction}><input type="hidden" name="businessId" value={business.id} /><button type="submit" className="btn-secondary min-h-11">{italian ? "Attiva rinnovo automatico" : "Turn on automatic renewal"}</button></form>}<form action={startMembershipRenewalAction}><input type="hidden" name="businessId" value={business.id} /><button type="submit" className="btn-primary min-h-11">{membershipStatus.status === "INACTIVE" ? (italian ? "Riattiva per €100" : "Reactivate for €100") : (italian ? "Rinnova per €100" : "Renew for €100")}</button></form><form action={startMembershipBankTransferAction}><input type="hidden" name="businessId" value={business.id} /><button type="submit" className="btn-secondary min-h-11">{italian ? "Rinnova con bonifico" : "Renew by bank transfer"}</button></form></div></article> : null}
+
       <div className="grid gap-4 lg:grid-cols-2">
         <article className="rounded-[1.55rem] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[0_10px_26px_rgba(66,51,31,0.045)] sm:p-6">
           <div className="flex items-start gap-4"><span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[color:rgba(42,98,87,0.1)] text-[var(--primary)]"><IconReceipt size={24} /></span><div><h3 className="font-serif text-2xl text-[var(--foreground)]">{copy.membership}</h3><p className="mt-1 text-sm leading-6 text-[var(--muted)]">{payment ? copy.membershipActive : copy.membershipUnavailable}</p></div></div>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2"><HardNavigationLink href={payment ? `/receipts/${payment.businessSubmission.id}` : "/dashboard/payment-history"} className="btn-secondary min-h-11 justify-center">{payment ? <IconFileInvoice size={18} /> : null}{payment ? copy.viewReceipt : copy.noReceipt}</HardNavigationLink><HardNavigationLink href={`/dashboard/payment-history?business=${encodeURIComponent(business.slug)}`} className="btn-secondary min-h-11 justify-center"><IconReceipt size={18} /> {copy.paymentHistory}</HardNavigationLink></div>
+          {payment ? <p className="mt-4 text-sm font-semibold text-[var(--foreground)]">{getPaymentPurposeLabel(payment.purpose, italian ? "it" : "en")}</p> : null}<div className="mt-5 grid gap-3 sm:grid-cols-2"><HardNavigationLink href={payment ? `/receipts/${payment.businessSubmission.id}` : "/dashboard/payment-history"} className="btn-secondary min-h-11 justify-center">{payment ? <IconFileInvoice size={18} /> : null}{payment ? copy.viewReceipt : copy.noReceipt}</HardNavigationLink><HardNavigationLink href={`/dashboard/payment-history?business=${encodeURIComponent(business.slug)}`} className="btn-secondary min-h-11 justify-center"><IconReceipt size={18} /> {copy.paymentHistory}</HardNavigationLink></div>
         </article>
         <article className="rounded-[1.55rem] border border-[color:rgba(42,98,87,0.12)] bg-[linear-gradient(135deg,rgba(237,248,242,0.86),rgba(255,253,249,0.92))] p-5 shadow-[0_10px_26px_rgba(66,51,31,0.04)] sm:p-6">
           <div className="flex items-start gap-4"><span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[color:rgba(42,98,87,0.1)] text-[var(--primary)]"><IconCalendarDue size={24} /></span><div>{period ? <><h3 className="font-serif text-3xl text-[var(--foreground)]">{period.ended ? (italian ? "Periodo terminato" : "Listing period ended") : `${period.daysRemaining} ${copy.daysLeft}`}</h3><p className="mt-1 text-sm leading-6 text-[var(--muted)]">{copy.currentPeriodEnds} {formatDate(locale, period.end)}.</p></> : <><h3 className="font-serif text-2xl text-[var(--foreground)]">{italian ? "Periodo non disponibile" : "Listing period unavailable"}</h3><p className="mt-1 text-sm leading-6 text-[var(--muted)]">{italian ? "La data del pagamento non è ancora disponibile." : "A completed payment date is not available yet."}</p></>}</div></div>{period ? <div className="mt-5 h-3 overflow-hidden rounded-full bg-[color:rgba(42,98,87,0.1)]"><div className="h-full rounded-full bg-[linear-gradient(90deg,#0d5c4f,#28775f)]" style={{ width: `${period.progress}%` }} /></div> : null}

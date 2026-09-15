@@ -10,6 +10,7 @@ import {
 import { maskVerificationRecipient } from "@/lib/business-claim-verification";
 import { getCurrentLocale } from "@/lib/locale";
 import { hasAcceptedCurrentLegalDocuments } from "@/lib/legal-consent";
+import { getPublicBusinessMembershipWhere } from "@/lib/business-membership";
 import { prisma } from "@/lib/prisma";
 import { buildBusinessPhoto, getCategoryLabel, getSingleParam } from "@/lib/site";
 
@@ -33,7 +34,7 @@ export default async function ClaimPage({ searchParams }: ClaimPageProps) {
     redirect(`/complete-profile?redirectTo=${encodeURIComponent(claimRedirectTo)}`);
   }
 
-  if (viewer.role !== "BUSINESS_OWNER") {
+  if (viewer.role !== "BUSINESS_OWNER" && viewer.role !== "ADMIN") {
     redirect(`/login?redirectTo=${encodeURIComponent(claimRedirectTo)}`);
   }
 
@@ -43,8 +44,23 @@ export default async function ClaimPage({ searchParams }: ClaimPageProps) {
   });
 
   const business = requestedBusinessSlug
-    ? await prisma.business.findUnique({
-        where: { slug: requestedBusinessSlug },
+    ? await prisma.business.findFirst({
+        // An expired page is not a lookup oracle for ordinary claimants.
+        // The existing owner/access holder and an admin retain management
+        // access so renewal/reactivation is never stranded.
+        where: {
+          AND: [
+            { slug: requestedBusinessSlug },
+            {
+              OR: [
+                getPublicBusinessMembershipWhere(),
+                { ownerUserId: viewer.id },
+                { ownerAccesses: { some: { userId: viewer.id } } },
+                ...(viewer.role === "ADMIN" ? [{ id: { not: "" } }] : []),
+              ],
+            },
+          ],
+        },
         select: {
           address: true,
           category: { select: { name: true, slug: true } },

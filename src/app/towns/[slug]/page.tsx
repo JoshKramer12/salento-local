@@ -16,6 +16,7 @@ import {
 } from "@/lib/business-listing-navigation";
 import { getLocaleTag } from "@/lib/i18n";
 import { getCurrentLocale } from "@/lib/locale";
+import { getPublicBusinessMembershipWhere } from "@/lib/business-membership";
 import { prisma } from "@/lib/prisma";
 import {
   buildTownImage,
@@ -234,13 +235,14 @@ export default async function TownPage({
         include: {
           _count: {
             select: {
-              businesses: true,
+              businesses: { where: getPublicBusinessMembershipWhere() },
             },
           },
         },
         orderBy: [{ featured: "desc" }, { name: "asc" }],
       },
       businesses: {
+        where: getPublicBusinessMembershipWhere(),
         include: {
           category: true,
           locality: true,
@@ -284,8 +286,8 @@ export default async function TownPage({
   }
 
   const businessOrigin = businessOriginSlug
-    ? await prisma.business.findUnique({
-        where: { slug: businessOriginSlug },
+    ? await prisma.business.findFirst({
+        where: { slug: businessOriginSlug, ...getPublicBusinessMembershipWhere() },
         select: {
           name: true,
           slug: true,

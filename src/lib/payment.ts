@@ -10,7 +10,7 @@ import { buildBankTransferReference, formatCurrencyFromCents } from "@/lib/accou
 import type { Locale } from "@/lib/i18n";
 import { LISTING_OFFER } from "@/lib/listing-offer";
 
-export const DEFAULT_LISTING_PRICE_CENTS = LISTING_OFFER.firstYearPriceCents;
+export const DEFAULT_LISTING_PRICE_CENTS = LISTING_OFFER.annualPriceCents;
 export const DEFAULT_COMMISSION_CENTS = 5000;
 export const DEFAULT_PLATFORM_SHARE_CENTS =
   DEFAULT_LISTING_PRICE_CENTS - DEFAULT_COMMISSION_CENTS;
@@ -138,7 +138,8 @@ export function buildStripeCheckoutMetadata(params: {
   businessId?: string | null;
   businessSubmissionId: string;
   partnerId?: string | null;
-  paymentFlow?: "BANK_TRANSFER" | "CHECKOUT";
+  paymentFlow?: "BANK_TRANSFER" | "CHECKOUT" | "MEMBERSHIP_RENEWAL" | "MEMBERSHIP_RENEWAL_BANK_TRANSFER";
+  automaticRenewal?: boolean;
   userId: string;
 }) {
   return {
@@ -146,6 +147,7 @@ export function buildStripeCheckoutMetadata(params: {
     businessSubmissionId: params.businessSubmissionId,
     partnerId: params.partnerId ?? "",
     paymentFlow: params.paymentFlow ?? "CHECKOUT",
+    automaticRenewal: params.automaticRenewal ? "true" : "false",
     userId: params.userId,
   };
 }

@@ -24,6 +24,7 @@ import { getBusinessPhotoUrls } from "@/lib/business-photos";
 import { isBusinessAlreadyManaged } from "@/lib/business-claim";
 import { getBusinessHoursStatus, getBusinessHoursStatusDetail, resolveBusinessHours } from "@/lib/business-hours";
 import { getCurrentLocale } from "@/lib/locale";
+import { getPublicBusinessMembershipWhere } from "@/lib/business-membership";
 import { prisma } from "@/lib/prisma";
 import { getSafeInternalRedirect } from "@/lib/redirects";
 import {
@@ -235,8 +236,8 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const business = await prisma.business.findUnique({
-    where: { slug },
+  const business = await prisma.business.findFirst({
+    where: { slug, ...getPublicBusinessMembershipWhere() },
     select: {
       name: true,
       shortDescription: true,
@@ -282,8 +283,8 @@ export default async function BusinessPage({ params, searchParams }: BusinessPag
           backToBusinessForm: "Back to business form",
         };
 
-  const business = await prisma.business.findUnique({
-    where: { slug },
+  const business = await prisma.business.findFirst({
+    where: { slug, ...getPublicBusinessMembershipWhere() },
     include: {
       category: true,
       hours: {

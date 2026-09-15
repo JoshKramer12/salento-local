@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { defaultLocale, isLocale } from "@/lib/i18n";
+import { getPublicBusinessMembershipWhere } from "@/lib/business-membership";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(request: NextRequest) {
@@ -15,6 +16,7 @@ export async function GET(request: NextRequest) {
   const businesses = await prisma.business.findMany({
     where: {
       isLikelyClosed: false,
+      ...getPublicBusinessMembershipWhere(),
       ownerAccesses: {
         none: {
           userId: { not: null },

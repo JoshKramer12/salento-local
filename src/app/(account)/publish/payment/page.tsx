@@ -81,6 +81,7 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
     select: {
       amountPaidCents: true,
       amountOwedCents: true,
+      automaticRenewalAtAcceptance: true,
       bankTransferReference: true,
       businessName: true,
       businessPriceCents: true,
@@ -144,7 +145,7 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
   if (submission.paymentMethod === "ONLINE" && submission.paymentStatus !== "PAID") {
     const checkoutSession = await ensureStripeCheckoutSession({
       appUrl,
-      submission: { amountOwedCents: submission.amountOwedCents, businessName: submission.businessName, email: submission.email, id: submission.id, ownerEmail: submission.ownerEmail, userId: submission.userId },
+      submission: { amountOwedCents: submission.amountOwedCents, automaticRenewalAtAcceptance: submission.automaticRenewalAtAcceptance, businessName: submission.businessName, email: submission.email, id: submission.id, ownerEmail: submission.ownerEmail, userId: submission.userId },
       viewer: { email: viewer.email, id: viewer.id, role: viewer.role },
     });
     if (checkoutSession.url) {

@@ -13,7 +13,11 @@ type PaidSubmissionWebhookParams = {
   method: PaymentRecordMethod;
   paymentIntentId?: string | null;
   sessionId?: string | null;
+  stripeCustomerId?: string | null;
+  stripeCancelAtPeriodEnd?: boolean | null;
   stripeEventId: string;
+  stripeSubscriptionId?: string | null;
+  stripeSubscriptionStatus?: string | null;
 };
 
 type PaidSubmissionWebhookDependencies = {
@@ -48,7 +52,11 @@ export async function processPaidSubmissionWebhook(
     method: params.method,
     paymentIntentId: params.paymentIntentId,
     sessionId: params.sessionId,
+    stripeCustomerId: params.stripeCustomerId,
+    stripeCancelAtPeriodEnd: params.stripeCancelAtPeriodEnd,
     stripeEventId: params.stripeEventId,
+    stripeSubscriptionId: params.stripeSubscriptionId,
+    stripeSubscriptionStatus: params.stripeSubscriptionStatus,
   });
   await ensureCommission({
     businessSubmissionId: params.businessSubmissionId,

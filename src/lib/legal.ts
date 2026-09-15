@@ -20,8 +20,8 @@ export const LEGAL_ROUTES = {
 
 export const LEGAL_DOCUMENTS = {
   businessTerms: {
-    lastUpdated: "2026-07-14",
-    version: "business-terms-2026-07-14",
+    lastUpdated: "2026-09-14",
+    version: "business-terms-2026-09-14",
   },
   cookiePolicy: {
     lastUpdated: "2026-07-14",
@@ -29,7 +29,7 @@ export const LEGAL_DOCUMENTS = {
   },
   partnerTerms: {
     lastUpdated: "2026-07-14",
-    version: "partner-terms-2026-07-14",
+    version: "partner-terms-2026-09-14",
   },
   privacyPolicy: {
     lastUpdated: "2026-07-14",
@@ -168,7 +168,8 @@ export function getBusinessTerms(locale: Locale) {
       "Confermi di avere almeno 18 anni e di essere il proprietario dell'attivita oppure di avere l'autorita legale per gestirla e rappresentarla.",
       "Ti impegni a fornire informazioni accurate, complete e aggiornate sulla tua attivita, inclusi recapiti, orari di apertura, posizione, descrizioni, prezzi ove applicabili e qualsiasi altra informazione inviata tramite la piattaforma.",
       "Confermi di essere il proprietario o di avere il diritto di utilizzare tutte le fotografie, i loghi, i marchi e gli altri contenuti caricati. Concedi a Salento Local il permesso di mostrarli sulla piattaforma al solo scopo di promuovere la tua attivita.",
-      "I costi dell'abbonamento sono indicati durante il pagamento. Salvo diversa indicazione, l'abbonamento e valido per un anno dalla data di attivazione. Per mantenere attiva la scheda potrebbero essere applicati costi di rinnovo.",
+      "La membership viene acquistata separatamente per ogni attivita. Costa EUR100 per ciascuna attivita e per ogni periodo annuale: ogni pagamento riuscito attiva la pagina specifica per 365 giorni. Dopo un periodo non pagato seguono 14 giorni di grazia; successivamente la pagina puo essere rimossa dalla visibilita pubblica mentre i dati restano conservati per una possibile riattivazione. L'accesso dell'account e alla gestione resta disponibile anche dopo la scadenza.",
+      "Il rinnovo puo essere automatico o manuale in base alla preferenza di rinnovo scelta dal titolare. Il titolare puo disattivare futuri rinnovi automatici senza interrompere il periodo gia pagato. I dettagli dell'eventuale addebito ricorrente saranno mostrati prima dell'autorizzazione; rimborsi e contestazioni possono incidere sullo stato della membership.",
       "Tutti i pagamenti devono essere effettuati direttamente tramite Salento Local utilizzando i metodi di pagamento approvati. La scheda non sara pubblicata ne attivata fino alla conferma dell'avvenuto pagamento.",
       "Salvo quanto previsto dalla legge applicabile, le quote di abbonamento non sono rimborsabili dopo l'attivazione della scheda.",
       "Salento Local fornisce una piattaforma online di promozione e directory. Pur impegnandoci a garantire la massima visibilita possibile, non garantiamo richieste di contatto, prenotazioni, vendite, traffico sul sito, posizionamento nei motori di ricerca o risultati economici.",
@@ -186,7 +187,8 @@ export function getBusinessTerms(locale: Locale) {
     "You confirm that you are at least 18 years old and are the owner of the business, or have the legal authority to manage and represent it.",
     "You agree to provide accurate, complete, and up-to-date information about your business, including contact details, opening hours, location, descriptions, pricing where applicable, and any other information submitted through the platform.",
     "You confirm that you own or have permission to use all photographs, logos, trademarks, and other content you upload. You grant Salento Local permission to display this content on the platform for the purpose of promoting your business.",
-    "Membership fees are displayed during checkout. Unless otherwise stated, your membership is valid for one year from the date of activation. Renewal fees may apply to continue your listing after the initial membership period.",
+    "Membership is purchased separately for each business. It costs EUR100 per business for each annual term: each successful payment activates that specific Business Page for 365 days. An unpaid term is followed by a 14-day grace period; after that, the page may be removed from public visibility while its data remains stored for possible reactivation. Account and management access remain available after expiry.",
+    "Renewal may ultimately be automatic or manual according to the owner’s selected renewal preference. An owner may disable future automatic renewal without ending an already-paid term. Details of any recurring charge will be shown before recurring billing is authorized; refunds and chargebacks may affect membership status.",
     "All payments must be made directly through Salento Local using approved payment methods. Your listing will not be published or activated until payment has been successfully received.",
     "Unless otherwise required by applicable law, membership fees are non-refundable once your listing has been activated.",
     "Salento Local provides an online directory and promotional platform. While we work to maximize visibility, we do not guarantee customer enquiries, bookings, sales, website traffic, search rankings, or financial results.",
@@ -211,8 +213,8 @@ export function getPartnerTerms(locale: Locale) {
       "Ti impegni a registrare esclusivamente attivita commerciali reali e a fornire informazioni accurate.",
       "Caricherai soltanto fotografie, loghi o altri contenuti per i quali possiedi i necessari diritti o autorizzazioni.",
       "Ti impegni a rispettare tutte le leggi applicabili durante l'utilizzo della piattaforma.",
-      "Puoi ricevere una commissione di 50 EUR per ogni attivita commerciale idonea che completa con successo il pagamento e soddisfa i requisiti previsti dal Programma Partner di Salento Local.",
-      "L'invio di un'attivita commerciale non garantisce il diritto alla commissione. Salento Local puo rifiutare o annullare le commissioni relative a registrazioni duplicate, fraudolente, rimborsate, inesatte o non idonee.",
+      "Puoi ricevere una commissione di 50 EUR per ogni attivita commerciale idonea che origini e che completa con successo il pagamento. Per ogni successivo rinnovo annuale o riattivazione pagata con successo della stessa membership, il Partner originario puo ricevere 15 EUR.",
+      "L'invio di un'attivita commerciale non garantisce il diritto alla commissione, ne un reddito futuro. Nessuna commissione di rinnovo e dovuta se l'attivita non paga. Salento Local puo rifiutare, stornare o annullare le commissioni per registrazioni duplicate, fraudolente, rimborsate, contestate, inesatte, violazioni del programma o non idonee.",
       "Le commissioni vengono pagate in modo sicuro tramite il tuo account Stripe collegato. E tua responsabilita mantenere aggiornati i dati necessari per ricevere i pagamenti.",
       "Salento Local puo sospendere o chiudere definitivamente gli account Partner che violano i presenti Termini o utilizzano la piattaforma in modo improprio.",
       "Salento Local puo modificare in qualsiasi momento i presenti Termini o il Programma Partner. Continuando a utilizzare il tuo account, accetti automaticamente eventuali aggiornamenti.",
@@ -228,8 +230,8 @@ export function getPartnerTerms(locale: Locale) {
     "You agree to submit only genuine businesses and provide accurate information.",
     "You will only upload photographs, logos, or other content that you have permission to use.",
     "You agree to comply with all applicable laws while using the platform.",
-    "You may earn a commission of EUR50 for each eligible business that successfully completes payment and meets the requirements of the Salento Local Partner Program.",
-    "Submitting a business does not guarantee a commission. Salento Local may refuse or cancel commissions for duplicate, fraudulent, refunded, inaccurate, or otherwise ineligible submissions.",
+    "You may earn EUR50 for each eligible business you originate that successfully completes payment. For each later successful annual renewal or reactivation of that same membership, the originating Partner may earn EUR15.",
+    "Submitting a business does not guarantee a commission or future income. No renewal commission is due unless the business pays. Salento Local may administer eligibility and refuse, reverse, or cancel commissions for duplicate, fraudulent, refunded, disputed, inaccurate, program-violating, or otherwise ineligible submissions.",
     "Commission payments are made securely through your connected Stripe account. You are responsible for keeping your payout information up to date.",
     "Salento Local may suspend or permanently remove Partner accounts that violate these Terms or misuse the platform.",
     "Salento Local may update these Terms or the Partner Program from time to time. Continued use of your account means you accept any updated Terms.",
@@ -296,16 +298,17 @@ export function getTermsDocument(locale: Locale) {
           {
             id: "payments",
             paragraphs: [
-              "I prezzi, gli eventuali abbonamenti e i periodi di validita della membership vengono indicati nel flusso di acquisto o nella documentazione commerciale applicabile.",
-              "Salvo diversa indicazione, una membership business ha durata annuale dalla data di attivazione. Eventuali rinnovi futuri saranno soggetti ai termini e ai prezzi comunicati al momento del rinnovo.",
+              "La membership viene acquistata separatamente per ogni attivita commerciale. Il prezzo e EUR100 per attivita e per ogni periodo annuale; ogni pagamento riuscito attiva esclusivamente la pagina dell'attivita interessata per 365 giorni.",
+              "A un periodo non pagato seguono 14 giorni di grazia. Dopo tale periodo, la pagina puo essere rimossa dalla visibilita pubblica mentre i dati restano disponibili per una possibile riattivazione e il titolare mantiene l'accesso al proprio account e agli strumenti di gestione.",
+              "Il rinnovo potra essere automatico o manuale secondo la preferenza selezionata dal titolare. Il titolare puo disattivare il rinnovo automatico futuro senza interrompere un periodo gia pagato. I dettagli di ogni addebito ricorrente saranno mostrati prima dell'autorizzazione. Rimborsi e contestazioni possono incidere sullo stato della membership.",
             ],
             title: "7. Pagamenti, abbonamenti e periodi di membership",
           },
           {
             id: "commissions",
             paragraphs: [
-              "Le commissioni Partner sono distinte dai pagamenti delle attivita commerciali. Una commissione puo maturare solo per invii idonei che rispettano il programma Partner e che completano con successo il pagamento richiesto.",
-              "Invii duplicati, fraudolenti, rimborsati, stornati, contestati, inaccurati o comunque non idonei possono non generare alcuna commissione oppure generare storni o rettifiche.",
+              "Il Partner originario puo maturare 50 EUR quando un'attivita idonea aderisce e paga con successo, e 15 EUR per ogni rinnovo annuale o riattivazione successiva pagata con successo della stessa membership. Non e garantito alcun reddito futuro e non e dovuta alcuna commissione di rinnovo senza pagamento.",
+              "Salento Local amministra l'idoneita del Programma Partner. Invii duplicati, fraudolenti, rimborsati, stornati, contestati, inaccurati, in violazione del programma o comunque non idonei possono non generare alcuna commissione oppure generare storni o rettifiche.",
               "Stripe puo essere utilizzato per i pagamenti delle schede, i controlli di identita, gli account payout collegati e i pagamenti delle commissioni ai Partner.",
             ],
             title: "8. Commissioni Partner e payout Stripe Connect",
@@ -487,16 +490,17 @@ export function getTermsDocument(locale: Locale) {
           {
             id: "payments",
             paragraphs: [
-              "Prices, subscriptions, and membership periods are shown in the relevant checkout flow or commercial documentation.",
-              "Unless stated otherwise, a business membership lasts for one year from activation. Any future renewals will be subject to the terms and pricing shown at the time of renewal.",
+              "Membership is purchased separately for each business. The price is EUR100 per business for each annual term; each successful payment activates only the relevant Business Page for 365 days.",
+              "An unpaid term is followed by a 14-day grace period. After that period, the Business Page may be removed from public visibility while its data remains available for possible reactivation, and the owner retains account and management access.",
+              "Renewal may be automatic or manual according to the owner’s selected preference. An owner may disable future automatic renewal without ending an already-paid term. Details of any recurring charge will be shown before authorization. Refunds and chargebacks may affect membership status.",
             ],
             title: "7. Payments, subscriptions, and membership periods",
           },
           {
             id: "commissions",
             paragraphs: [
-              "Partner commissions are separate from business membership payments. A commission may only be earned for eligible submissions that satisfy the Partner program requirements and successfully complete the required payment.",
-              "Duplicate, fraudulent, refunded, reversed, disputed, inaccurate, or otherwise ineligible submissions may generate no commission and may lead to reversals or adjustments.",
+              "The originating Partner may earn EUR50 when an eligible business joins and successfully pays, and EUR15 for each later successful annual renewal or reactivation of that same membership. Future income is not guaranteed, and no renewal commission is due without payment.",
+              "Salento Local administers Partner Program eligibility. Duplicate, fraudulent, refunded, reversed, disputed, inaccurate, program-violating, or otherwise ineligible submissions may generate no commission and may lead to reversals or adjustments.",
               "Stripe may be used for listing payments, identity checks, connected payout accounts, and Partner payouts.",
             ],
             title: "8. Partner commissions and Stripe Connect payouts",

@@ -19,6 +19,7 @@ type CheckoutViewer = {
 };
 
 type CheckoutSubmission = {
+  automaticRenewalAtAcceptance?: boolean | null;
   amountOwedCents: number;
   businessName: string;
   createdBusinessId?: string | null;
@@ -63,7 +64,7 @@ type StripeBankTransferSession = {
   status: Stripe.PaymentIntent.Status;
 };
 
-function extractStripeBankTransferInstructions(
+export function extractStripeBankTransferInstructions(
   paymentIntent: Stripe.PaymentIntent,
 ): StripeBankTransferInstructions | null {
   const instructions = paymentIntent.next_action?.display_bank_transfer_instructions;
@@ -152,6 +153,7 @@ export async function ensureStripeCheckoutSession(params: {
     }
   }
 
+  const automaticRenewal = Boolean(params.submission.automaticRenewalAtAcceptance);
   const checkoutSession = await stripe.checkout.sessions.create({
     cancel_url: buildStripeCheckoutCancelUrl({
       appUrl,
@@ -166,6 +168,7 @@ export async function ensureStripeCheckoutSession(params: {
             description: ownerCheckoutCopy.description,
             name: ownerCheckoutCopy.name,
           },
+          ...(automaticRenewal ? { recurring: { interval: "year" as const } } : {}),
           unit_amount: params.submission.amountOwedCents,
         },
         quantity: 1,
@@ -177,9 +180,18 @@ export async function ensureStripeCheckoutSession(params: {
       businessSubmissionId: params.submission.id,
       partnerId: getPartnerUserIdForSubmission(params.viewer),
       paymentFlow: "CHECKOUT",
+      automaticRenewal,
       userId: params.submission.userId,
     }),
-    mode: "payment",
+    mode: automaticRenewal ? "subscription" : "payment",
+    ...(automaticRenewal ? { subscription_data: { metadata: buildStripeCheckoutMetadata({
+      businessId: params.submission.createdBusinessId,
+      businessSubmissionId: params.submission.id,
+      partnerId: getPartnerUserIdForSubmission(params.viewer),
+      paymentFlow: "CHECKOUT",
+      automaticRenewal: true,
+      userId: params.submission.userId,
+    }) } } : {}),
     success_url: buildStripeCheckoutSuccessUrl({
       appUrl,
       submissionId: params.submission.id,

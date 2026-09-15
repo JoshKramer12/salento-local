@@ -1,5 +1,5 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
-import type { PaymentRecordMethod, UserRole } from "@prisma/client";
+import type { PaymentPurpose, PaymentRecordMethod, UserRole } from "@prisma/client";
 
 import { hasSmtpConfiguration } from "@/lib/claim-delivery";
 import { formatCurrencyFromCents } from "@/lib/account";
@@ -9,6 +9,7 @@ import {
 } from "@/lib/email";
 import type { Locale } from "@/lib/i18n";
 import { LISTING_OFFER } from "@/lib/listing-offer";
+import { addUtcDays, BUSINESS_MEMBERSHIP_PERIOD_DAYS } from "@/lib/business-membership";
 import { LEGAL_ROUTES } from "@/lib/legal";
 import { getAppUrl } from "@/lib/payment";
 import {
@@ -52,6 +53,7 @@ type ReceiptPayment = {
   method: PaymentRecordMethod;
   paidAt: Date | null;
   partnerUserId: string | null;
+  purpose: PaymentPurpose;
   stripeCheckoutSessionId: string | null;
   stripePaymentIntentId: string | null;
 };
@@ -148,6 +150,13 @@ function getPaymentMethodReceiptLabel(method: PaymentRecordMethod, locale: Local
   }
 
   return locale === "it" ? "Carta / QR con Stripe" : "Stripe card / QR";
+}
+
+function getPaymentPurposeReceiptLabel(purpose: PaymentPurpose, locale: Locale) {
+  const labels = locale === "it"
+    ? { ANNUAL_RENEWAL: "Rinnovo annuale", INITIAL_MEMBERSHIP: "Membership iniziale", REACTIVATION: "Riattivazione" }
+    : { ANNUAL_RENEWAL: "Annual renewal", INITIAL_MEMBERSHIP: "Initial membership", REACTIVATION: "Reactivation" };
+  return labels[purpose];
 }
 
 function parseSignatureDrawing(value: string | null | undefined): SignatureDrawing | null {
@@ -372,6 +381,7 @@ export async function getReceiptData(params: {
           method: true,
           paidAt: true,
           partnerUserId: true,
+          purpose: true,
           stripeCheckoutSessionId: true,
           stripePaymentIntentId: true,
         },
@@ -455,18 +465,6 @@ export async function getReceiptData(params: {
   } satisfies ReceiptData;
 }
 
-function addMonths(date: Date, months: number) {
-  const nextDate = new Date(date);
-  nextDate.setMonth(nextDate.getMonth() + months);
-  return nextDate;
-}
-
-function subtractDays(date: Date, days: number) {
-  const nextDate = new Date(date);
-  nextDate.setDate(nextDate.getDate() - days);
-  return nextDate;
-}
-
 function buildTermsUrl(appUrl: string, version: string | null) {
   const url = new URL(`${appUrl}${LEGAL_ROUTES.terms}`);
   url.hash = "business-terms";
@@ -507,7 +505,7 @@ export async function buildReceiptPdf(params: {
     locale,
   );
   const firstYearPrice = formatCurrencyFromCents(
-    receipt.submission.firstYearPriceCentsAtAcceptance ?? LISTING_OFFER.firstYearPriceCents,
+    receipt.submission.firstYearPriceCentsAtAcceptance ?? LISTING_OFFER.annualPriceCents,
     locale,
   );
   const renewalPrice = formatCurrencyFromCents(
@@ -543,6 +541,7 @@ export async function buildReceiptPdf(params: {
     [locale === "it" ? "Importo pagato" : "Amount paid", amountPaid],
     [locale === "it" ? "Pagato il" : "Paid on", paidDate],
     [locale === "it" ? "Metodo" : "Method", getPaymentMethodReceiptLabel(receipt.payment.method, locale)],
+    [locale === "it" ? "Tipo" : "Payment type", getPaymentPurposeReceiptLabel(receipt.payment.purpose, locale)],
     [locale === "it" ? "Email ricevuta" : "Receipt email", receipt.recipientEmail || (locale === "it" ? "Non disponibile" : "Not available")],
   ];
 
@@ -575,14 +574,14 @@ export async function buildReceiptPdf(params: {
     ],
     [locale === "it" ? "Ruolo" : "Role", signerRole],
     [locale === "it" ? "Accettato il" : "Accepted on", acceptedAt],
-    [locale === "it" ? "Primo anno" : "First year", firstYearPrice],
+    [locale === "it" ? "Membership annuale" : "Annual membership", firstYearPrice],
     [
       locale === "it" ? "Rinnovo" : "Renewal",
-      `${renewalPrice}${locale === "it" ? "/anno, non automatico" : "/year, not automatic"}`,
+      `${renewalPrice}${locale === "it" ? "/anno per attivita" : "/year per business"}`,
     ],
     [
       locale === "it" ? "Durata scheda" : "Listing term",
-      `${receipt.submission.listingTermMonthsAtAcceptance ?? LISTING_OFFER.termMonths} ${locale === "it" ? "mesi" : "months"}`,
+      `365 ${locale === "it" ? "giorni" : "days"}`,
     ],
     [
       locale === "it" ? "Versione Termini" : "Terms version",
@@ -678,16 +677,16 @@ function buildReceiptEmailCopy(params: {
     : "";
   if (params.locale === "it") {
     return {
-      html: `<p>Grazie per aver completato il pagamento della scheda <strong>${params.businessName}</strong>.</p><p><strong>Importo pagato:</strong> ${params.amountPaid}<br /><strong>Data pagamento:</strong> ${params.paidDate}<br /><strong>Periodo scheda:</strong> ${params.listingPeriod}<br /><strong>Rinnovo:</strong> ${params.renewalPrice}/anno, non automatico</p><p>La scheda resta attiva per 12 mesi. Prima della scadenza contatteremo l'attivita: nessun addebito automatico verra eseguito.</p><p><strong>Versione Termini:</strong> ${params.termsVersion}<br /><a href="${params.termsUrl}">Apri i Termini accettati</a></p><p><a href="${params.receiptUrl}">Apri la ricevuta PDF</a></p>${ownerActions}${params.contactEmail ? `<p>Email di conferma registrata: <strong>${params.contactEmail}</strong></p>` : ""}`,
+      html: `<p>Grazie per aver completato il pagamento della scheda <strong>${params.businessName}</strong>.</p><p><strong>Importo pagato:</strong> ${params.amountPaid}<br /><strong>Data pagamento:</strong> ${params.paidDate}<br /><strong>Periodo membership:</strong> ${params.listingPeriod}<br /><strong>Rinnovo:</strong> ${params.renewalPrice}/anno per questa attivita</p><p>Il pagamento attiva questa specifica scheda per 365 giorni. Le opzioni e i dettagli di un eventuale rinnovo saranno mostrati prima di qualsiasi autorizzazione.</p><p><strong>Versione Termini:</strong> ${params.termsVersion}<br /><a href="${params.termsUrl}">Apri i Termini accettati</a></p><p><a href="${params.receiptUrl}">Apri la ricevuta PDF</a></p>${ownerActions}${params.contactEmail ? `<p>Email di conferma registrata: <strong>${params.contactEmail}</strong></p>` : ""}`,
       subject: `Ricevuta Salento Local ${params.receiptNumber}`,
-      text: `Grazie per aver completato il pagamento della scheda ${params.businessName}. Importo pagato: ${params.amountPaid}. Data pagamento: ${params.paidDate}. Periodo scheda: ${params.listingPeriod}. Rinnovo: ${params.renewalPrice}/anno, non automatico. Versione Termini: ${params.termsVersion}. Termini accettati: ${params.termsUrl}. Ricevuta PDF: ${params.receiptUrl}.${ownerActionsText}${params.contactEmail ? ` Email di conferma registrata: ${params.contactEmail}.` : ""}`,
+      text: `Grazie per aver completato il pagamento della scheda ${params.businessName}. Importo pagato: ${params.amountPaid}. Data pagamento: ${params.paidDate}. Periodo membership: ${params.listingPeriod}. Rinnovo: ${params.renewalPrice}/anno per questa attivita. Il pagamento attiva questa specifica scheda per 365 giorni. Le opzioni e i dettagli di un eventuale rinnovo saranno mostrati prima di qualsiasi autorizzazione. Versione Termini: ${params.termsVersion}. Termini accettati: ${params.termsUrl}. Ricevuta PDF: ${params.receiptUrl}.${ownerActionsText}${params.contactEmail ? ` Email di conferma registrata: ${params.contactEmail}.` : ""}`,
     };
   }
 
   return {
-    html: `<p>Thank you for completing the payment for <strong>${params.businessName}</strong>.</p><p><strong>Amount paid:</strong> ${params.amountPaid}<br /><strong>Payment date:</strong> ${params.paidDate}<br /><strong>Listing period:</strong> ${params.listingPeriod}<br /><strong>Renewal:</strong> ${params.renewalPrice}/year, not automatic</p><p>Your listing stays active for 12 months. We will contact the business before expiry, and no automatic charge will be made.</p><p><strong>Terms version:</strong> ${params.termsVersion}<br /><a href="${params.termsUrl}">Open the accepted terms</a></p><p><a href="${params.receiptUrl}">Open the PDF receipt</a></p>${ownerActions}${params.contactEmail ? `<p>Confirmation email on file: <strong>${params.contactEmail}</strong></p>` : ""}`,
+      html: `<p>Thank you for completing the payment for <strong>${params.businessName}</strong>.</p><p><strong>Amount paid:</strong> ${params.amountPaid}<br /><strong>Payment date:</strong> ${params.paidDate}<br /><strong>Membership period:</strong> ${params.listingPeriod}<br /><strong>Renewal:</strong> ${params.renewalPrice}/year for this business</p><p>Your payment activates this specific Business Page for 365 days. Any renewal options and details will be shown before authorization.</p><p><strong>Terms version:</strong> ${params.termsVersion}<br /><a href="${params.termsUrl}">Open the accepted terms</a></p><p><a href="${params.receiptUrl}">Open the PDF receipt</a></p>${ownerActions}${params.contactEmail ? `<p>Confirmation email on file: <strong>${params.contactEmail}</strong></p>` : ""}`,
     subject: `Your Salento Local receipt ${params.receiptNumber}`,
-    text: `Thank you for completing the payment for ${params.businessName}. Amount paid: ${params.amountPaid}. Payment date: ${params.paidDate}. Listing period: ${params.listingPeriod}. Renewal: ${params.renewalPrice}/year, not automatic. Terms version: ${params.termsVersion}. Accepted terms: ${params.termsUrl}. PDF receipt: ${params.receiptUrl}.${ownerActionsText}${params.contactEmail ? ` Confirmation email on file: ${params.contactEmail}.` : ""}`,
+      text: `Thank you for completing the payment for ${params.businessName}. Amount paid: ${params.amountPaid}. Payment date: ${params.paidDate}. Membership period: ${params.listingPeriod}. Renewal: ${params.renewalPrice}/year for this business. Your payment activates this specific Business Page for 365 days. Any renewal options and details will be shown before authorization. Terms version: ${params.termsVersion}. Accepted terms: ${params.termsUrl}. PDF receipt: ${params.receiptUrl}.${ownerActionsText}${params.contactEmail ? ` Confirmation email on file: ${params.contactEmail}.` : ""}`,
   };
 }
 
@@ -715,10 +714,7 @@ export async function sendReceiptEmail(params: {
   );
   const paidAt = params.receipt.payment.paidAt ?? params.receipt.submission.createdAt;
   const listingStartDate = paidAt;
-  const listingEndDate = subtractDays(
-    addMonths(listingStartDate, params.receipt.submission.listingTermMonthsAtAcceptance ?? LISTING_OFFER.termMonths),
-    1,
-  );
+  const listingEndDate = addUtcDays(listingStartDate, BUSINESS_MEMBERSHIP_PERIOD_DAYS);
   const listingPeriod = `${new Intl.DateTimeFormat(params.locale === "it" ? "it-IT" : "en-GB", {
     dateStyle: "medium",
   }).format(listingStartDate)} – ${new Intl.DateTimeFormat(params.locale === "it" ? "it-IT" : "en-GB", {

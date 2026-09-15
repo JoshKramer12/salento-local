@@ -9,6 +9,7 @@ import { runThrottledServerTask } from "@/lib/server-throttle";
 import { getStripe } from "@/lib/stripe";
 import { publishSubmissionAfterPayment } from "@/lib/submission-publication";
 import { ensureOwnerAccessForPublishedSubmission } from "@/lib/business-owner-access";
+import { ensureInitialBusinessMembership } from "@/lib/business-membership";
 
 type SyncResult = {
   paymentReceived: boolean;
@@ -32,10 +33,15 @@ async function finalizeStripeManagedPayment(params: {
   paymentIntentId?: string | null;
   revalidatePaths?: boolean;
   sessionId?: string | null;
+  stripeCustomerId?: string | null;
+  stripeCancelAtPeriodEnd?: boolean | null;
   stripeEventId?: string | null;
+  stripeSubscriptionId?: string | null;
+  stripeSubscriptionStatus?: string | null;
 }): Promise<SyncResult> {
   let publishedBusinessSlug = "";
   let publishedTownSlug = "";
+  const finalizedAt = new Date();
 
   await prisma.$transaction(async (tx) => {
     const existingPayment = await tx.payment.findFirst({
@@ -62,7 +68,7 @@ async function finalizeStripeManagedPayment(params: {
           businessId: params.businessId ?? null,
           currency: params.currency || "eur",
           method: params.method,
-          paidAt: new Date(),
+          paidAt: finalizedAt,
           status: "PAID",
           stripeCheckoutSessionId: params.sessionId ?? undefined,
           stripeLastEventId: params.stripeEventId ?? undefined,
@@ -87,7 +93,7 @@ async function finalizeStripeManagedPayment(params: {
             businessSubmissionId: params.businessSubmissionId,
             currency: params.currency || "eur",
             method: params.method,
-            paidAt: new Date(),
+            paidAt: finalizedAt,
             status: "PAID",
             stripeCheckoutSessionId: params.sessionId ?? null,
             stripeLastEventId: params.stripeEventId ?? null,
@@ -106,6 +112,7 @@ async function finalizeStripeManagedPayment(params: {
         amountPaidCents: true,
         createdBusiness: {
           select: {
+            id: true,
             slug: true,
             town: {
               select: {
@@ -150,9 +157,35 @@ async function finalizeStripeManagedPayment(params: {
 
       publishedBusinessSlug = publishedBusiness?.slug ?? "";
       publishedTownSlug = publishedBusiness?.town.slug ?? "";
+      if (publishedBusiness) {
+        await ensureInitialBusinessMembership({
+          businessId: publishedBusiness.id,
+          db: tx,
+          paidAt: finalizedAt,
+          submissionId: params.businessSubmissionId,
+          automaticRenewal: Boolean(params.stripeSubscriptionId),
+          stripeCustomerId: params.stripeCustomerId,
+          stripeCancelAtPeriodEnd: params.stripeCancelAtPeriodEnd,
+          stripeSubscriptionId: params.stripeSubscriptionId,
+          stripeSubscriptionStatus: params.stripeSubscriptionStatus,
+        });
+      }
     } else {
       publishedBusinessSlug = submission.createdBusiness?.slug ?? "";
       publishedTownSlug = submission.createdBusiness?.town.slug ?? "";
+      if (submission.createdBusiness) {
+        await ensureInitialBusinessMembership({
+          businessId: submission.createdBusiness.id,
+          db: tx,
+          paidAt: finalizedAt,
+          submissionId: params.businessSubmissionId,
+          automaticRenewal: Boolean(params.stripeSubscriptionId),
+          stripeCustomerId: params.stripeCustomerId,
+          stripeCancelAtPeriodEnd: params.stripeCancelAtPeriodEnd,
+          stripeSubscriptionId: params.stripeSubscriptionId,
+          stripeSubscriptionStatus: params.stripeSubscriptionStatus,
+        });
+      }
     }
 
     // This runs in the same authoritative payment transaction as publication.
@@ -335,6 +368,26 @@ export async function syncStripePaymentForSubmission(params: {
     };
   }
 
+  // Subscription Checkout has no PaymentIntent on the session in every API
+  // shape. Retrieve the subscription server-side so polling has exactly the
+  // same durable association as the webhook path.
+  const subscriptionId = typeof session.subscription === "string" ? session.subscription : null;
+  let subscription: Stripe.Subscription | null = null;
+  if (subscriptionId) {
+    try {
+      subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    } catch {
+      // Do not activate an automatic membership until its durable recurring
+      // authority has been read from Stripe. The QR poll will retry safely.
+      return {
+        paymentReceived: false,
+        publishedBusinessSlug: "",
+        publishedTownSlug: "",
+        status: "pending" as const,
+      };
+    }
+  }
+
   const synced = await finalizeStripeManagedPayment({
     amountPaidCents: session.amount_total ?? submission.amountOwedCents,
     businessId: submission.createdBusinessId,
@@ -345,6 +398,10 @@ export async function syncStripePaymentForSubmission(params: {
       typeof session.payment_intent === "string" ? session.payment_intent : null,
     revalidatePaths: params.revalidatePaths,
     sessionId: session.id,
+    stripeCustomerId: typeof session.customer === "string" ? session.customer : null,
+    stripeCancelAtPeriodEnd: subscription?.cancel_at_period_end ?? null,
+    stripeSubscriptionId: subscriptionId,
+    stripeSubscriptionStatus: subscription?.status ?? null,
   });
 
   return {
@@ -489,7 +546,11 @@ export async function syncStripePaymentFromWebhook(params: {
   method?: PaymentRecordMethod;
   paymentIntentId?: string | null;
   sessionId?: string | null;
+  stripeCustomerId?: string | null;
+  stripeCancelAtPeriodEnd?: boolean | null;
   stripeEventId: string;
+  stripeSubscriptionId?: string | null;
+  stripeSubscriptionStatus?: string | null;
 }) {
   return finalizeStripeManagedPayment({
     amountPaidCents: params.amountPaidCents,
@@ -499,11 +560,16 @@ export async function syncStripePaymentFromWebhook(params: {
     method: params.method ?? resolvePaymentMethodRecord(null),
     paymentIntentId: params.paymentIntentId,
     sessionId: params.sessionId,
+    stripeCustomerId: params.stripeCustomerId,
+    stripeCancelAtPeriodEnd: params.stripeCancelAtPeriodEnd,
     stripeEventId: params.stripeEventId,
+    stripeSubscriptionId: params.stripeSubscriptionId,
+    stripeSubscriptionStatus: params.stripeSubscriptionStatus,
   });
 }
 
 export async function markStripePaymentRefunded(params: {
+  revokeMembershipEntitlement?: boolean;
   stripePaymentIntentId: string;
 }) {
   await prisma.$transaction(async (tx) => {
@@ -515,8 +581,10 @@ export async function markStripePaymentRefunded(params: {
         createdAt: "desc",
       },
       select: {
+        businessId: true,
         businessSubmissionId: true,
         id: true,
+        purpose: true,
       },
     });
 
@@ -533,14 +601,31 @@ export async function markStripePaymentRefunded(params: {
       },
     });
 
-    await tx.businessSubmission.update({
-      where: {
-        id: payment.businessSubmissionId,
-      },
-      data: {
-        paymentStatus: "REFUNDED",
-      },
-    });
+    // A renewal/re-activation is a new membership payment, not a refund of
+    // the historical initial submission. Preserve that submission's paid and
+    // published audit trail; its own refund is still handled as before.
+    if (payment.purpose === "INITIAL_MEMBERSHIP") {
+      await tx.businessSubmission.update({
+        where: { id: payment.businessSubmissionId },
+        data: { paymentStatus: "REFUNDED" },
+      });
+    }
+
+    // A partial refund keeps the existing entitlement behavior unchanged. A
+    // full refund of the payment funding this Phase 1 membership revokes only
+    // that business's public entitlement; no listing data or owner access is
+    // removed.
+    if (params.revokeMembershipEntitlement && payment.businessId) {
+      await tx.businessMembership.updateMany({
+        where: {
+          businessId: payment.businessId,
+          entitlementRevokedAt: null,
+        },
+        data: {
+          entitlementRevokedAt: new Date(),
+        },
+      });
+    }
   });
 
   revalidatePath("/dashboard");

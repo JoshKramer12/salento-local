@@ -277,6 +277,57 @@ function buildSubmissionCommissionSourceKey(submissionId: string) {
   return `commission:submission:${submissionId}`;
 }
 
+export const PARTNER_RENEWAL_COMMISSION_CENTS = 1500;
+
+function buildRenewalCommissionSourceKey(paymentId: string) {
+  return `commission:renewal:${paymentId}`;
+}
+
+/** Records only a paid renewal/reactivation against its original membership.
+ * It is intentionally independent from the initial-submission €50 flow. */
+export async function ensurePartnerRenewalCommissionForPayment(params: {
+  paymentId: string;
+  sourceEventId?: string | null;
+  sourceEventType?: string | null;
+}) {
+  let created = false;
+  await prisma.$transaction(async (tx) => {
+    const payment = await tx.payment.findUnique({
+      where: { id: params.paymentId },
+      include: {
+        business: { include: { membership: { select: { originatingPartnerUserId: true } } } },
+        businessSubmission: { select: { id: true } },
+      },
+    });
+    const partnerUserId = payment?.business?.membership?.originatingPartnerUserId;
+    if (!payment || !partnerUserId || payment.status !== "PAID" || (payment.purpose !== "ANNUAL_RENEWAL" && payment.purpose !== "REACTIVATION")) return;
+    const sourceKey = buildRenewalCommissionSourceKey(payment.id);
+    const existing = await tx.partnerCommission.findUnique({ where: { sourceKey }, select: { id: true } });
+    if (existing) return;
+    await tx.partnerCommission.create({
+      data: {
+        amountCents: PARTNER_RENEWAL_COMMISSION_CENTS,
+        businessId: payment.businessId,
+        businessSubmissionId: payment.businessSubmissionId,
+        currency: payment.currency,
+        earnedAt: payment.paidAt ?? new Date(),
+        eligibleAt: payment.paidAt ?? new Date(),
+        partnerUserId,
+        paymentId: payment.id,
+        sourceEventId: params.sourceEventId ?? null,
+        sourceEventType: params.sourceEventType ?? null,
+        sourceKey,
+        status: "PENDING",
+        stripeCheckoutSessionId: payment.stripeCheckoutSessionId,
+        stripePaymentIntentId: payment.stripePaymentIntentId,
+        type: "COMMISSION",
+      },
+    });
+    created = true;
+  });
+  if (created) revalidatePartnerLedgerPaths();
+}
+
 const PARTNER_COMMISSION_SYNC_MIN_INTERVAL_MS = 45 * 1000;
 
 export type PartnerOutstandingCommissionItem = {
@@ -756,7 +807,7 @@ export async function ensurePartnerCommissionForSubmission(params: {
 }
 
 export async function reversePartnerCommissionForPayment(params: {
-  eventType: "charge.dispute.created" | "charge.refunded" | "transfer.reversed";
+  eventType: "charge.dispute.created" | "charge.dispute.closed" | "charge.refunded" | "transfer.reversed";
   reason: string;
   sourceEventId: string;
   stripeChargeId?: string | null;
@@ -782,7 +833,9 @@ export async function reversePartnerCommissionForPayment(params: {
       return;
     }
 
-    const reversalKey = `${params.eventType}:${params.sourceEventId}`;
+    // Stripe can emit more than one event for the same final refund/dispute.
+    // The commission (not delivery event) is the reversal idempotency target.
+    const reversalKey = `commission:reversal:${original.id}`;
     const existingReversal = await tx.partnerCommission.findUnique({
       where: {
         sourceKey: reversalKey,

@@ -883,6 +883,9 @@ export function PublishForm({
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | "">(
     (initialSubmissionValues.paymentMethod as PaymentMethod | undefined) ?? "",
   );
+  // Card authority is never inferred from the terms: the Partner and owner
+  // choose this visibly before the QR Checkout handoff is opened.
+  const [renewalPreference, setRenewalPreference] = useState<"" | "AUTO" | "MANUAL">("");
   const [sameAsPhone, setSameAsPhone] = useState(
     Boolean(initialSubmissionValues.phone) &&
       initialSubmissionValues.phone === initialSubmissionValues.whatsapp,
@@ -976,10 +979,13 @@ export function PublishForm({
   );
   const termsLink = useMemo(() => getAudienceTermsLink(locale, "business"), [locale]);
   const privacyLink = useMemo(() => getLegalLinks(locale).privacy, [locale]);
-  const firstYearPriceLabel = useMemo(
-    () => formatCurrencyFromCents(LISTING_OFFER.firstYearPriceCents, locale),
+  const annualPriceLabel = useMemo(
+    () => formatCurrencyFromCents(LISTING_OFFER.annualPriceCents, locale),
     [locale],
   );
+  // Kept as a local alias while historical acceptance snapshots retain their
+  // first-year field name; the visible offer is annual throughout the flow.
+  const firstYearPriceLabel = annualPriceLabel;
   const renewalPriceLabel = useMemo(
     () => formatCurrencyFromCents(LISTING_OFFER.renewalPriceCents, locale),
     [locale],
@@ -1013,7 +1019,7 @@ export function PublishForm({
           addressUnsupportedTown:
             "Questo indirizzo non corrisponde a un comune supportato del sito. Scegli un indirizzo nel Salento.",
           agreement:
-            "Confermo che il proprietario o responsabile dell'attività ha autorizzato la creazione di questa scheda su Salento Directory e comprende che il prezzo per il primo anno è di €100.",
+            "Confermo che il proprietario o responsabile dell'attività ha autorizzato la creazione di questa scheda su Salento Directory e comprende che la membership annuale costa €100.",
           agreementTitle: "Accettazione chiara del cliente",
           legalTitle: "Termini legali business",
           bankTransfer: "Bonifico bancario",
@@ -1120,10 +1126,10 @@ export function PublishForm({
           listingIncludes:
             "La scheda include una pagina dedicata su Salento Local con le informazioni e le foto raccolte durante la registrazione.",
           yourListing: "La tua scheda Salento Local",
-          firstYear: "Primi 12 mesi",
-          afterFirstYear: "Dopo il primo anno",
-          renewalLine: "€50/anno se scegli di rinnovare.",
-          renewalNotAutomatic: "Nessun rinnovo automatico.",
+          firstYear: "Membership annuale",
+          afterFirstYear: "Ogni anno",
+          renewalLine: "€100/anno per questa attivita.",
+          renewalNotAutomatic: "Dettagli di rinnovo prima di ogni autorizzazione.",
           beforeYouSign: "Prima di firmare",
           beforeYouSignIntro:
             "Questi punti riassumono in modo semplice quello che stai autorizzando.",
@@ -1132,9 +1138,9 @@ export function PublishForm({
           summaryPublish:
             "Autorizzi Salento Local a creare e pubblicare questa scheda usando informazioni e foto fornite durante la registrazione.",
           summaryPrice:
-            "Confermi che i primi 12 mesi costano €100.",
+            "Confermi che questa membership costa €100 per 365 giorni.",
           summaryRenewal:
-            "Confermi che il rinnovo dopo il primo anno costa €50/anno e non è automatico.",
+            "Confermi che ogni rinnovo per questa attivita costa €100/anno; i dettagli del rinnovo saranno mostrati prima dell'eventuale autorizzazione.",
           legalLinksTitle: "Documenti utili",
           signerDetails: "I tuoi dati",
           signerName: "Nome completo",
@@ -1152,7 +1158,7 @@ export function PublishForm({
           termsAcceptancePrefix: "Ho letto e accetto i",
           termsAcceptanceSuffix: ".",
           confirmationEmailNote: "La conferma dell'acquisto e i Termini applicabili saranno inviati a",
-          continueToPayment: `Continua al pagamento — ${formatCurrencyFromCents(LISTING_OFFER.firstYearPriceCents, "it")}`,
+          continueToPayment: `Continua al pagamento — ${formatCurrencyFromCents(LISTING_OFFER.annualPriceCents, "it")}`,
           continueToPublish: "Conferma e pubblica subito",
           removeBullet: "Rimuovi punto",
           required: "Richiesto",
@@ -1206,7 +1212,7 @@ export function PublishForm({
           addressUnsupportedTown:
             "This address does not match a supported town on the site. Choose an address in Salento.",
           agreement:
-            "I confirm that the business owner or manager gave permission to create this Salento Directory listing and understands that the first-year listing price is €100.",
+            "I confirm that the business owner or manager gave permission to create this Salento Directory listing and understands that the annual membership price is €100.",
           agreementTitle: "Clear owner approval",
           legalTitle: "Business legal terms",
           bankTransfer: "Bank transfer",
@@ -1313,10 +1319,10 @@ export function PublishForm({
           listingIncludes:
             "Your listing includes a dedicated business page on Salento Local using the information and photos provided during registration.",
           yourListing: "Your Salento Local listing",
-          firstYear: "First 12 months",
-          afterFirstYear: "After the first year",
-          renewalLine: "€50/year if you choose to renew.",
-          renewalNotAutomatic: "No automatic renewal.",
+          firstYear: "Annual membership",
+          afterFirstYear: "Each year",
+          renewalLine: "€100/year for this business.",
+          renewalNotAutomatic: "Renewal details before any authorization.",
           beforeYouSign: "Before you sign",
           beforeYouSignIntro:
             "These points summarize in plain language what you are approving.",
@@ -1325,9 +1331,9 @@ export function PublishForm({
           summaryPublish:
             "You authorize Salento Local to create and publish this listing using the information and photos provided during registration.",
           summaryPrice:
-            "You understand that the first 12 months cost €100.",
+            "You understand that this membership costs €100 for 365 days.",
           summaryRenewal:
-            "You understand that renewal after the first year costs €50/year and is not automatic.",
+            "You understand that each renewal for this business costs €100/year; renewal details will be shown before any authorization.",
           legalLinksTitle: "Useful documents",
           signerDetails: "Your details",
           signerName: "Full name",
@@ -1345,7 +1351,7 @@ export function PublishForm({
           termsAcceptancePrefix: "I have read and accept the",
           termsAcceptanceSuffix: ".",
           confirmationEmailNote: "Confirmation will be sent to",
-          continueToPayment: `Continue to payment — ${formatCurrencyFromCents(LISTING_OFFER.firstYearPriceCents, "en")}`,
+          continueToPayment: `Continue to payment — ${formatCurrencyFromCents(LISTING_OFFER.annualPriceCents, "en")}`,
           continueToPublish: "Confirm and publish now",
           removeBullet: "Remove bullet",
           required: "Required",
@@ -2591,6 +2597,7 @@ export function PublishForm({
       <input type="hidden" name="agreementSignature" value={signature} />
       <input type="hidden" name="agreement" value={agreementAccepted ? "on" : ""} />
       <input ref={paymentMethodInputRef} type="hidden" name="paymentMethod" value={paymentMethod} readOnly />
+      <input type="hidden" name="renewalPreference" value={renewalPreference} readOnly />
 
       {wizardStep === "business" || isEditMode ? (
         <header className="publish-form-intro">
@@ -3954,6 +3961,7 @@ export function PublishForm({
                   </label>
                 </div>
                 <FieldError message={state.fieldErrors?.paymentMethod} />
+                {paymentMethod === "ONLINE" ? <div className="mt-5 rounded-[1.5rem] border border-[rgba(42,98,87,0.28)] bg-[rgba(237,248,242,0.52)] p-5"><p className="text-xs font-bold tracking-[0.14em] text-[var(--primary)]">{locale === "it" ? "MEMBERSHIP ANNUALE" : "ANNUAL BUSINESS MEMBERSHIP"}</p><h3 className="mt-2 font-serif text-2xl text-[var(--foreground)]">€100 {locale === "it" ? "/ anno" : "/ year"}</h3><p className="mt-4 text-sm font-bold text-[var(--foreground)]">{locale === "it" ? "RINNOVO" : "RENEWAL"}</p><div className="mt-3 grid gap-3"><label className="rounded-xl border border-[var(--border)] bg-white p-4"><span className="flex gap-3"><input type="radio" checked={renewalPreference === "AUTO"} onChange={() => setRenewalPreference("AUTO")} /><span><b>{locale === "it" ? "Rinnovo annuale automatico" : "Automatic annual renewal"}</b><span className="mt-1 block text-sm text-[var(--muted)]">{locale === "it" ? "La Pagina Attività si rinnoverà a €100 ogni anno. Ti invieremo email 30 e 7 giorni prima; puoi disattivarlo dalla dashboard." : "Your Business Page renews for €100 every year. We’ll email you 30 and 7 days before; you can turn it off from your dashboard."}</span></span></span></label><label className="rounded-xl border border-[var(--border)] bg-white p-4"><span className="flex gap-3"><input type="radio" checked={renewalPreference === "MANUAL"} onChange={() => setRenewalPreference("MANUAL")} /><span><b>{locale === "it" ? "Rinnova manualmente" : "Renew manually"}</b><span className="mt-1 block text-sm text-[var(--muted)]">{locale === "it" ? "Ti ricorderemo prima della scadenza. Per mantenere online la Pagina Attività, effettua un nuovo pagamento di €100 ogni anno." : "We’ll remind you before it ends. Make a new €100 payment each year to keep your Business Page active."}</span></span></span></label></div></div> : null}
               </>
             ) : null}
 
@@ -4001,7 +4009,7 @@ export function PublishForm({
                           {copy.firstYear}
                         </p>
                         <p className="mt-3 whitespace-nowrap text-[clamp(2rem,2.5vw,3rem)] font-semibold leading-none tracking-[-0.04em] text-[var(--foreground)]">
-                          {firstYearPriceLabel}
+                          {annualPriceLabel}
                         </p>
                       </div>
                       <div className="min-w-0 rounded-[1.4rem] border border-[rgba(42,98,87,0.12)] bg-[rgba(247,244,239,0.55)] px-4 py-4 sm:px-5">
@@ -4011,8 +4019,8 @@ export function PublishForm({
                         <p className="mt-3 text-lg font-medium leading-8 text-[var(--foreground)]">
                           {renewalPriceLabel}
                           {locale === "it"
-                            ? "/anno se scegli di rinnovare."
-                            : "/year if you choose to renew."}
+                            ? "/anno per questa attivita."
+                            : "/year for this business."}
                         </p>
                       </div>
                       <div className="min-w-0 rounded-[1.4rem] border border-[rgba(42,98,87,0.12)] bg-[rgba(42,98,87,0.08)] px-4 py-4 sm:px-5">
