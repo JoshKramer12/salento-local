@@ -462,12 +462,21 @@ model MembershipReminder {
   // calendar year: memberships are always an exact 365-day term.
   cycleEndsAt  DateTime
   type         MembershipReminderType
+  // sentAt is retained for historical rows. acceptedAt is the authoritative
+  // provider-acceptance timestamp introduced with delivery tracking.
   sentAt       DateTime               @default(now())
+  attemptedAt  DateTime?
+  acceptedAt   DateTime?
+  attemptCount Int                    @default(0)
+  provider     String?
+  providerMessageId String?
+  failureMessage String?
   membership   BusinessMembership     @relation(fields: [membershipId], references: [id], onDelete: Cascade)
 
   @@unique([membershipId, cycleEndsAt, type])
   @@index([membershipId, cycleEndsAt])
   @@index([sentAt])
+  @@index([acceptedAt])
 }
 
 // A verified business-owner email is retained independently from the account

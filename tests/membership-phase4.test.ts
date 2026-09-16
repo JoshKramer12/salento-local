@@ -27,7 +27,8 @@ test("daily reminder schedule distinguishes automatic, manual, grace, and expiry
   assert.equal(getMembershipReminderType({ automaticRenewal: false, currentPeriodEnd: now, graceEndsAt: at(14), now }), "GRACE_START");
   assert.equal(getMembershipReminderType({ automaticRenewal: false, currentPeriodEnd: at(-14), graceEndsAt: now, now }), "EXPIRED");
   assert.match(reminders, /membershipReminder\.create/);
-  assert.match(reminders, /deleteMany/);
+  assert.match(reminders, /markFailed/);
+  assert.match(reminders, /failureMessage/);
 });
 
 test("Partner terms and public copy disclose €50 initial plus €15 successful renewals without promising income", () => {

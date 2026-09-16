@@ -9,6 +9,7 @@ import { PrismaClient } from "@prisma/client";
 
 const migrationPath = "prisma/migrations/20260914120000_add_business_membership/migration.sql";
 const migrationSql = readFileSync(migrationPath, "utf8");
+const deliveryTrackingMigration = readFileSync("prisma/migrations/20260915190000_add_membership_reminder_delivery_tracking/migration.sql", "utf8");
 
 // This is the production-relevant pre-membership shape: existing commissions
 // retain a live FK to Payment, which must survive an additive migration.
@@ -113,6 +114,8 @@ test("pending membership migration is additive and preserves production-shaped c
     ]);
 
     execute(migrationSql);
+    assert.doesNotMatch(deliveryTrackingMigration, /DROP TABLE|new_MembershipReminder|DELETE FROM "MembershipReminder"/);
+    execute(deliveryTrackingMigration);
 
     const afterPayments = normalize(await db.$queryRawUnsafe(`
       SELECT id, businessSubmissionId, businessId, userId, partnerUserId, amountCents, currency, method, status,
@@ -136,6 +139,9 @@ test("pending membership migration is additive and preserves production-shaped c
     assert.ok(paymentIndexes.some((index: { name: string; unique: number }) => index.name === "Payment_stripeInvoiceId_key" && index.unique === 1));
     const reminderIndexes = normalize(await db.$queryRawUnsafe(`PRAGMA index_list("MembershipReminder")`));
     assert.ok(reminderIndexes.some((index: { name: string; unique: number }) => index.name === "MembershipReminder_membershipId_cycleEndsAt_type_key" && index.unique === 1));
+    assert.ok(reminderIndexes.some((index: { name: string }) => index.name === "MembershipReminder_acceptedAt_idx"));
+    const reminderColumns = normalize(await db.$queryRawUnsafe(`PRAGMA table_info("MembershipReminder")`)).map((column: { name: string }) => column.name);
+    for (const column of ["attemptedAt", "acceptedAt", "attemptCount", "provider", "providerMessageId", "failureMessage"]) assert.ok(reminderColumns.includes(column));
     const membershipColumns = normalize(await db.$queryRawUnsafe(`PRAGMA table_info("BusinessMembership")`)).map((column: { name: string }) => column.name);
     for (const column of ["businessId", "annualPriceCents", "currentPeriodStart", "currentPeriodEnd", "graceEndsAt", "automaticRenewal", "stripeCustomerId", "stripeSubscriptionId", "stripeSubscriptionStatus", "stripeCancelAtPeriodEnd", "recurringPaymentReady", "entitlementRevokedAt"]) assert.ok(membershipColumns.includes(column));
 
