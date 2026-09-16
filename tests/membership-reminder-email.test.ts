@@ -155,11 +155,17 @@ test("English and Italian templates carry correct renewal, lifecycle, and outcom
     assert.equal(graceWeek.text.includes(locale === "en" ? "information has been deleted" : "informazioni sono state eliminate"), false);
     assert.equal(expiresTomorrow.text.includes(locale === "en" ? "no longer be visible after" : "non sarà più visibile dopo"), true);
     assert.equal(expiresTomorrow.text.includes(locale === "en" ? "information has been deleted" : "informazioni sono state eliminate"), false);
-    assert.equal(expired.text.includes(locale === "en" ? "information remains saved" : "informazioni della tua attività sono ancora salvate"), true);
+    assert.equal(expired.text.includes(locale === "en" ? "business information" : "informazioni della tua attività"), true);
     assert.equal(expired.text.includes(locale === "en" ? "Reactivate membership" : "Riattiva abbonamento"), true);
   }
-  const expired = buildMembershipReminderEmail({ businessName: "Masseria Test", date, locale: "en", manageUrl: url, type: "EXPIRED" });
-  assert.match(expired.text, /information remains saved/); assert.match(expired.text, /Reactivate membership/);
+  const enExpired = buildMembershipReminderEmail({ businessName: "Masseria Test", date, locale: "en", manageUrl: url, type: "EXPIRED" });
+  assert.equal(enExpired.subject, "Your Business Page is no longer visible");
+  for (const phrase of ["MEMBERSHIP EXPIRED", "Masseria Test", "no longer publicly visible", "business information", "existing Business Page remain saved", "do not need to create a new listing", "Reactivate your existing Business Page", "€100/year", "renewal payment is successful", "publicly visible again", "Reactivate membership: https://salento.local/dashboard"]) assert.equal(enExpired.text.includes(phrase), true, phrase);
+  for (const phrase of ["GRACE PERIOD", "Automatic renewal is on", "No action is required", "information has been deleted", "€50", "Partner commission"]) assert.equal(enExpired.text.includes(phrase), false, phrase);
+  const itExpired = buildMembershipReminderEmail({ businessName: "Masseria Test", date, locale: "it", manageUrl: url, type: "EXPIRED" });
+  assert.equal(itExpired.subject, "La tua Pagina Attività non è più visibile");
+  for (const phrase of ["ABBONAMENTO SCADUTO", "Masseria Test", "non è più visibile pubblicamente", "informazioni della tua attività", "Pagina Attività esistente rimangono salvate", "Non devi creare una nuova pagina", "Riattiva la tua Pagina Attività esistente", "€100/anno", "pagamento per il rinnovo", "completato con successo", "visibile pubblicamente", "Riattiva abbonamento: https://salento.local/dashboard"]) assert.equal(itExpired.text.includes(phrase), true, phrase);
+  for (const phrase of ["PERIODO DI GRAZIA", "rinnovo automatico è attivo", "Non è richiesta alcuna azione", "informazioni sono state eliminate", "€50", "commissione Partner"]) assert.equal(itExpired.text.includes(phrase), false, phrase);
   const success = buildMembershipPaymentOutcomeEmail({ businessName: "Masseria Test", date, failed: false, locale: "en", manageUrl: url });
   const failure = buildMembershipPaymentOutcomeEmail({ businessName: "Masseria Test", date, failed: true, locale: "it", manageUrl: url });
   assert.match(success.text, /€100 was charged/); assert.match(success.text, /another year/);
