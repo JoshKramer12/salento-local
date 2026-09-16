@@ -139,6 +139,25 @@ test("English and Italian templates carry correct renewal, lifecycle, and outcom
   }
   const manual = buildMembershipReminderEmail({ businessName: "Masseria Test", date, locale: "en", manageUrl: url, type: "MANUAL_30_DAYS" });
   assert.match(manual.text, /Automatic renewal is off/); assert.match(manual.text, /Renew membership/);
+  const enGraceStart = buildMembershipReminderEmail({ businessName: "Masseria Test", date, locale: "en", manageUrl: url, type: "GRACE_START" });
+  assert.equal(enGraceStart.subject, "Your membership has ended — 14 days to keep your Business Page visible");
+  for (const phrase of ["GRACE PERIOD", "Masseria Test", "31 January 2027", "remains visible until", "€100/year", "prevent the page from becoming inactive", "business information will remain saved", "reactivate your Business Page later", "Renew membership: https://salento.local/dashboard"]) assert.equal(enGraceStart.text.includes(phrase), true, phrase);
+  for (const phrase of ["will automatically renew", "No action is required", "Business Page is inactive", "information has been deleted"]) assert.equal(enGraceStart.text.includes(phrase), false, phrase);
+  const itGraceStart = buildMembershipReminderEmail({ businessName: "Masseria Test", date, locale: "it", manageUrl: url, type: "GRACE_START" });
+  assert.equal(itGraceStart.subject, "Il tuo abbonamento è terminato: hai ancora 14 giorni");
+  for (const phrase of ["PERIODO DI GRAZIA", "Masseria Test", "31 gennaio 2027", "rimane visibile fino al", "€100/anno", "evitare che la pagina diventi inattiva", "I dati della tua attività rimarranno salvati", "riattivare la Pagina Attività in seguito", "Rinnova abbonamento: https://salento.local/dashboard"]) assert.equal(itGraceStart.text.includes(phrase), true, phrase);
+  for (const phrase of ["si rinnoverà automaticamente", "Non è richiesta alcuna azione", "Pagina Attività è inattiva", "informazioni sono state eliminate"]) assert.equal(itGraceStart.text.includes(phrase), false, phrase);
+  for (const locale of ["en", "it"] as const) {
+    const graceWeek = buildMembershipReminderEmail({ businessName: "Masseria Test", date, locale, manageUrl: url, type: "GRACE_7_DAYS_LEFT" });
+    const expiresTomorrow = buildMembershipReminderEmail({ businessName: "Masseria Test", date, locale, manageUrl: url, type: "EXPIRES_TOMORROW" });
+    const expired = buildMembershipReminderEmail({ businessName: "Masseria Test", date, locale, manageUrl: url, type: "EXPIRED" });
+    assert.equal(graceWeek.text.includes(locale === "en" ? "remains visible until" : "rimane visibile fino al"), true);
+    assert.equal(graceWeek.text.includes(locale === "en" ? "information has been deleted" : "informazioni sono state eliminate"), false);
+    assert.equal(expiresTomorrow.text.includes(locale === "en" ? "no longer be visible after" : "non sarà più visibile dopo"), true);
+    assert.equal(expiresTomorrow.text.includes(locale === "en" ? "information has been deleted" : "informazioni sono state eliminate"), false);
+    assert.equal(expired.text.includes(locale === "en" ? "information remains saved" : "informazioni della tua attività sono ancora salvate"), true);
+    assert.equal(expired.text.includes(locale === "en" ? "Reactivate membership" : "Riattiva abbonamento"), true);
+  }
   const expired = buildMembershipReminderEmail({ businessName: "Masseria Test", date, locale: "en", manageUrl: url, type: "EXPIRED" });
   assert.match(expired.text, /information remains saved/); assert.match(expired.text, /Reactivate membership/);
   const success = buildMembershipPaymentOutcomeEmail({ businessName: "Masseria Test", date, failed: false, locale: "en", manageUrl: url });
