@@ -1,6 +1,7 @@
 import { isHealthyAutomaticRenewal } from "@/lib/membership-reminders";
 import type { Locale } from "@/lib/i18n";
 import { getBusinessPhotoUrls } from "@/lib/business-photos";
+import { getWebsiteDisplayLabel, normalizeUrlInput } from "@/lib/business-links";
 import { buildBusinessImage, buildBusinessPhoto } from "@/lib/site";
 import { BusinessOwnerAccountNav } from "@/components/account/business-owner-account-nav";
 
@@ -9,7 +10,7 @@ import {
   type DashboardBusiness,
 } from "@/components/account/business-owner-dashboard-client";
 
-type OwnerDashboardBusiness = Omit<DashboardBusiness, "images" | "membership"> & {
+type OwnerDashboardBusiness = Omit<DashboardBusiness, "images" | "membership" | "websiteLabel"> & {
   category: { name: string; slug: string };
   heroImageSeed: string;
   images: Array<{ alt: string; id: string; url: string }>;
@@ -40,6 +41,8 @@ export function BusinessOwnerDashboard({ businesses, firstName, locale }: Busine
     return {
       ...business,
       images,
+      website: normalizeUrlInput(business.website) ?? null,
+      websiteLabel: getWebsiteDisplayLabel(business.website),
       membership: business.membership ? {
         ...business.membership,
         automaticRenewalHealthy: isHealthyAutomaticRenewal(business.membership),

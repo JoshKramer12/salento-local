@@ -11,11 +11,13 @@ import {
   IconFileInvoice,
   IconMapPin,
   IconPencil,
+  IconPhone,
   IconPhoto,
   IconPlus,
   IconReceipt,
   IconRefresh,
   IconStarFilled,
+  IconWorld,
 } from "@tabler/icons-react";
 
 import { AutoRenewCancelControl } from "@/components/account/auto-renew-cancel-control";
@@ -30,6 +32,7 @@ import type { Locale } from "@/lib/i18n";
 export type DashboardBusiness = {
   address: string;
   category: { name: string; slug: string };
+  description: string;
   id: string;
   images: Array<{ alt: string; id: string; url: string }>;
   locality: { name: string } | null;
@@ -47,6 +50,7 @@ export type DashboardBusiness = {
     stripeSubscriptionStatus: string | null;
   } | null;
   name: string;
+  phone: string | null;
   payments: Array<{
     businessSubmission: { id: string };
     createdAt: Date;
@@ -58,7 +62,10 @@ export type DashboardBusiness = {
   reviews: Array<{ authorName: string; body: string; createdAt: Date; id: string; rating: number; title: string }>;
   shortDescription: string;
   slug: string;
+  tags: Array<{ tag: { name: string } }>;
   town: { name: string };
+  website: string | null;
+  websiteLabel: string | null;
 };
 
 type Props = { businesses: DashboardBusiness[]; firstName: string; locale: Locale };
@@ -83,9 +90,9 @@ function stateFor(business: DashboardBusiness): State {
 function copyFor(locale: Locale) {
   const it = locale === "it";
   return it ? {
-    account: "AREA ACCOUNT", active: "ATTIVA", allSet: "Tutto a posto — non serve alcuna azione", auto: "Rinnovo automatico", bank: "Preferisci il bonifico?", bankAction: "Rinnova con bonifico", card: "Metodo di pagamento", days: "giorni rimanenti", edit: "Modifica scheda", expired: "SCADUTA", grace: "GRAZIA", graceEnd: "Il periodo di grazia termina il", history: "Storico pagamenti", legacy: "Scheda pubblica", manual: "Rinnovo manuale", membership: "Membership e pagamento", noMembership: "Questa scheda pubblica non ha una membership associata.", payment: "Gestito in modo sicuro con Stripe", reactivate: "Riattiva per €100", reactivateHeading: "Riattiva la tua Pagina Attività", receipt: "Vedi ricevuta", renew: "Rinnova per €100", renewalNeeded: "Rinnovo necessario", saved: "Le informazioni della tua attività e la Pagina Attività restano salvate. Non devi creare una nuova scheda.", select: "Seleziona un'attività per visualizzare e gestire la sua membership.", switchAuto: "Attiva rinnovo automatico", until: "Attiva fino al", update: "Aggiornamento", view: "Vedi scheda pubblica", welcome: "Benvenuto", welcomeBody: "Gestisci le tue schede attività e mantieni le informazioni aggiornate.", live: "La tua Pagina Attività è online su Salento Local.", graceLive: "La tua Pagina Attività è ancora online durante il periodo di grazia di 14 giorni.", hidden: "La tua Pagina Attività non è attualmente visibile su Salento Local.", currentEnded: "Membership terminata", statusAuto: "Auto", statusManual: "Manuale", actionRequired: "Azione necessaria", paymentAvailable: "Disponibile per il rinnovo automatico", paymentSaved: "Salvato in modo sicuro con Stripe", paymentUnavailable: "Nessun metodo di pagamento salvato", nextRenewal: "Il rinnovo automatico di €100/anno avverrà il", manualCopy: "La membership non si rinnoverà automaticamente. Rinnova entro questa data per mantenere online la Pagina Attività.", graceCopy: "La membership pagata è terminata, ma la tua Pagina Attività resterà online fino al", expiredCopy: "Riattiva la tua Pagina Attività esistente per €100/anno. Dopo il pagamento riuscito tornerà visibile al pubblico.", unhealthy: "Il rinnovo automatico richiede attenzione. Completa il rinnovo per mantenere online la tua Pagina Attività.", reviews: "Recensioni recenti", quick: "Azioni rapide", photos: "Gestisci foto", hours: "Aggiorna orari", add: "Aggiungi un'altra attività",
+    account: "AREA ACCOUNT", active: "ATTIVA", allSet: "Tutto a posto — non serve alcuna azione", auto: "Rinnovo automatico", bank: "Preferisci il bonifico?", bankAction: "Rinnova con bonifico", card: "Metodo di pagamento", days: "giorni rimanenti", edit: "Modifica scheda", expired: "SCADUTA", grace: "GRAZIA", graceEnd: "Il periodo di grazia termina il", history: "Storico pagamenti", legacy: "Scheda pubblica", manual: "Rinnovo manuale", membership: "Membership e pagamento", noMembership: "Questa scheda pubblica non ha una membership associata.", noReviews: "Ancora nessuna recensione", payment: "Gestito in modo sicuro con Stripe", reactivate: "Riattiva per €100", reactivateHeading: "Riattiva la tua Pagina Attività", receipt: "Vedi ricevuta", renew: "Rinnova per €100", renewalNeeded: "Rinnovo necessario", renews: "Rinnova", review: "recensione", reviewsCount: "recensioni", saved: "Le informazioni della tua attività e la Pagina Attività restano salvate. Non devi creare una nuova scheda.", select: "Seleziona un'attività per visualizzare e gestire la sua membership.", switchAuto: "Attiva rinnovo automatico", until: "Attiva fino al", update: "Aggiornamento", view: "Vedi scheda pubblica", welcome: "Benvenuto", welcomeBody: "Gestisci le tue schede attività e mantieni le informazioni aggiornate.", live: "La tua Pagina Attività è online su Salento Local.", graceLive: "La tua Pagina Attività è ancora online durante il periodo di grazia di 14 giorni.", hidden: "La tua Pagina Attività non è attualmente visibile su Salento Local.", currentEnded: "Membership terminata", statusAuto: "Auto", statusManual: "Manuale", actionRequired: "Azione necessaria", paymentAvailable: "Disponibile per il rinnovo automatico", paymentSaved: "Salvato in modo sicuro con Stripe", paymentUnavailable: "Nessun metodo di pagamento salvato", nextRenewal: "Il rinnovo automatico di €100/anno avverrà il", manualCopy: "La membership non si rinnoverà automaticamente. Rinnova entro questa data per mantenere online la Pagina Attività.", graceCopy: "La membership pagata è terminata, ma la tua Pagina Attività resterà online fino al", expiredCopy: "Riattiva la tua Pagina Attività esistente per €100/anno. Dopo il pagamento riuscito tornerà visibile al pubblico.", unhealthy: "Il rinnovo automatico richiede attenzione. Completa il rinnovo per mantenere online la tua Pagina Attività.", reviews: "Recensioni recenti", quick: "Azioni rapide", photos: "Gestisci foto", hours: "Aggiorna orari", add: "Aggiungi un'altra attività",
   } : {
-    account: "ACCOUNT AREA", active: "ACTIVE", allSet: "All set — no action needed", auto: "Automatic renewal", bank: "Prefer bank transfer?", bankAction: "Renew by bank transfer", card: "Payment method", days: "days left", edit: "Edit listing", expired: "EXPIRED", grace: "GRACE", graceEnd: "Grace period ends", history: "Payment history", legacy: "Public listing", manual: "Manual renewal", membership: "Membership & payment", noMembership: "This public listing does not have a membership yet.", payment: "Managed securely with Stripe", reactivate: "Reactivate for €100", reactivateHeading: "Reactivate your Business Page", receipt: "View receipt", renew: "Renew for €100", renewalNeeded: "Renewal needed", saved: "All of your business information and existing Business Page remain saved. You do not need to create a new listing.", select: "Select a business to view and manage its membership.", switchAuto: "Turn on automatic renewal", until: "Active until", update: "Update", view: "View public listing", welcome: "Welcome", welcomeBody: "Manage your business listings and keep your information up to date.", live: "Your Business Page is live on Salento Local.", graceLive: "Your Business Page is still live during your 14-day grace period.", hidden: "Your Business Page is currently not visible on Salento Local.", currentEnded: "Membership ended", statusAuto: "Auto", statusManual: "Manual", actionRequired: "Action required", paymentAvailable: "Available for automatic renewal", paymentSaved: "Saved securely with Stripe", paymentUnavailable: "No saved payment method", nextRenewal: "Your membership will automatically renew for €100/year on", manualCopy: "Your membership will not renew automatically. Renew before this date to keep your Business Page online.", graceCopy: "Your paid membership has ended, but your Business Page will remain live until", expiredCopy: "Reactivate your existing Business Page for €100/year. Once payment is successful, it will become publicly visible again.", unhealthy: "Automatic renewal needs attention. Complete renewal to keep your Business Page online.", reviews: "Recent reviews", quick: "Quick actions", photos: "Manage photos", hours: "Update hours", add: "Add another business",
+    account: "ACCOUNT AREA", active: "ACTIVE", allSet: "All set — no action needed", auto: "Automatic renewal", bank: "Prefer bank transfer?", bankAction: "Renew by bank transfer", card: "Payment method", days: "days left", edit: "Edit listing", expired: "EXPIRED", grace: "GRACE", graceEnd: "Grace period ends", history: "Payment history", legacy: "Public listing", manual: "Manual renewal", membership: "Membership & payment", noMembership: "This public listing does not have a membership yet.", noReviews: "No reviews yet", payment: "Managed securely with Stripe", reactivate: "Reactivate for €100", reactivateHeading: "Reactivate your Business Page", receipt: "View receipt", renew: "Renew for €100", renewalNeeded: "Renewal needed", renews: "Renews", review: "review", reviewsCount: "reviews", saved: "All of your business information and existing Business Page remain saved. You do not need to create a new listing.", select: "Select a business to view and manage its membership.", switchAuto: "Turn on automatic renewal", until: "Active until", update: "Update", view: "View public listing", welcome: "Welcome", welcomeBody: "Manage your business listings and keep your information up to date.", live: "Your Business Page is live on Salento Local.", graceLive: "Your Business Page is still live during your 14-day grace period.", hidden: "Your Business Page is currently not visible on Salento Local.", currentEnded: "Membership ended", statusAuto: "Auto", statusManual: "Manual", actionRequired: "Action required", paymentAvailable: "Available for automatic renewal", paymentSaved: "Saved securely with Stripe", paymentUnavailable: "No saved payment method", nextRenewal: "Your membership will automatically renew for €100/year on", manualCopy: "Your membership will not renew automatically. Renew before this date to keep your Business Page online.", graceCopy: "Your paid membership has ended, but your Business Page will remain live until", expiredCopy: "Reactivate your existing Business Page for €100/year. Once payment is successful, it will become publicly visible again.", unhealthy: "Automatic renewal needs attention. Complete renewal to keep your Business Page online.", reviews: "Recent reviews", quick: "Quick actions", photos: "Manage photos", hours: "Update hours", add: "Add another business",
   };
 }
 
@@ -110,7 +117,7 @@ export function BusinessOwnerDashboardClient({ businesses, firstName, locale }: 
   const selected = businesses.find((business) => business.id === selectedId) ?? defaultBusiness;
   const cardGridColumns = businesses.length === 1
     ? "grid-cols-1"
-    : businesses.length === 2 ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3";
+    : businesses.length === 2 ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3";
 
   return <main className="shell px-4 py-8 sm:px-6 sm:py-12">
     <section className="mb-7 grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
@@ -120,7 +127,9 @@ export function BusinessOwnerDashboardClient({ businesses, firstName, locale }: 
 
     {businesses.length ? <>
       <section aria-label={locale === "it" ? "Le mie attività" : "My businesses"} className={`business-card-grid grid gap-4 ${cardGridColumns}`}>
-        {businesses.map((business) => <BusinessCard business={business} c={c} key={business.id} locale={locale} />)}
+        {businesses.length === 1
+          ? <SingleBusinessShowcase business={businesses[0]} c={c} locale={locale} />
+          : businesses.map((business) => <BusinessCard business={business} c={c} key={business.id} locale={locale} />)}
       </section>
       {selected ? <section className="mt-8"><div className="mb-4"><h2 className="font-serif text-3xl text-[var(--foreground)]">{c.membership}</h2>{businesses.length > 1 ? <p className="mt-1 text-base text-[var(--muted)]">{c.select}</p> : null}</div>
         {businesses.length > 1 ? <div className="membership-business-selector flex gap-3 overflow-x-auto pb-2" role="tablist" aria-label={c.membership}>{businesses.map((business) => <button aria-selected={business.id === selected.id} className={`min-w-[13.5rem] rounded-2xl border p-3 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)] ${business.id === selected.id ? "border-[var(--primary)] bg-[rgba(237,248,242,0.9)]" : "border-[var(--border)] bg-[var(--card)]"}`} key={business.id} onClick={() => setSelectedId(business.id)} role="tab" type="button"><div className="flex gap-3"><BusinessThumb business={business} /><span className="min-w-0"><b className="block truncate text-sm text-[var(--foreground)]">{business.name}</b><span className="mt-1 block text-xs font-semibold text-[var(--primary)]">{stateLabel(stateFor(business), c)}{business.membership ? ` · ${business.membership.automaticRenewal && business.membership.automaticRenewalHealthy ? c.statusAuto : c.statusManual}` : ""}</span></span></div></button>)}</div> : null}
@@ -132,6 +141,58 @@ export function BusinessOwnerDashboardClient({ businesses, firstName, locale }: 
 }
 
 function BusinessThumb({ business }: { business: DashboardBusiness }) { const image = business.images[0]; return image ? <img alt="" className="h-11 w-11 shrink-0 rounded-xl object-cover" src={image.url} /> : <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[var(--secondary)] text-[var(--primary)]"><IconPhoto size={19} /></span>; }
+
+function SingleBusinessShowcase({ business, c, locale }: { business: DashboardBusiness; c: ReturnType<typeof copyFor>; locale: Locale }) {
+  const state = stateFor(business);
+  const membership = business.membership;
+  const [mainImage, ...remainingImages] = business.images;
+  const thumbnails = remainingImages.length > 3 ? remainingImages.slice(0, 2) : remainingImages.slice(0, 3);
+  const overflowImage = remainingImages.length > 3 ? remainingImages[2] : null;
+  const additionalImages = Math.max(0, remainingImages.length - 3);
+  const description = business.shortDescription.trim() || business.description.trim();
+  const membershipSummary = !membership
+    ? c.noMembership
+    : state === "EXPIRED"
+      ? c.hidden
+      : state === "GRACE"
+        ? `${c.graceEnd} ${date(locale, membership.graceEndsAt)}`
+        : membership.automaticRenewal && membership.automaticRenewalHealthy
+          ? `${c.renews} ${date(locale, membership.currentPeriodEnd)} · ${c.statusAuto}`
+          : `${c.until} ${date(locale, membership.currentPeriodEnd)} · ${c.statusManual}`;
+
+  return <article className="single-business-showcase min-w-0 overflow-hidden rounded-[1.7rem] border border-[var(--border)] bg-[var(--card)] p-4 shadow-[0_12px_30px_rgba(66,51,31,0.055)] sm:p-5 lg:grid lg:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)] lg:gap-7">
+    <div className="min-w-0 lg:border-r lg:border-[var(--border)] lg:pr-7">
+      <div className="relative aspect-[1.35/0.9] overflow-hidden rounded-[1.25rem] bg-[var(--secondary)]">
+        {mainImage ? <img alt={mainImage.alt || business.name} className="h-full w-full object-cover" src={mainImage.url} /> : <div className="h-full w-full bg-[linear-gradient(135deg,#d5ebe3,#f7f0e3)]" />}
+        <span className={`absolute left-3 top-3 rounded-full px-3 py-1 text-xs font-bold ${state === "GRACE" ? "bg-[#fff0cc] text-[#805100]" : state === "EXPIRED" ? "bg-[#f7e3df] text-[#973f36]" : "bg-[#dff3e4] text-[#17644f]"}`}>{stateLabel(state, c)}</span>
+      </div>
+      {remainingImages.length ? <div className="mt-3 flex gap-2 overflow-x-auto pb-1" aria-label={`${business.name} gallery`}>
+        {thumbnails.map((image) => <img alt={image.alt || business.name} className="h-20 w-28 shrink-0 rounded-xl object-cover" key={image.id} src={image.url} />)}
+        {overflowImage ? <div className="relative h-20 w-28 shrink-0 overflow-hidden rounded-xl"><img alt={overflowImage.alt || business.name} className="h-full w-full object-cover" src={overflowImage.url} /><span className="absolute inset-0 flex items-center justify-center bg-[rgba(17,37,49,0.62)] text-lg font-bold text-white">+{additionalImages}</span></div> : null}
+      </div> : null}
+    </div>
+
+    <div className="min-w-0 pt-5 lg:pt-1">
+      <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--primary)]">{business.category.name}</p>
+      <h3 className="mt-2 break-words font-serif text-3xl leading-tight text-[var(--foreground)] sm:text-4xl">{business.name}</h3>
+      {description ? <p className="mt-3 max-w-2xl text-base leading-7 text-[var(--muted-strong)]">{description}</p> : null}
+      <div className="mt-5 grid gap-3 text-sm leading-6 text-[var(--muted-strong)]">
+        <p className="flex items-start gap-2"><IconMapPin className="mt-1 shrink-0 text-[var(--primary)]" size={17} /><span>{business.address}{business.locality ? `, ${business.locality.name}` : ""}</span></p>
+        {business.phone ? <a className="flex min-w-0 items-center gap-2 hover:text-[var(--primary)] hover:underline" href={`tel:${business.phone}`}><IconPhone className="shrink-0 text-[var(--primary)]" size={17} /><span className="truncate">{business.phone}</span></a> : null}
+        {business.website ? <a className="flex min-w-0 items-center gap-2 hover:text-[var(--primary)] hover:underline" href={business.website} rel="noreferrer" target="_blank"><IconWorld className="shrink-0 text-[var(--primary)]" size={17} /><span className="truncate">{business.websiteLabel || business.website}</span><IconExternalLink className="shrink-0" size={15} /></a> : null}
+      </div>
+      {business.tags.length ? <div className="mt-5 flex flex-wrap gap-2">{business.tags.map(({ tag }) => <span className="rounded-full bg-[var(--secondary)] px-3 py-1.5 text-xs font-semibold text-[var(--foreground)]" key={tag.name}>{tag.name}</span>)}</div> : null}
+      <div className="mt-6 border-t border-[var(--border)] pt-4">
+        <p className={`text-xs font-bold tracking-[0.11em] ${state === "GRACE" ? "text-[#805100]" : state === "EXPIRED" ? "text-[#973f36]" : "text-[var(--primary)]"}`}>{stateLabel(state, c)}</p>
+        <p className="mt-1 text-sm leading-5 text-[var(--muted-strong)]">{membershipSummary}</p>
+      </div>
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-4">
+        {business.reviewCount ? <Link className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--foreground)] underline-offset-4 hover:text-[var(--primary)] hover:underline" href={`/businesses/${business.slug}#reviews`}><IconStarFilled className="text-[#e7a13c]" size={18} />{business.rating.toFixed(1)} <span className="text-[var(--muted)]">{business.reviewCount} {business.reviewCount === 1 ? c.review : c.reviewsCount}</span></Link> : <span className="text-sm text-[var(--muted)]">{c.noReviews}</span>}
+        <div className="grid w-full gap-2 sm:w-auto sm:grid-cols-2"><HardNavigationLink className="btn-secondary min-h-11 justify-center" href={`/businesses/${business.slug}/edit?step=business`}><IconPencil size={17} />{c.edit}</HardNavigationLink><HardNavigationLink className="btn-primary min-h-11 justify-center" href={`/businesses/${business.slug}`}><IconExternalLink size={17} />{c.view}</HardNavigationLink></div>
+      </div>
+    </div>
+  </article>;
+}
 
 function BusinessCard({ business, c, locale }: { business: DashboardBusiness; c: ReturnType<typeof copyFor>; locale: Locale }) {
   const state = stateFor(business); const image = business.images[0]; const membership = business.membership;
