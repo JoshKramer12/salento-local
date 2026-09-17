@@ -195,6 +195,15 @@ test("only full refunds and confirmed lost disputes revoke public membership ent
   assert.match(paymentSyncSource, /entitlementRevokedAt: new Date\(\)/);
 });
 
+test("initial payment finalization preserves a published Business link across metadata-free retries", () => {
+  const publicationSource = readFileSync("src/lib/submission-publication.ts", "utf8");
+
+  assert.match(paymentSyncSource, /ensurePaymentBusinessAssociation\(/);
+  assert.match(paymentSyncSource, /businessId: params\.businessId \|\| undefined/);
+  assert.match(paymentSyncSource, /payment_business_association_conflict/);
+  assert.match(publicationSource, /businessSubmissionId: submission\.id,[\s\S]*businessId: null/);
+});
+
 test("old €50 business-renewal and first-year-only offer copy is absent", () => {
   const customerOfferSources = [
     readFileSync("src/components/account/publish-form.tsx", "utf8"),

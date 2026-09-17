@@ -812,8 +812,13 @@ export async function reversePartnerCommissionForPayment(params: {
   sourceEventId: string;
   stripeChargeId?: string | null;
   stripePaymentIntentId?: string | null;
-}) {
-  await prisma.$transaction(async (tx) => {
+}, dependencies: {
+  db?: Pick<typeof prisma, "$transaction">;
+  revalidatePaths?: () => void;
+} = {}) {
+  const db = dependencies.db ?? prisma;
+
+  await db.$transaction(async (tx) => {
     const original = await tx.partnerCommission.findFirst({
       where: {
         type: "COMMISSION",
@@ -886,7 +891,7 @@ export async function reversePartnerCommissionForPayment(params: {
     });
   });
 
-  revalidatePartnerLedgerPaths();
+  (dependencies.revalidatePaths ?? revalidatePartnerLedgerPaths)();
 }
 
 async function reserveAvailablePartnerCommissions(params: {

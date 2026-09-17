@@ -1,5 +1,5 @@
 import { revalidatePath } from "next/cache";
-import type { PaymentRecordMethod } from "@prisma/client";
+import type { PaymentRecordMethod, Prisma } from "@prisma/client";
 import type Stripe from "stripe";
 
 import { ensurePendingPartnerCommissionForSubmission } from "@/lib/partner-ledger";
@@ -24,6 +24,62 @@ type ReceiptCheckoutSession = Pick<
 
 const USER_PAYMENT_SYNC_MIN_INTERVAL_MS = 45 * 1000;
 
+type PaymentBusinessAssociationDb = Pick<Prisma.TransactionClient, "payment">;
+
+/**
+ * Connect a successful payment to the one Business produced by its submission.
+ * A later webhook/polling/receipt pass may have no Business ID in its Stripe
+ * metadata (which is normal for an initial payment), so this deliberately
+ * never clears or replaces an existing association.
+ */
+export async function ensurePaymentBusinessAssociation(params: {
+  businessId: string;
+  db: PaymentBusinessAssociationDb;
+  paymentId: string;
+}) {
+  const payment = await params.db.payment.findUnique({
+    where: { id: params.paymentId },
+    select: { businessId: true },
+  });
+
+  if (!payment) {
+    throw new Error("payment_business_association_missing_payment");
+  }
+
+  if (payment.businessId && payment.businessId !== params.businessId) {
+    throw new Error("payment_business_association_conflict");
+  }
+
+  if (payment.businessId === params.businessId) {
+    return;
+  }
+
+  const updated = await params.db.payment.updateMany({
+    where: {
+      businessId: null,
+      id: params.paymentId,
+    },
+    data: {
+      businessId: params.businessId,
+    },
+  });
+
+  if (updated.count === 1) {
+    return;
+  }
+
+  // Another authoritative finalization may have won the race. Read once more
+  // and accept only the same immutable association.
+  const resolvedPayment = await params.db.payment.findUnique({
+    where: { id: params.paymentId },
+    select: { businessId: true },
+  });
+
+  if (resolvedPayment?.businessId !== params.businessId) {
+    throw new Error("payment_business_association_conflict");
+  }
+}
+
 async function finalizeStripeManagedPayment(params: {
   amountPaidCents: number;
   businessId?: string | null;
@@ -41,6 +97,7 @@ async function finalizeStripeManagedPayment(params: {
 }): Promise<SyncResult> {
   let publishedBusinessSlug = "";
   let publishedTownSlug = "";
+  let finalizedPaymentId: string | null = null;
   const finalizedAt = new Date();
 
   await prisma.$transaction(async (tx) => {
@@ -53,19 +110,31 @@ async function finalizeStripeManagedPayment(params: {
         ],
       },
       select: {
+        businessId: true,
         id: true,
         status: true,
       },
     });
 
     if (existingPayment) {
+      if (
+        existingPayment.businessId &&
+        params.businessId &&
+        existingPayment.businessId !== params.businessId
+      ) {
+        throw new Error("payment_business_association_conflict");
+      }
+
       await tx.payment.update({
         where: {
           id: existingPayment.id,
         },
         data: {
           amountCents: params.amountPaidCents,
-          businessId: params.businessId ?? null,
+          // Initial Checkout metadata is intentionally blank because the
+          // Business is created only after payment. Never erase the durable
+          // association established by an earlier authoritative finalization.
+          businessId: params.businessId || undefined,
           currency: params.currency || "eur",
           method: params.method,
           paidAt: finalizedAt,
@@ -75,6 +144,7 @@ async function finalizeStripeManagedPayment(params: {
           stripePaymentIntentId: params.paymentIntentId ?? null,
         },
       });
+      finalizedPaymentId = existingPayment.id;
     } else {
       const submissionForPayment = await tx.businessSubmission.findUnique({
         where: {
@@ -86,7 +156,7 @@ async function finalizeStripeManagedPayment(params: {
       });
 
       if (submissionForPayment) {
-        await tx.payment.create({
+        const createdPayment = await tx.payment.create({
           data: {
             amountCents: params.amountPaidCents,
             businessId: params.businessId ?? null,
@@ -100,7 +170,11 @@ async function finalizeStripeManagedPayment(params: {
             stripePaymentIntentId: params.paymentIntentId ?? null,
             userId: submissionForPayment.userId,
           },
+          select: {
+            id: true,
+          },
         });
+        finalizedPaymentId = createdPayment.id;
       }
     }
 
@@ -149,6 +223,8 @@ async function finalizeStripeManagedPayment(params: {
       });
     }
 
+    let publishedBusinessId: string | null = null;
+
     if (submission.status !== "PUBLISHED") {
       const publishedBusiness = await publishSubmissionAfterPayment({
         db: tx,
@@ -158,6 +234,7 @@ async function finalizeStripeManagedPayment(params: {
       publishedBusinessSlug = publishedBusiness?.slug ?? "";
       publishedTownSlug = publishedBusiness?.town.slug ?? "";
       if (publishedBusiness) {
+        publishedBusinessId = publishedBusiness.id;
         await ensureInitialBusinessMembership({
           businessId: publishedBusiness.id,
           db: tx,
@@ -174,6 +251,7 @@ async function finalizeStripeManagedPayment(params: {
       publishedBusinessSlug = submission.createdBusiness?.slug ?? "";
       publishedTownSlug = submission.createdBusiness?.town.slug ?? "";
       if (submission.createdBusiness) {
+        publishedBusinessId = submission.createdBusiness.id;
         await ensureInitialBusinessMembership({
           businessId: submission.createdBusiness.id,
           db: tx,
@@ -186,6 +264,14 @@ async function finalizeStripeManagedPayment(params: {
           stripeSubscriptionStatus: params.stripeSubscriptionStatus,
         });
       }
+    }
+
+    if (publishedBusinessId && finalizedPaymentId) {
+      await ensurePaymentBusinessAssociation({
+        businessId: publishedBusinessId,
+        db: tx,
+        paymentId: finalizedPaymentId,
+      });
     }
 
     // This runs in the same authoritative payment transaction as publication.
@@ -569,10 +655,15 @@ export async function syncStripePaymentFromWebhook(params: {
 }
 
 export async function markStripePaymentRefunded(params: {
+  revalidatePaths?: boolean;
   revokeMembershipEntitlement?: boolean;
   stripePaymentIntentId: string;
-}) {
-  await prisma.$transaction(async (tx) => {
+}, dependencies: {
+  db?: Pick<typeof prisma, "$transaction">;
+} = {}) {
+  const db = dependencies.db ?? prisma;
+
+  await db.$transaction(async (tx) => {
     const payment = await tx.payment.findFirst({
       where: {
         stripePaymentIntentId: params.stripePaymentIntentId,
@@ -628,6 +719,8 @@ export async function markStripePaymentRefunded(params: {
     }
   });
 
-  revalidatePath("/dashboard");
-  revalidatePath("/dashboard/businesses");
+  if (params.revalidatePaths !== false) {
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/businesses");
+  }
 }

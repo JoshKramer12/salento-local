@@ -329,6 +329,10 @@ export async function publishSubmissionAfterPayment(params: {
   await db.payment.updateMany({
     where: {
       businessSubmissionId: submission.id,
+      // Publication may be retried after the finalizer has already linked a
+      // payment. Preserve an existing association rather than reassociating
+      // it silently.
+      businessId: null,
     },
     data: {
       businessId: business.id,
