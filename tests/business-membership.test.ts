@@ -23,7 +23,10 @@ const businessPage = readFileSync("src/app/businesses/[slug]/page.tsx", "utf8");
 const townPage = readFileSync("src/app/towns/[slug]/page.tsx", "utf8");
 const localityPage = readFileSync("src/app/localities/[slug]/page.tsx", "utf8");
 const searchSuggestions = readFileSync("src/app/api/search-suggestions/route.ts", "utf8");
-const ownerDashboard = readFileSync("src/components/account/business-owner-dashboard.tsx", "utf8");
+const ownerDashboard = [
+  readFileSync("src/components/account/business-owner-dashboard.tsx", "utf8"),
+  readFileSync("src/components/account/business-owner-dashboard-client.tsx", "utf8"),
+].join("\n");
 const paymentSyncSource = readFileSync("src/lib/stripe-payment-sync.ts", "utf8");
 const webhookRoute = readFileSync("src/app/api/stripe/webhook/route.ts", "utf8");
 const renewalCheckout = readFileSync("src/lib/membership-renewal-checkout.ts", "utf8");
@@ -180,12 +183,12 @@ test("public discovery and direct pages enforce membership eligibility on the se
 test("expired-business enforcement preserves business records, owner access, and membership-specific owner status UI", () => {
   assert.doesNotMatch(paymentSyncSource, /business\.delete|businessSubmission\.delete|ownerAccess.*delete/i);
   assert.match(ownerDashboard, /ACTIVE/);
-  assert.match(ownerDashboard, /PAYMENT DUE/);
-  assert.match(ownerDashboard, /INACTIVE/);
+  assert.match(ownerDashboard, /GRACE/);
+  assert.match(ownerDashboard, /EXPIRED/);
   assert.match(ownerDashboard, /Active until/);
   assert.match(ownerDashboard, /Grace period ends/);
-  assert.match(ownerDashboard, /Expired on/);
-  assert.match(ownerDashboard, /Your business information is still saved/);
+  assert.match(ownerDashboard, /currently not visible on Salento Local/);
+  assert.match(ownerDashboard, /business information and existing Business Page remain saved/);
 });
 
 test("only full refunds and confirmed lost disputes revoke public membership entitlement", () => {

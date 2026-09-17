@@ -12,7 +12,10 @@ const actions = readFileSync("src/app/(account)/actions.ts", "utf8");
 const editPage = readFileSync("src/app/businesses/[slug]/edit/page.tsx", "utf8");
 const publicBusinessPage = readFileSync("src/app/businesses/[slug]/page.tsx", "utf8");
 const publishForm = readFileSync("src/components/account/publish-form.tsx", "utf8");
-const ownerDashboard = readFileSync("src/components/account/business-owner-dashboard.tsx", "utf8");
+const ownerDashboard = [
+  readFileSync("src/components/account/business-owner-dashboard.tsx", "utf8"),
+  readFileSync("src/components/account/business-owner-dashboard-client.tsx", "utf8"),
+].join("\n");
 const dashboardPage = readFileSync("src/app/(account)/dashboard/page.tsx", "utf8");
 const ownerEditAction = actions.slice(
   actions.indexOf("export async function updateOwnedBusinessWithWizardAction"),
@@ -75,14 +78,13 @@ test("edit and public pages hydrate the same merged business and submission phot
   assert.match(publishForm, /setPreviewUrlForSlot\(slot, null\)/);
 });
 
-test("owner dashboard uses the shared photo resolver for its primary image and thumbnails", () => {
+test("owner dashboard uses the shared photo resolver for the business-card primary image", () => {
   assert.match(dashboardPage, /submissions: \{/);
   assert.match(dashboardPage, /select: \{ photoUrls: true \}/);
   assert.match(ownerDashboard, /getBusinessPhotoUrls\(business\.images, business\.submissions\[0\]\?\.photoUrls\)/);
-  assert.match(ownerDashboard, /const hero = gallery\[0\] \?\?/);
-  assert.match(ownerDashboard, /visibleImages\.slice\(1\)/);
-  assert.match(ownerDashboard, /gallery\.length > 4/);
-  assert.match(ownerDashboard, /lg:grid lg:grid-cols/);
+  assert.match(ownerDashboard, /buildBusinessPhoto\(url, 1500/);
+  assert.match(ownerDashboard, /const image = business\.images\[0\]/);
+  assert.match(ownerDashboard, /business-card-grid/);
 });
 
 test("owner management links always choose their requested initial step", () => {

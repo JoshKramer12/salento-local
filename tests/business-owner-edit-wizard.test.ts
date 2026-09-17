@@ -6,7 +6,10 @@ import { getBusinessOwnerNavigationItems } from "@/lib/business-owner-navigation
 
 const editPage = readFileSync("src/app/businesses/[slug]/edit/page.tsx", "utf8");
 const publishForm = readFileSync("src/components/account/publish-form.tsx", "utf8");
-const ownerDashboard = readFileSync("src/components/account/business-owner-dashboard.tsx", "utf8");
+const ownerDashboard = [
+  readFileSync("src/components/account/business-owner-dashboard.tsx", "utf8"),
+  readFileSync("src/components/account/business-owner-dashboard-client.tsx", "utf8"),
+].join("\n");
 const ownerNav = readFileSync("src/components/account/business-owner-account-nav.tsx", "utf8");
 const accountWorkspaceNav = readFileSync("src/components/account/account-workspace-nav.tsx", "utf8");
 const partnerWorkspaceNav = readFileSync("src/components/account/partner-workspace-nav.tsx", "utf8");
@@ -27,13 +30,11 @@ test("Business Owner edit route uses the shared wizard and supports direct hours
 });
 
 test("Business Owner listing cards expose the explicit step-one edit action beside the public listing", () => {
-  assert.match(ownerDashboard, /const editListingHref = `\/businesses\/\$\{business\.slug\}\/edit\?step=business`/);
-  assert.match(ownerDashboard, /const publicListingHref = `\/businesses\/\$\{business\.slug\}`/);
-  assert.match(ownerDashboard, /href=\{editListingHref\} className="btn-secondary min-h-12 w-full justify-center sm:w-auto"/);
-  assert.match(ownerDashboard, /<IconPencil size=\{18\} \/>\{copy\.editListing\}/);
-  assert.match(ownerDashboard, /href=\{publicListingHref\} className="btn-primary min-h-12 w-full justify-center sm:w-auto"/);
-  assert.match(ownerDashboard, /<IconExternalLink size=\{18\} \/>/);
-  assert.match(ownerDashboard, /className="mt-5 grid gap-3 sm:flex sm:flex-wrap"/);
+  assert.match(ownerDashboard, /href=\{`\/businesses\/\$\{business\.slug\}\/edit\?step=business`\}/);
+  assert.match(ownerDashboard, /href=\{`\/businesses\/\$\{business\.slug\}`\}/);
+  assert.match(ownerDashboard, /<IconPencil size=\{17\} \/>\{c\.edit\}/);
+  assert.match(ownerDashboard, /<IconExternalLink size=\{17\} \/>\{c\.view\}/);
+  assert.match(ownerDashboard, /mt-auto grid gap-2 pt-4 sm:grid-cols-2/);
 });
 
 test("shared publish form keeps create mode and ends owner edit mode at the listing", () => {
