@@ -277,6 +277,40 @@ function buildSubmissionCommissionSourceKey(submissionId: string) {
   return `commission:submission:${submissionId}`;
 }
 
+type InitialMembershipPayment = {
+  currency: string;
+  id: string;
+  paidAt: Date | null;
+  stripeCheckoutSessionId: string | null;
+  stripePaymentIntentId: string | null;
+};
+
+type InitialCommissionAttribution =
+  | { kind: "ASSIGN"; payment: InitialMembershipPayment }
+  | { kind: "PRESERVE" }
+  | { kind: "CONFLICT" }
+  | { kind: "UNRESOLVED" };
+
+/**
+ * A submission commission represents the acquisition payment, not the most
+ * recent payment made for that submission. A later renewal/reactivation shares
+ * the submission but has its own payment-keyed €15 commission.
+ */
+export function resolveInitialCommissionAttribution(params: {
+  existingPaymentId: string | null;
+  paidInitialPayments: InitialMembershipPayment[];
+}): InitialCommissionAttribution {
+  if (params.existingPaymentId) {
+    return params.paidInitialPayments.some((payment) => payment.id === params.existingPaymentId)
+      ? { kind: "PRESERVE" }
+      : { kind: "CONFLICT" };
+  }
+
+  return params.paidInitialPayments.length === 1
+    ? { kind: "ASSIGN", payment: params.paidInitialPayments[0] }
+    : { kind: "UNRESOLVED" };
+}
+
 export const PARTNER_RENEWAL_COMMISSION_CENTS = 1500;
 
 function buildRenewalCommissionSourceKey(paymentId: string) {
@@ -455,9 +489,10 @@ export async function ensurePendingPartnerCommissionForSubmission(params: {
         payments: {
           where: {
             status: "PAID",
+            purpose: "INITIAL_MEMBERSHIP",
           },
           orderBy: {
-            paidAt: "desc",
+            paidAt: "asc",
           },
           select: {
             currency: true,
@@ -466,7 +501,9 @@ export async function ensurePendingPartnerCommissionForSubmission(params: {
             stripeCheckoutSessionId: true,
             stripePaymentIntentId: true,
           },
-          take: 1,
+          // More than one paid initial payment is a data conflict. Do not
+          // choose one arbitrarily and attach a durable commission to it.
+          take: 2,
         },
         status: true,
         user: {
@@ -494,18 +531,31 @@ export async function ensurePendingPartnerCommissionForSubmission(params: {
       },
       select: {
         id: true,
+        paymentId: true,
         status: true,
       },
     });
 
     if (existing) {
-      const latestPaidPayment = submission.payments[0];
+      const attribution = resolveInitialCommissionAttribution({
+        existingPaymentId: existing.paymentId,
+        paidInitialPayments: submission.payments,
+      });
       const shouldMarkPending =
         submission.paymentStatus === "PAID" &&
         (submission.status === "APPROVED" || submission.status === "PUBLISHED") &&
-        latestPaidPayment;
+        attribution.kind === "ASSIGN";
 
-      if (!shouldMarkPending || existing.status === "REVERSED" || existing.status === "DEBT") {
+      // A linked initial commission is immutable. In particular, a later
+      // renewal/reactivation must not replace its payment or Stripe references.
+      // An existing non-initial link is a historical data conflict and is left
+      // for an explicit repair rather than silently reassigned by a sync job.
+      if (
+        !shouldMarkPending ||
+        attribution.kind !== "ASSIGN" ||
+        existing.status === "REVERSED" ||
+        existing.status === "DEBT"
+      ) {
         return;
       }
 
@@ -515,43 +565,47 @@ export async function ensurePendingPartnerCommissionForSubmission(params: {
         },
         data: {
           businessId: submission.createdBusinessId,
-          currency: latestPaidPayment.currency,
-          eligibleAt: latestPaidPayment.paidAt ?? submission.createdAt,
-          paymentId: latestPaidPayment.id,
+          currency: attribution.payment.currency,
+          eligibleAt: attribution.payment.paidAt ?? submission.createdAt,
+          paymentId: attribution.payment.id,
           status:
             existing.status === "PAID" || existing.status === "RESERVED"
               ? existing.status
               : "PENDING",
-          stripeCheckoutSessionId: latestPaidPayment.stripeCheckoutSessionId,
-          stripePaymentIntentId: latestPaidPayment.stripePaymentIntentId,
+          stripeCheckoutSessionId: attribution.payment.stripeCheckoutSessionId,
+          stripePaymentIntentId: attribution.payment.stripePaymentIntentId,
         },
       });
 
       return;
     }
 
-    const latestPaidPayment = submission.payments[0];
+    const attribution = resolveInitialCommissionAttribution({
+      existingPaymentId: null,
+      paidInitialPayments: submission.payments,
+    });
     const shouldMarkPending =
       submission.paymentStatus === "PAID" &&
       (submission.status === "APPROVED" || submission.status === "PUBLISHED") &&
-      latestPaidPayment;
+      attribution.kind === "ASSIGN";
+    const initialPayment = attribution.kind === "ASSIGN" ? attribution.payment : null;
 
     await tx.partnerCommission.create({
       data: {
         amountCents: submission.commissionCents || getPartnerCommissionCents(),
         businessId: submission.createdBusinessId,
         businessSubmissionId: submission.id,
-        currency: latestPaidPayment?.currency || "eur",
+        currency: initialPayment?.currency || "eur",
         earnedAt: submission.createdAt,
-        eligibleAt: shouldMarkPending ? (latestPaidPayment.paidAt ?? submission.createdAt) : null,
+        eligibleAt: shouldMarkPending ? (initialPayment?.paidAt ?? submission.createdAt) : null,
         partnerUserId: submission.user.id,
-        paymentId: latestPaidPayment?.id ?? null,
+        paymentId: initialPayment?.id ?? null,
         sourceEventId: params.sourceEventId,
         sourceEventType: params.sourceEventType,
         sourceKey: buildSubmissionCommissionSourceKey(submission.id),
         status: "PENDING",
-        stripeCheckoutSessionId: latestPaidPayment?.stripeCheckoutSessionId ?? null,
-        stripePaymentIntentId: latestPaidPayment?.stripePaymentIntentId ?? null,
+        stripeCheckoutSessionId: initialPayment?.stripeCheckoutSessionId ?? null,
+        stripePaymentIntentId: initialPayment?.stripePaymentIntentId ?? null,
         type: "COMMISSION",
       },
     });
@@ -709,11 +763,14 @@ export async function ensurePartnerCommissionForSubmission(params: {
         payments: {
           where: {
             status: "PAID",
+            purpose: "INITIAL_MEMBERSHIP",
           },
           orderBy: {
-            paidAt: "desc",
+            paidAt: "asc",
           },
-          take: 1,
+          // See resolveInitialCommissionAttribution: an ambiguous initial
+          // payment history must never be resolved by selecting the latest.
+          take: 2,
         },
         user: {
           select: {
@@ -733,18 +790,13 @@ export async function ensurePartnerCommissionForSubmission(params: {
       return;
     }
 
-    const payment = submission.payments[0];
-
-    if (!payment) {
-      return;
-    }
-
     const existing = await tx.partnerCommission.findUnique({
       where: {
         sourceKey: buildSubmissionCommissionSourceKey(submission.id),
       },
       select: {
         id: true,
+        paymentId: true,
         status: true,
       },
     });
@@ -752,6 +804,17 @@ export async function ensurePartnerCommissionForSubmission(params: {
     if (existing?.status === "REVERSED" || existing?.status === "DEBT") {
       return;
     }
+
+    const attribution = resolveInitialCommissionAttribution({
+      existingPaymentId: existing?.paymentId ?? null,
+      paidInitialPayments: submission.payments,
+    });
+
+    if (attribution.kind === "PRESERVE" || attribution.kind === "CONFLICT" || attribution.kind === "UNRESOLVED") {
+      return;
+    }
+
+    const payment = attribution.payment;
 
     const nextStatus =
       existing?.status === "PAID"
@@ -766,14 +829,10 @@ export async function ensurePartnerCommissionForSubmission(params: {
           id: existing.id,
         },
         data: {
-          amountCents: submission.commissionCents || getPartnerCommissionCents(),
           businessId: submission.createdBusiness?.id ?? null,
           currency: payment.currency,
-          earnedAt: payment.paidAt ?? new Date(),
           eligibleAt: payment.paidAt ?? new Date(),
           paymentId: payment.id,
-          sourceEventId: params.sourceEventId,
-          sourceEventType: params.sourceEventType,
           status: nextStatus,
           stripeCheckoutSessionId: payment.stripeCheckoutSessionId,
           stripePaymentIntentId: payment.stripePaymentIntentId,
