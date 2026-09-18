@@ -11,24 +11,26 @@ type AccountWorkspaceNavProps<Key extends string> = {
   ariaLabel: string;
   items: readonly AccountWorkspaceNavItem<Key>[];
   scrollable?: boolean;
+  sticky?: boolean;
 };
 
 /**
  * The compact account navigation used below the mobile site header. Keeping the
- * structure here makes every account area use the same sticky mobile treatment.
+ * structure here makes every account area use the same mobile treatment.
  */
 export function AccountWorkspaceNav<Key extends string>({
   active,
   ariaLabel,
   items,
   scrollable = false,
+  sticky = true,
 }: AccountWorkspaceNavProps<Key>) {
   return (
     <nav
       aria-label={ariaLabel}
-      className="sticky top-16 z-30 border-b border-[var(--border)] bg-[color:rgba(255,248,239,0.96)] py-2 backdrop-blur-md md:hidden"
+      className={`${sticky ? "sticky top-16 z-30" : "relative z-20"} border-b border-[var(--border)] bg-[color:rgba(255,248,239,0.96)] py-2 backdrop-blur-md md:hidden`}
     >
-      <div className={scrollable ? "shell flex gap-1 overflow-x-auto px-1 pb-px [scrollbar-width:none]" : "shell grid grid-cols-3 gap-1 px-1"}>
+      <div className={scrollable ? "shell flex gap-1 overflow-x-auto overscroll-x-contain px-1 pb-px [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" : "shell grid grid-cols-3 gap-1 px-1"}>
         {items.map((item) => {
           const isActive = item.key === active;
 

@@ -26,6 +26,7 @@ export function PartnerWorkspaceNav({ active, locale }: PartnerWorkspaceNavProps
       ariaLabel={locale === "it" ? "Navigazione area partner" : "Partner workspace navigation"}
       items={items}
       scrollable
+      sticky={false}
     />
   );
 }
