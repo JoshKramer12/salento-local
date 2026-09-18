@@ -39,3 +39,14 @@ test("recent-business cards keep their image, details, and action in separate re
 test("the Partner mobile navigation remains in page flow below the global header", () => {
   assert.match(partnerWorkspaceNav, /scrollable[\s\S]*sticky=\{false\}/);
 });
+
+test("the lower dashboard uses intentional rows and does not render a redundant help card", () => {
+  const guideIndex = dashboard.indexOf("<section className={styles.guide}>");
+  const summaryIndex = dashboard.indexOf("<section className={styles.businessSummary}>");
+
+  assert.ok(guideIndex > 0 && summaryIndex > guideIndex);
+  assert.doesNotMatch(dashboard, /styles\.help|Need more help\?|Hai bisogno di altro aiuto\?/);
+  assert.doesNotMatch(dashboardStyles, /\.businessPanel\{grid-row:2 \/ span 2/);
+  assert.match(dashboardStyles, /@media\(min-width:901px\)\{\.businessPanel\{grid-column:1;grid-row:2\}\.recentEarnings\{grid-column:2;grid-row:2\}\.guide\{grid-column:1;grid-row:3\}\.businessSummary\{grid-column:2;grid-row:3\}\}/);
+  assert.match(dashboardStyles, /@media\(max-width:900px\)\{[\s\S]*?\.businessPanel,[\s\S]*?\.guide\{grid-column:auto;grid-row:auto\}/);
+});
