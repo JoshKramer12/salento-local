@@ -7,6 +7,7 @@ import {
 import { DashboardNav, DraftCountBadge } from "@/components/account/dashboard-nav";
 import { OwnedBusinessList } from "@/components/account/owned-business-list";
 import { PartnerWorkspaceNav } from "@/components/account/partner-workspace-nav";
+import { PartnerSubmissions } from "@/components/account/partner-submissions";
 import { SubmissionList } from "@/components/account/submission-list";
 import { requireCompletedViewer } from "@/lib/auth-guards";
 import { getCurrentLocale } from "@/lib/locale";
@@ -83,6 +84,15 @@ export default async function DashboardBusinessesPage({
         },
         createdBusiness: {
           select: {
+            images: {
+              orderBy: {
+                sortOrder: "asc",
+              },
+              select: {
+                alt: true,
+                url: true,
+              },
+            },
             slug: true,
           },
         },
@@ -103,6 +113,14 @@ export default async function DashboardBusinessesPage({
         user: {
           select: {
             username: true,
+          },
+        },
+        partnerCommissions: {
+          select: {
+            amountCents: true,
+            sourceKey: true,
+            status: true,
+            type: true,
           },
         },
       },
@@ -123,6 +141,15 @@ export default async function DashboardBusinessesPage({
         },
         createdBusiness: {
           select: {
+            images: {
+              orderBy: {
+                sortOrder: "asc",
+              },
+              select: {
+                alt: true,
+                url: true,
+              },
+            },
             slug: true,
           },
         },
@@ -145,6 +172,14 @@ export default async function DashboardBusinessesPage({
             username: true,
           },
         },
+        partnerCommissions: {
+          select: {
+            amountCents: true,
+            sourceKey: true,
+            status: true,
+            type: true,
+          },
+        },
       },
       orderBy: {
         updatedAt: "desc",
@@ -159,6 +194,27 @@ export default async function DashboardBusinessesPage({
   const activeSubmissions = personalView
     ? submissions.filter((submission) => !draftSubmissionIds.has(submission.id))
     : submissions;
+
+  if (viewer.role === "GETTER" && !showAll) {
+    return (
+      <>
+        <PartnerWorkspaceNav active="businesses" locale={locale} />
+        <div className="dashboard-nav-shell shell px-4 pt-5 sm:px-6">
+          <DashboardNav
+            active="businesses"
+            draftCount={draftSubmissions.length}
+            locale={locale}
+            role="GETTER"
+          />
+        </div>
+        <PartnerSubmissions
+          locale={locale}
+          drafts={draftSubmissions}
+          submissions={activeSubmissions}
+        />
+      </>
+    );
+  }
 
   return (
     <>
@@ -218,7 +274,7 @@ export default async function DashboardBusinessesPage({
         </div>
       ) : null}
 
-      {personalView && draftSubmissions.length ? (
+      {personalView && draftSubmissions.length && viewer.role !== "GETTER" ? (
         <section id="drafts" className="mb-10 scroll-mt-6">
           <div className="mb-5">
             <h2 className="flex items-center gap-2 font-serif text-3xl text-[var(--foreground)]">
@@ -323,7 +379,7 @@ export default async function DashboardBusinessesPage({
             userName: submission.user.username,
           }))}
           />
-        </section>
+      </section>
       </main>
     </>
   );
