@@ -1,18 +1,15 @@
 import { AccountWorkspaceNav } from "@/components/account/account-workspace-nav";
 import { getAccountNavigationItems } from "@/lib/account-navigation";
+import type { AccountNavigationKey } from "@/lib/account-navigation";
 import type { Locale } from "@/lib/i18n";
 
 type PartnerWorkspaceNavProps = {
-  active: "businesses" | "dashboard" | "earnings";
+  active: AccountNavigationKey;
   locale: Locale;
 };
 
 export function PartnerWorkspaceNav({ active, locale }: PartnerWorkspaceNavProps) {
   const items = getAccountNavigationItems(locale, "GETTER")
-    .filter(
-      (item) =>
-        item.key === "dashboard" || item.key === "businesses" || item.key === "earnings",
-    )
     .map((item) => ({
       ...item,
       label:
@@ -28,6 +25,7 @@ export function PartnerWorkspaceNav({ active, locale }: PartnerWorkspaceNavProps
       active={active}
       ariaLabel={locale === "it" ? "Navigazione area partner" : "Partner workspace navigation"}
       items={items}
+      scrollable
     />
   );
 }

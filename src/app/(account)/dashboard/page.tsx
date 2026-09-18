@@ -340,6 +340,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     partnerOutstandingCommissions,
     partnerHistory,
     partnerSetup,
+    partnerRecentCommissions,
     adminDashboard,
     ownedBusinesses,
   ] = await Promise.all([
@@ -355,18 +356,25 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         category: {
           select: {
             name: true,
+            slug: true,
           },
         },
         commissionCents: true,
         createdAt: true,
         createdBusiness: {
           select: {
+            images: {
+              orderBy: { sortOrder: "asc" },
+              select: { alt: true, url: true },
+              take: 1,
+            },
             slug: true,
           },
         },
         id: true,
         paymentMethod: true,
         paymentStatus: true,
+        photoUrls: true,
         payments: {
           orderBy: {
             createdAt: "desc",
@@ -395,6 +403,27 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     viewer.role === "GETTER"
       ? getPartnerPayoutSetupSummary(viewer.id)
       : Promise.resolve(null),
+    viewer.role === "GETTER"
+      ? prisma.partnerCommission.findMany({
+          where: {
+            partnerUserId: viewer.id,
+            type: "COMMISSION",
+            status: { not: "REVERSED" },
+          },
+          orderBy: [{ earnedAt: "desc" }, { createdAt: "desc" }],
+          take: 5,
+          select: {
+            amountCents: true,
+            business: { select: { name: true } },
+            businessSubmission: { select: { businessName: true } },
+            createdAt: true,
+            earnedAt: true,
+            id: true,
+            payment: { select: { purpose: true } },
+            sourceKey: true,
+          },
+        })
+      : Promise.resolve([]),
     viewer.role === "ADMIN" ? getAdminDashboardData() : Promise.resolve(null),
     viewer.role === "BUSINESS_OWNER"
       ? prisma.business.findMany({
@@ -596,6 +625,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         balances={partnerBalances}
         history={partnerHistory}
         locale={locale}
+        recentCommissions={partnerRecentCommissions}
         setup={partnerSetup}
         submissions={submissions}
         totals={totals}
