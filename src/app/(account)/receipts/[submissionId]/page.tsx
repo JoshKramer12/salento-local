@@ -1,11 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { IconFileDescription, IconInfoCircle } from "@tabler/icons-react";
+import { IconInfoCircle } from "@tabler/icons-react";
 
 import { requireCompletedViewer } from "@/lib/auth-guards";
 import { getCurrentLocale } from "@/lib/locale";
-import { getReceiptData } from "@/lib/receipts";
-import { getStripeHostedReceiptUrl } from "@/lib/stripe-receipts";
+import { buildPaymentReceiptPageUrl, getReceiptData } from "@/lib/receipts";
 
 type ReceiptPageProps = {
   params: Promise<{
@@ -46,25 +45,20 @@ export default async function ReceiptPage({ params }: ReceiptPageProps) {
     );
   }
 
-  const stripeReceiptUrl = await getStripeHostedReceiptUrl(receipt.payment);
-
-  if (stripeReceiptUrl) redirect(stripeReceiptUrl);
+  if (receipt) redirect(buildPaymentReceiptPageUrl(receipt.payment.id));
 
   return (
     <main className="shell px-4 py-12 sm:px-6">
       <section className="card mx-auto max-w-xl p-6 text-center sm:p-8">
-        <IconFileDescription className="mx-auto text-[var(--primary)]" size={34} />
         <h1 className="mt-4 font-serif text-3xl text-[var(--foreground)]">
-          {locale === "it" ? "Ricevuta Salento Local" : "Salento Local receipt"}
+          {locale === "it" ? "Ricevuta non disponibile" : "Receipt unavailable"}
         </h1>
         <p className="mt-3 leading-7 text-[var(--muted)]">
           {locale === "it"
-            ? "Stripe non ha una ricevuta ospitata per questo pagamento. Puoi aprire la ricevuta Salento Local conservata in modo sicuro."
-            : "Stripe does not have a hosted receipt for this payment. You can open the securely retained Salento Local receipt."}
+            ? "Questo link storico non identifica in modo univoco una ricevuta. Apri lo storico pagamenti per scegliere la transazione corretta."
+            : "This historical link does not uniquely identify a receipt. Open payment history and choose the correct transaction."}
         </p>
-        <a href={`/api/receipts/${encodeURIComponent(submissionId)}`} className="btn-primary mt-6">
-          <IconFileDescription size={19} /> {locale === "it" ? "Apri ricevuta PDF" : "Open PDF receipt"}
-        </a>
+        <Link href="/dashboard/payment-history" className="btn-primary mt-6">{locale === "it" ? "Apri storico pagamenti" : "Open payment history"}</Link>
       </section>
     </main>
   );

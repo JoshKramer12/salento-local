@@ -1,5 +1,5 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
-import type { PaymentPurpose, PaymentRecordMethod, UserRole } from "@prisma/client";
+import type { PaymentPurpose, PaymentRecordMethod, PaymentStatus, UserRole } from "@prisma/client";
 
 import { hasSmtpConfiguration } from "@/lib/claim-delivery";
 import { formatCurrencyFromCents } from "@/lib/account";
@@ -35,7 +35,7 @@ type ReceiptSubmission = {
   listingTermMonthsAtAcceptance: number | null;
   ownerEmail: string;
   ownerHasNoEmail: boolean;
-  paymentStatus: "PAID";
+  paymentStatus: PaymentStatus;
   privacyPolicyVersionPresented: string | null;
   purchaseConfirmationSentAt: Date | null;
   renewalPriceCentsAtAcceptance: number | null;
@@ -48,6 +48,8 @@ type ReceiptSubmission = {
 
 type ReceiptPayment = {
   amountCents: number;
+  bankTransferReference: string | null;
+  businessId: string | null;
   currency: string;
   id: string;
   method: PaymentRecordMethod;
@@ -55,7 +57,9 @@ type ReceiptPayment = {
   partnerUserId: string | null;
   purpose: PaymentPurpose;
   stripeCheckoutSessionId: string | null;
+  stripeInvoiceId: string | null;
   stripePaymentIntentId: string | null;
+  status: PaymentStatus;
 };
 
 export type ReceiptData = {
@@ -64,6 +68,13 @@ export type ReceiptData = {
   receiptFileName: string;
   receiptNumber: string;
   receiptUrl: string;
+  submission: ReceiptSubmission;
+};
+
+export type SignedAgreementData = {
+  agreementFileName: string;
+  agreementNumber: string;
+  agreementUrl: string;
   submission: ReceiptSubmission;
 };
 
@@ -144,6 +155,33 @@ export function buildReceiptUrl(
   return `${appUrl}/api/receipts/${encodeURIComponent(submissionId)}${query}`;
 }
 
+/** New receipt URLs always name the durable Payment that they represent. */
+export function buildPaymentReceiptUrl(
+  paymentId: string,
+  checkoutSessionId?: string | null,
+  appUrlOverride?: string | null,
+) {
+  const appUrl = (trimValue(appUrlOverride) || getAppUrl()).replace(/\/+$/, "");
+  const query = checkoutSessionId ? `?session=${encodeURIComponent(checkoutSessionId)}` : "";
+  return `${appUrl}/api/receipts/payment/${encodeURIComponent(paymentId)}${query}`;
+}
+
+export function buildPaymentReceiptPageUrl(
+  paymentId: string,
+  checkoutSessionId?: string | null,
+) {
+  const query = checkoutSessionId ? `?session=${encodeURIComponent(checkoutSessionId)}` : "";
+  return `/receipts/payment/${encodeURIComponent(paymentId)}${query}`;
+}
+
+export function buildAgreementPageUrl(
+  submissionId: string,
+  checkoutSessionId?: string | null,
+) {
+  const query = checkoutSessionId ? `?session=${encodeURIComponent(checkoutSessionId)}` : "";
+  return `/agreements/${encodeURIComponent(submissionId)}${query}`;
+}
+
 function getPaymentMethodReceiptLabel(method: PaymentRecordMethod, locale: Locale) {
   if (method === "BANK_TRANSFER") {
     return locale === "it" ? "Bonifico bancario" : "Bank transfer";
@@ -154,8 +192,8 @@ function getPaymentMethodReceiptLabel(method: PaymentRecordMethod, locale: Local
 
 function getPaymentPurposeReceiptLabel(purpose: PaymentPurpose, locale: Locale) {
   const labels = locale === "it"
-    ? { ANNUAL_RENEWAL: "Rinnovo annuale", INITIAL_MEMBERSHIP: "Membership iniziale", REACTIVATION: "Riattivazione" }
-    : { ANNUAL_RENEWAL: "Annual renewal", INITIAL_MEMBERSHIP: "Initial membership", REACTIVATION: "Reactivation" };
+    ? { ANNUAL_RENEWAL: "Rinnovo annuale", INITIAL_MEMBERSHIP: "Membership iniziale", REACTIVATION: "Riattivazione della membership" }
+    : { ANNUAL_RENEWAL: "Annual renewal", INITIAL_MEMBERSHIP: "Initial membership", REACTIVATION: "Membership reactivation" };
   return labels[purpose];
 }
 
@@ -325,17 +363,11 @@ function drawSignatureBox(params: {
   }
 }
 
-export async function getReceiptData(params: {
-  allowInternal?: boolean;
-  appUrl?: string | null;
-  submissionId: string;
-  viewerId?: string | null;
-  viewerRole?: UserRole | null;
-}) {
-  const submission = await prisma.businessSubmission.findUnique({
-    where: {
-      id: params.submissionId,
-    },
+const receiptPaymentSelect = {
+  amountCents: true,
+  bankTransferReference: true,
+  businessId: true,
+  businessSubmission: {
     select: {
       address: true,
       agreementSignature: true,
@@ -361,45 +393,82 @@ export async function getReceiptData(params: {
       signerFullName: true,
       signerRole: true,
       signerRoleOther: true,
-      town: {
-        select: {
-          name: true,
-        },
-      },
+      town: { select: { name: true } },
       userId: true,
-      payments: {
-        where: {
-          status: "PAID",
-        },
-        orderBy: {
-          paidAt: "desc",
-        },
-        select: {
-          amountCents: true,
-          currency: true,
-          id: true,
-          method: true,
-          paidAt: true,
-          partnerUserId: true,
-          purpose: true,
-          stripeCheckoutSessionId: true,
-          stripePaymentIntentId: true,
-        },
-        take: 5,
-      },
     },
-  });
+  },
+  currency: true,
+  id: true,
+  method: true,
+  paidAt: true,
+  partnerUserId: true,
+  purpose: true,
+  status: true,
+  stripeCheckoutSessionId: true,
+  stripeInvoiceId: true,
+  stripePaymentIntentId: true,
+} as const;
 
-  if (!submission || submission.paymentStatus !== "PAID") {
+export function resolvePaymentBusinessId(payment: {
+  businessId: string | null;
+  businessSubmission: { createdBusinessId: string | null };
+}) {
+  const submissionBusinessId = payment.businessSubmission.createdBusinessId;
+  // A corrupt or manually mismatched association must never grant an owner
+  // access through either business. The financial record is safer unavailable
+  // than silently attributed to another listing.
+  if (payment.businessId && submissionBusinessId && payment.businessId !== submissionBusinessId) {
     return null;
   }
+  return payment.businessId ?? submissionBusinessId;
+}
 
-  const payment = submission.payments[0] ?? null;
+export function selectLegacyInitialPayment<T extends { purpose: PaymentPurpose }>(payments: T[]) {
+  const initialPayments = payments.filter((payment) => payment.purpose === "INITIAL_MEMBERSHIP");
+  return initialPayments.length === 1 ? initialPayments[0] : null;
+}
 
-  if (!payment) {
-    return null;
+export async function getReceiptData(params: {
+  allowInternal?: boolean;
+  appUrl?: string | null;
+  checkoutSessionId?: string | null;
+  paymentId?: string | null;
+  submissionId?: string | null;
+  viewerId?: string | null;
+  viewerRole?: UserRole | null;
+}) {
+  const paymentId = trimValue(params.paymentId);
+  const submissionId = trimValue(params.submissionId);
+  const checkoutSessionId = trimValue(params.checkoutSessionId);
+  let payment = null;
+
+  if (paymentId) {
+    payment = await prisma.payment.findUnique({
+      where: { id: paymentId },
+      select: receiptPaymentSelect,
+    });
+    if (payment && checkoutSessionId && payment.stripeCheckoutSessionId !== checkoutSessionId) return null;
+  } else if (checkoutSessionId && submissionId) {
+    payment = await prisma.payment.findFirst({
+      where: { businessSubmissionId: submissionId, stripeCheckoutSessionId: checkoutSessionId },
+      select: receiptPaymentSelect,
+    });
+  } else if (submissionId) {
+    // Legacy submission-only links are intentionally limited to the one
+    // original payment. They can never resolve a later renewal/reactivation.
+    const initialPayments = await prisma.payment.findMany({
+      where: { businessSubmissionId: submissionId, purpose: "INITIAL_MEMBERSHIP" },
+      orderBy: { createdAt: "asc" },
+      select: receiptPaymentSelect,
+      take: 2,
+    });
+    payment = selectLegacyInitialPayment(initialPayments);
   }
 
+  if (!payment || !["PAID", "REFUNDED"].includes(payment.status)) return null;
+  if (params.allowInternal && checkoutSessionId && payment.stripeCheckoutSessionId !== checkoutSessionId) return null;
+
+  const submission = payment.businessSubmission;
   const directAccess = canAccessSubmissionReceipt({
     allowInternal: params.allowInternal,
     paymentPartnerUserId: payment.partnerUserId,
@@ -407,35 +476,36 @@ export async function getReceiptData(params: {
     viewerId: params.viewerId,
     viewerRole: params.viewerRole,
   });
+  const businessId = resolvePaymentBusinessId(payment);
   const ownerAccess =
     !directAccess &&
     params.viewerRole === "BUSINESS_OWNER" &&
-    Boolean(params.viewerId && submission.createdBusinessId) &&
-    (await canManageBusiness({
-      businessId: submission.createdBusinessId!,
-      userId: params.viewerId!,
-    }));
+    Boolean(params.viewerId && businessId) &&
+    (await canManageBusiness({ businessId: businessId!, userId: params.viewerId! }));
 
   if (!directAccess && !ownerAccess) return null;
 
-  const receiptNumber = buildReceiptNumber({
-    paymentId: payment.id,
-    submissionId: submission.id,
-  });
-
+  const receiptNumber = buildReceiptNumber({ paymentId: payment.id, submissionId: submission.id });
   return {
-    payment,
-    recipientEmail: resolveReceiptRecipient({
-      businessEmail: submission.email,
-      ownerEmail: submission.ownerEmail,
-    }),
+    payment: {
+      amountCents: payment.amountCents,
+      bankTransferReference: payment.bankTransferReference,
+      businessId: payment.businessId,
+      currency: payment.currency,
+      id: payment.id,
+      method: payment.method,
+      paidAt: payment.paidAt,
+      partnerUserId: payment.partnerUserId,
+      purpose: payment.purpose,
+      status: payment.status,
+      stripeCheckoutSessionId: payment.stripeCheckoutSessionId,
+      stripeInvoiceId: payment.stripeInvoiceId,
+      stripePaymentIntentId: payment.stripePaymentIntentId,
+    },
+    recipientEmail: resolveReceiptRecipient({ businessEmail: submission.email, ownerEmail: submission.ownerEmail }),
     receiptFileName: buildReceiptFileName(submission.businessName, receiptNumber),
     receiptNumber,
-    receiptUrl: buildReceiptUrl(
-      submission.id,
-      payment.stripeCheckoutSessionId,
-      params.appUrl,
-    ),
+    receiptUrl: buildPaymentReceiptUrl(payment.id, payment.stripeCheckoutSessionId, params.appUrl),
     submission: {
       address: submission.address,
       agreementSignature: submission.agreementSignature,
@@ -465,6 +535,59 @@ export async function getReceiptData(params: {
   } satisfies ReceiptData;
 }
 
+export async function getSignedAgreementData(params: {
+  allowInternal?: boolean;
+  appUrl?: string | null;
+  checkoutSessionId?: string | null;
+  submissionId: string;
+  viewerId?: string | null;
+  viewerRole?: UserRole | null;
+}) {
+  const submissionId = trimValue(params.submissionId);
+  if (!submissionId) return null;
+
+  if (params.checkoutSessionId) {
+    const sessionReceipt = await getReceiptData({
+      allowInternal: params.allowInternal,
+      checkoutSessionId: params.checkoutSessionId,
+      submissionId,
+    });
+    if (!sessionReceipt) return null;
+  }
+
+  const submission = await prisma.businessSubmission.findUnique({
+    where: { id: submissionId },
+    select: {
+      address: true, agreementSignature: true, amountPaidCents: true, automaticRenewalAtAcceptance: true,
+      businessName: true, businessTermsAcceptedAt: true, businessTermsVersion: true, createdBusinessId: true,
+      createdAt: true, contractualEmail: true, email: true, firstYearPriceCentsAtAcceptance: true, id: true,
+      listingTermMonthsAtAcceptance: true, ownerEmail: true, ownerHasNoEmail: true, paymentStatus: true,
+      privacyPolicyVersionPresented: true, purchaseConfirmationSentAt: true, renewalPriceCentsAtAcceptance: true,
+      signedAt: true, signerFullName: true, signerRole: true, signerRoleOther: true,
+      town: { select: { name: true } }, userId: true,
+    },
+  });
+  if (!submission || !submission.agreementSignature || (!submission.signedAt && !submission.businessTermsAcceptedAt)) return null;
+
+  const directAccess = Boolean(params.allowInternal) ||
+    params.viewerRole === "ADMIN" || submission.userId === params.viewerId;
+  const ownerAccess = !directAccess && params.viewerRole === "BUSINESS_OWNER" && Boolean(
+    params.viewerId && submission.createdBusinessId && await canManageBusiness({
+      businessId: submission.createdBusinessId,
+      userId: params.viewerId,
+    }),
+  );
+  if (!directAccess && !ownerAccess) return null;
+
+  const agreementNumber = `SLA-${submission.id.slice(-8).toUpperCase()}`;
+  return {
+    agreementFileName: `${slugify(submission.businessName) || "business"}-${agreementNumber.toLowerCase()}.pdf`,
+    agreementNumber,
+    agreementUrl: buildAgreementPageUrl(submission.id, params.checkoutSessionId),
+    submission: { ...submission, townName: submission.town.name },
+  } satisfies SignedAgreementData;
+}
+
 function buildTermsUrl(appUrl: string, version: string | null) {
   const url = new URL(`${appUrl}${LEGAL_ROUTES.terms}`);
   url.hash = "business-terms";
@@ -491,33 +614,10 @@ export async function buildReceiptPdf(params: {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(receipt.payment.paidAt ?? receipt.submission.createdAt);
-  const acceptedAt = new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(
-    receipt.submission.businessTermsAcceptedAt ??
-      receipt.submission.signedAt ??
-      receipt.payment.paidAt ??
-      receipt.submission.createdAt,
-  );
   const amountPaid = formatCurrencyFromCents(
     receipt.payment.amountCents || receipt.submission.amountPaidCents,
     locale,
   );
-  const firstYearPrice = formatCurrencyFromCents(
-    receipt.submission.firstYearPriceCentsAtAcceptance ?? LISTING_OFFER.annualPriceCents,
-    locale,
-  );
-  const renewalPrice = formatCurrencyFromCents(
-    receipt.submission.renewalPriceCentsAtAcceptance ?? LISTING_OFFER.renewalPriceCents,
-    locale,
-  );
-  const signerRole = getSignerRoleLabel({
-    locale,
-    otherRole: receipt.submission.signerRoleOther,
-    role: receipt.submission.signerRole,
-  });
-  const signatureDrawing = parseSignatureDrawing(receipt.submission.agreementSignature);
 
   page.drawText("Salento Local", {
     color: rgb(0.18, 0.42, 0.37),
@@ -527,7 +627,7 @@ export async function buildReceiptPdf(params: {
     y: 780,
   });
 
-  page.drawText(locale === "it" ? "Ricevuta di pagamento" : "Payment receipt", {
+  page.drawText(locale === "it" ? "RICEVUTA DI PAGAMENTO" : "PAYMENT RECEIPT", {
     font: serifFont,
     size: 28,
     x: 48,
@@ -542,6 +642,9 @@ export async function buildReceiptPdf(params: {
     [locale === "it" ? "Pagato il" : "Paid on", paidDate],
     [locale === "it" ? "Metodo" : "Method", getPaymentMethodReceiptLabel(receipt.payment.method, locale)],
     [locale === "it" ? "Tipo" : "Payment type", getPaymentPurposeReceiptLabel(receipt.payment.purpose, locale)],
+    ...(receipt.payment.bankTransferReference
+      ? [[locale === "it" ? "Riferimento bonifico" : "Bank transfer reference", receipt.payment.bankTransferReference] as [string, string]]
+      : []),
     [locale === "it" ? "Email ricevuta" : "Receipt email", receipt.recipientEmail || (locale === "it" ? "Non disponibile" : "Not available")],
   ];
 
@@ -559,82 +662,15 @@ export async function buildReceiptPdf(params: {
     y -= 42;
   }
 
-  page.drawText(locale === "it" ? "Dettagli accettazione" : "Acceptance details", {
-    color: rgb(0.18, 0.42, 0.37),
-    font: serifFont,
-    size: 19,
-    x: 48,
-    y: 360,
-  });
-
-  const acceptanceLines = [
-    [
-      locale === "it" ? "Firmatario" : "Signer",
-      receipt.submission.signerFullName || (locale === "it" ? "Non indicato" : "Not provided"),
-    ],
-    [locale === "it" ? "Ruolo" : "Role", signerRole],
-    [locale === "it" ? "Accettato il" : "Accepted on", acceptedAt],
-    [locale === "it" ? "Membership annuale" : "Annual membership", firstYearPrice],
-    [
-      locale === "it" ? "Rinnovo" : "Renewal",
-      `${renewalPrice}${locale === "it" ? "/anno per attivita" : "/year per business"}`,
-    ],
-    [
-      locale === "it" ? "Durata scheda" : "Listing term",
-      `365 ${locale === "it" ? "giorni" : "days"}`,
-    ],
-    [
-      locale === "it" ? "Versione Termini" : "Terms version",
-      receipt.submission.businessTermsVersion || LISTING_OFFER.businessTermsVersion,
-    ],
-    [
-      locale === "it" ? "Versione Privacy" : "Privacy version",
-      receipt.submission.privacyPolicyVersionPresented || LISTING_OFFER.privacyPolicyVersion,
-    ],
-  ];
-
-  let acceptanceY = 328;
-  for (const [label, value] of acceptanceLines) {
-    drawLabelValueRow({
-      bodyBold,
-      bodyFont,
-      label,
-      page,
-      value,
-      x: 48,
-      y: acceptanceY,
-    });
-    acceptanceY -= 24;
-  }
-
-  page.drawText(locale === "it" ? "Firma registrata" : "Recorded signature", {
-    color: rgb(0.62, 0.41, 0.26),
-    font: bodyBold,
-    size: 11,
-    x: 48,
-    y: 122,
-  });
-
-  drawSignatureBox({
-    drawing: signatureDrawing,
-    font: bodyFont,
-    height: 72,
-    locale,
-    page,
-    width: 220,
-    x: 180,
-    y: 64,
-  });
-
   page.drawText(
     locale === "it"
-      ? "Ricevuta generata da Salento Local con prova di pagamento, dati firmatario e termini accettati."
-      : "Receipt generated by Salento Local with payment proof, signer details, and accepted terms.",
+      ? "Questa ricevuta documenta esclusivamente il pagamento indicato sopra."
+      : "This receipt documents only the payment identified above.",
     {
       font: bodyFont,
       size: 10,
       x: 48,
-      y: 40,
+      y: 70,
     },
   );
 
@@ -642,9 +678,64 @@ export async function buildReceiptPdf(params: {
     font: bodyBold,
     size: 11,
     x: 48,
-    y: 18,
+    y: 40,
   });
 
+  return document.save();
+}
+
+export async function buildSignedAgreementPdf(params: {
+  agreement: SignedAgreementData;
+  locale: Locale;
+}) {
+  const document = await PDFDocument.create();
+  const page = document.addPage([595, 842]);
+  const serifFont = await document.embedFont(StandardFonts.TimesRomanBold);
+  const bodyFont = await document.embedFont(StandardFonts.Helvetica);
+  const bodyBold = await document.embedFont(StandardFonts.HelveticaBold);
+  const { agreement, locale } = params;
+  const submission = agreement.submission;
+  const acceptedAt = new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-US", {
+    dateStyle: "medium", timeStyle: "short",
+  }).format(submission.businessTermsAcceptedAt ?? submission.signedAt ?? submission.createdAt);
+  const firstYearPrice = formatCurrencyFromCents(
+    submission.firstYearPriceCentsAtAcceptance ?? LISTING_OFFER.annualPriceCents, locale,
+  );
+  const renewalPrice = formatCurrencyFromCents(
+    submission.renewalPriceCentsAtAcceptance ?? LISTING_OFFER.renewalPriceCents, locale,
+  );
+  const signatureDrawing = parseSignatureDrawing(submission.agreementSignature);
+
+  page.drawText("Salento Local", { color: rgb(0.18, 0.42, 0.37), font: serifFont, size: 24, x: 48, y: 780 });
+  page.drawText(locale === "it" ? "ACCORDO DI ADESIONE FIRMATO" : "SIGNED MEMBERSHIP AGREEMENT", {
+    font: serifFont, size: 23, x: 48, y: 730,
+  });
+  const details = [
+    [locale === "it" ? "Accordo n." : "Agreement no.", agreement.agreementNumber],
+    [locale === "it" ? "Attività" : "Business", submission.businessName],
+    [locale === "it" ? "Località" : "Location", `${submission.townName} · ${submission.address}`],
+    [locale === "it" ? "Firmatario" : "Signer", submission.signerFullName || (locale === "it" ? "Non indicato" : "Not provided")],
+    [locale === "it" ? "Ruolo" : "Role", getSignerRoleLabel({ locale, otherRole: submission.signerRoleOther, role: submission.signerRole })],
+    [locale === "it" ? "Accettato e firmato il" : "Accepted and signed on", acceptedAt],
+    [locale === "it" ? "Membership iniziale" : "Initial membership", firstYearPrice],
+    [locale === "it" ? "Rinnovo annuale" : "Annual renewal", `${renewalPrice}${locale === "it" ? "/anno per attività" : "/year per business"}`],
+    [locale === "it" ? "Durata" : "Term", `365 ${locale === "it" ? "giorni" : "days"}`],
+    [locale === "it" ? "Versione Termini" : "Terms version", submission.businessTermsVersion || LISTING_OFFER.businessTermsVersion],
+    [locale === "it" ? "Versione Privacy" : "Privacy version", submission.privacyPolicyVersionPresented || LISTING_OFFER.privacyPolicyVersion],
+  ];
+  let y = 676;
+  for (const [label, value] of details) {
+    drawLabelValueRow({ bodyBold, bodyFont, label, page, value, x: 48, y });
+    y -= 37;
+  }
+  page.drawText(locale === "it" ? "Firma registrata" : "Recorded signature", {
+    color: rgb(0.62, 0.41, 0.26), font: bodyBold, size: 11, x: 48, y: 223,
+  });
+  drawSignatureBox({ drawing: signatureDrawing, font: bodyFont, height: 112, locale, page, width: 310, x: 48, y: 94 });
+  page.drawText(locale === "it" ? "Questo documento conserva l'accettazione originale. Rinnovi e riattivazioni non creano una nuova firma." : "This document preserves the original acceptance. Renewals and reactivations do not create a new signature.", {
+    font: bodyFont, size: 9, x: 48, y: 66,
+  });
+  page.drawText("salentolocal.com", { font: bodyBold, size: 11, x: 48, y: 38 });
   return document.save();
 }
 
@@ -734,6 +825,9 @@ export async function sendReceiptEmail(params: {
   });
   const emailCopy = params.ownerActions
     ? buildOwnerListingEmailCopy({
+        agreementUrl: params.receipt.payment.purpose === "INITIAL_MEMBERSHIP"
+          ? `${getAppUrl().replace(/\/+$/, "")}${buildAgreementPageUrl(params.receipt.submission.id, params.receipt.payment.stripeCheckoutSessionId)}`
+          : null,
         businessName: params.receipt.submission.businessName,
         locale: params.locale,
         manageUrl: params.ownerActions.manageUrl,

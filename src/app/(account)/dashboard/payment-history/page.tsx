@@ -22,6 +22,13 @@ function formatAmount(locale: "en" | "it", cents: number, currency: string) {
   }).format(cents / 100);
 }
 
+function paymentPurpose(purpose: "INITIAL_MEMBERSHIP" | "ANNUAL_RENEWAL" | "REACTIVATION", italian: boolean) {
+  const labels = italian
+    ? { INITIAL_MEMBERSHIP: "Membership iniziale", ANNUAL_RENEWAL: "Rinnovo annuale", REACTIVATION: "Riattivazione della membership" }
+    : { INITIAL_MEMBERSHIP: "Initial membership", ANNUAL_RENEWAL: "Annual renewal", REACTIVATION: "Membership reactivation" };
+  return labels[purpose];
+}
+
 export default async function PaymentHistoryPage({ searchParams }: PaymentHistoryPageProps) {
   const [locale, viewer, params] = await Promise.all([
     getCurrentLocale(),
@@ -69,16 +76,17 @@ export default async function PaymentHistoryPage({ searchParams }: PaymentHistor
     select: {
       amountCents: true,
       business: { select: { name: true, slug: true } },
-      businessSubmission: { select: { businessName: true, id: true } },
+      businessSubmission: { select: { businessName: true, createdBusiness: { select: { slug: true } }, id: true } },
       createdAt: true,
       currency: true,
       id: true,
       method: true,
       paidAt: true,
+      purpose: true,
     },
   });
   const visiblePayments = selectedBusiness
-    ? payments.filter((payment) => payment.business?.slug === selectedBusiness)
+    ? payments.filter((payment) => payment.business?.slug === selectedBusiness || payment.businessSubmission.createdBusiness?.slug === selectedBusiness)
     : payments;
 
   return (
@@ -91,7 +99,7 @@ export default async function PaymentHistoryPage({ searchParams }: PaymentHistor
         <h1 className="font-serif text-4xl text-[var(--foreground)]">{italian ? "Storico pagamenti" : "Payment history"}</h1>
         <p className="mt-3 max-w-2xl leading-7 text-[var(--muted)]">{italian ? "Qui trovi solo i pagamenti completati per le attività a cui hai accesso." : "This page shows only completed payments for businesses you are authorised to manage."}</p>
 
-        {visiblePayments.length ? <div className="mt-7 divide-y divide-[var(--border)]">{visiblePayments.map((payment) => <article key={payment.id} className="flex flex-col gap-4 py-5 first:pt-0 sm:flex-row sm:items-center sm:justify-between"><div className="flex min-w-0 items-start gap-3"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[color:rgba(42,98,87,0.1)] text-[var(--primary)]"><IconReceipt size={21} /></span><div className="min-w-0"><h2 className="truncate font-serif text-2xl text-[var(--foreground)]">{payment.business?.name ?? payment.businessSubmission.businessName}</h2><p className="mt-1 text-sm text-[var(--muted)]">{formatDate(locale, payment.paidAt ?? payment.createdAt)} · {payment.method === "BANK_TRANSFER" ? (italian ? "Bonifico bancario" : "Bank transfer") : (italian ? "Pagamento online" : "Online payment")}</p></div></div><div className="flex items-center gap-4 sm:text-right"><strong className="font-serif text-2xl text-[var(--foreground)]">{formatAmount(locale, payment.amountCents, payment.currency)}</strong><HardNavigationLink href={`/receipts/${payment.businessSubmission.id}`} className="btn-secondary min-h-10 whitespace-nowrap">{italian ? "Ricevuta" : "Receipt"}</HardNavigationLink></div></article>)}</div> : <div className="mt-7 rounded-2xl bg-[color:rgba(247,244,239,0.7)] p-5 text-sm leading-6 text-[var(--muted)]">{italian ? "Non ci sono ancora pagamenti completati per questa attività." : "There are no completed payments for this business yet."}</div>}
+        {visiblePayments.length ? <div className="mt-7 divide-y divide-[var(--border)]">{visiblePayments.map((payment) => <article key={payment.id} className="flex flex-col gap-4 py-5 first:pt-0 sm:flex-row sm:items-center sm:justify-between"><div className="flex min-w-0 items-start gap-3"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[color:rgba(42,98,87,0.1)] text-[var(--primary)]"><IconReceipt size={21} /></span><div className="min-w-0"><h2 className="truncate font-serif text-2xl text-[var(--foreground)]">{payment.business?.name ?? payment.businessSubmission.businessName}</h2><p className="mt-1 text-sm font-medium text-[var(--foreground)]">{paymentPurpose(payment.purpose, italian)}</p><p className="mt-1 text-sm text-[var(--muted)]">{formatDate(locale, payment.paidAt ?? payment.createdAt)} · {payment.method === "BANK_TRANSFER" ? (italian ? "Bonifico bancario" : "Bank transfer") : (italian ? "Pagamento online" : "Online payment")}</p></div></div><div className="grid gap-2 sm:text-right"><strong className="font-serif text-2xl text-[var(--foreground)]">{formatAmount(locale, payment.amountCents, payment.currency)}</strong><HardNavigationLink href={`/receipts/payment/${encodeURIComponent(payment.id)}`} className="btn-secondary min-h-11 justify-center whitespace-nowrap">{italian ? "Visualizza ricevuta" : "View payment receipt"}</HardNavigationLink></div></article>)}</div> : <div className="mt-7 rounded-2xl bg-[color:rgba(247,244,239,0.7)] p-5 text-sm leading-6 text-[var(--muted)]">{italian ? "Non ci sono ancora pagamenti completati per questa attività." : "There are no completed payments for this business yet."}</div>}
       </section>
     </main>
   );

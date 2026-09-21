@@ -279,6 +279,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             orderBy: { paidAt: "desc" },
             select: {
               createdAt: true,
+              id: true,
               paidAt: true,
               status: true,
               purpose: true,

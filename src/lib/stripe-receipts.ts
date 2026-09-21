@@ -4,6 +4,7 @@ import { getStripe } from "@/lib/stripe";
 
 type StripeReceiptReference = {
   stripeCheckoutSessionId?: string | null;
+  stripeInvoiceId?: string | null;
   stripePaymentIntentId?: string | null;
 };
 
@@ -21,12 +22,23 @@ function getInvoiceUrl(invoice: Stripe.Invoice | null | undefined) {
  */
 export async function getStripeHostedReceiptUrl(
   payment: StripeReceiptReference,
+  dependencies: { stripe?: Pick<Stripe, "charges" | "checkout" | "invoices" | "paymentIntents"> } = {},
 ): Promise<string | null> {
+  const invoiceId = payment.stripeInvoiceId?.trim();
   const sessionId = payment.stripeCheckoutSessionId?.trim();
   let paymentIntentId = payment.stripePaymentIntentId?.trim() || null;
 
   try {
-    const stripe = getStripe();
+    const stripe = dependencies.stripe ?? getStripe();
+
+    // Subscription renewals persist their invoice directly on Payment. It is
+    // the strongest possible receipt identity and must be checked before a
+    // Checkout Session or a PaymentIntent can be considered.
+    if (invoiceId) {
+      const invoice = await stripe.invoices.retrieve(invoiceId);
+      const invoiceUrl = getInvoiceUrl(invoice);
+      if (invoiceUrl) return invoiceUrl;
+    }
 
     if (sessionId) {
       const session = await stripe.checkout.sessions.retrieve(sessionId, {

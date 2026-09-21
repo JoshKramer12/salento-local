@@ -33,6 +33,7 @@ export async function GET(request: Request, context: RouteContext) {
   const receipt = await getReceiptData({
     allowInternal: sessionAuthorizedReceiptAccess,
     appUrl: getRequestOrigin(request),
+    checkoutSessionId,
     submissionId,
     viewerId: viewer?.id ?? null,
     viewerRole: viewer?.role ?? null,

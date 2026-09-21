@@ -5,7 +5,6 @@ import {
   IconCalendarEvent,
   IconCheck,
   IconCircleCheck,
-  IconDownload,
   IconEye,
   IconFileDescription,
   IconInfoCircle,
@@ -14,11 +13,12 @@ import {
   IconWallet,
 } from "@tabler/icons-react";
 
+import { DocumentActions } from "@/components/account/document-actions";
 import { formatCurrencyFromCents } from "@/lib/account";
 import { getViewer } from "@/lib/auth-guards";
 import { getCurrentLocale } from "@/lib/locale";
 import { prisma } from "@/lib/prisma";
-import { getReceiptData } from "@/lib/receipts";
+import { buildAgreementPageUrl, buildPaymentReceiptPageUrl, getReceiptData, getSignedAgreementData } from "@/lib/receipts";
 import { getOriginFromHeaders } from "@/lib/request-origin";
 import {
   syncStripePaymentForSubmission,
@@ -90,13 +90,21 @@ export default async function PublishPaymentSuccessPage({
     verificationUnavailable = true;
   }
   const paymentReceived = syncResult?.paymentReceived ?? false;
-  const [receipt, submission] = paymentReceived
+  const [receipt, agreement, submission] = paymentReceived
     ? await Promise.all([
         getReceiptData({
           allowInternal: Boolean(checkoutSessionId),
           appUrl: getOriginFromHeaders(requestHeaders),
+          checkoutSessionId,
           submissionId,
           viewerId: viewer?.id ?? null,
+        }),
+        getSignedAgreementData({
+          allowInternal: Boolean(checkoutSessionId),
+          checkoutSessionId,
+          submissionId,
+          viewerId: viewer?.id ?? null,
+          viewerRole: viewer?.role ?? null,
         }),
         prisma.businessSubmission.findUnique({
           where: { id: submissionId },
@@ -109,7 +117,7 @@ export default async function PublishPaymentSuccessPage({
           },
         }),
       ])
-    : [null, null];
+    : [null, null, null];
 
   const paymentConfirmed = paymentReceived && receipt && submission?.paymentStatus === "PAID";
   const businessListingHref =
@@ -205,6 +213,10 @@ export default async function PublishPaymentSuccessPage({
     receipt.payment.amountCents || receipt.submission.amountPaidCents,
     locale,
   );
+  const receiptViewUrl = buildPaymentReceiptPageUrl(receipt.payment.id, checkoutSessionId);
+  const receiptDownloadUrl = `/api/receipts/payment/${encodeURIComponent(receipt.payment.id)}${checkoutSessionId ? `?session=${encodeURIComponent(checkoutSessionId)}&locale=${locale}&download=1` : `?locale=${locale}&download=1`}`;
+  const agreementViewUrl = buildAgreementPageUrl(submissionId, checkoutSessionId);
+  const agreementDownloadUrl = `/api/agreements/${encodeURIComponent(submissionId)}${checkoutSessionId ? `?session=${encodeURIComponent(checkoutSessionId)}&locale=${locale}&download=1` : `?locale=${locale}&download=1`}`;
   return (
     <main className="shell px-4 py-7 sm:px-6 sm:py-12">
       <section className="card mx-auto max-w-3xl overflow-hidden p-5 sm:p-8">
@@ -243,6 +255,7 @@ export default async function PublishPaymentSuccessPage({
         </section>
 
         <section className="mt-6 rounded-[1.4rem] border border-[rgba(191,91,42,0.15)] bg-[linear-gradient(135deg,rgba(255,248,243,0.96),rgba(255,255,255,0.98))] p-5 sm:p-6">
+          <p className="section-kicker mb-4">{locale === "it" ? "I TUOI DOCUMENTI" : "YOUR DOCUMENTS"}</p>
           <div className="flex items-start gap-4">
             <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[rgba(191,91,42,0.09)] text-[var(--accent)]"><IconReceipt2 size={25} /></span>
             <div>
@@ -253,6 +266,8 @@ export default async function PublishPaymentSuccessPage({
               ) : null}
             </div>
           </div>
+          <div className="mt-5"><DocumentActions downloadUrl={receiptDownloadUrl} locale={locale} shareUrl={buildPaymentReceiptPageUrl(receipt.payment.id)} title={locale === "it" ? "Ricevuta di pagamento Salento Local" : "Salento Local Payment Receipt"} viewUrl={receiptViewUrl} /></div>
+          {agreement ? <div className="mt-6 border-t border-[rgba(191,91,42,0.16)] pt-5"><div className="flex items-start gap-4"><span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[rgba(42,98,87,0.09)] text-[var(--primary)]"><IconFileDescription size={25} /></span><div><h2 className="text-xl font-bold text-[var(--foreground)]">{locale === "it" ? "Accordo di adesione firmato" : "Signed Membership Agreement"}</h2><p className="mt-2 leading-7 text-[var(--foreground)]">{locale === "it" ? "I termini della tua membership e il record della tua accettazione firmata." : "Your membership terms and signed acceptance record."}</p></div></div><div className="mt-5"><DocumentActions downloadUrl={agreementDownloadUrl} locale={locale} shareUrl={buildAgreementPageUrl(submissionId)} title={locale === "it" ? "Accordo di adesione firmato Salento Local" : "Salento Local Signed Membership Agreement"} viewUrl={agreementViewUrl} /></div></div> : null}
         </section>
 
         <div className="mt-8 grid gap-3">
@@ -263,12 +278,6 @@ export default async function PublishPaymentSuccessPage({
           ) : (
             <Link href="/" className="btn-primary flex w-full py-4 text-base">{copy.backHome}</Link>
           )}
-          <a href={receipt.receiptUrl} target="_blank" rel="noreferrer" className="btn-secondary flex w-full border-[var(--primary)] py-4 text-base text-[var(--primary)]">
-            <IconFileDescription size={22} /> {copy.open}
-          </a>
-          <a href={receipt.receiptUrl} download className="btn-secondary flex w-full border-[var(--primary)] py-4 text-base text-[var(--primary)]">
-            <IconDownload size={22} /> {copy.download}
-          </a>
         </div>
       </section>
     </main>
