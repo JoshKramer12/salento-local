@@ -15,8 +15,10 @@ test("the WhatsApp handoff is rendered only in the paid Partner QR state", () =>
   assert.doesNotMatch(payerSuccessPage, /Send access via WhatsApp/);
 });
 
-test("the Partner QR refresh follows authoritative payment polling before the paid handoff renders", () => {
+test("the Partner QR refresh keeps polling until the paid handoff can render", () => {
   assert.match(statusWatcher, /\/api\/stripe\/checkout-status\?submission=/);
   assert.match(statusWatcher, /!data\.paymentReceived/);
   assert.match(statusWatcher, /router\.refresh\(\)/);
+  assert.doesNotMatch(statusWatcher, /hasSyncedPaidState/);
+  assert.doesNotMatch(statusWatcher, /setStatusMessage\(copy\.paid\);\s+window\.clearInterval\(intervalId\);/);
 });

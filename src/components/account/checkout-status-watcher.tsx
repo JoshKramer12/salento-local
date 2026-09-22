@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type CheckoutStatusWatcherProps = {
@@ -16,7 +16,6 @@ export function CheckoutStatusWatcher({
   submissionId,
 }: CheckoutStatusWatcherProps) {
   const router = useRouter();
-  const hasSyncedPaidState = useRef(false);
   const [statusMessage, setStatusMessage] = useState(copy.pending);
 
   useEffect(() => {
@@ -24,10 +23,6 @@ export function CheckoutStatusWatcher({
     let intervalId = 0;
 
     async function pollStatus() {
-      if (hasSyncedPaidState.current) {
-        return;
-      }
-
       try {
         const response = await fetch(
           `/api/stripe/checkout-status?submission=${encodeURIComponent(submissionId)}`,
@@ -48,9 +43,7 @@ export function CheckoutStatusWatcher({
           return;
         }
 
-        hasSyncedPaidState.current = true;
         setStatusMessage(copy.paid);
-        window.clearInterval(intervalId);
         startTransition(() => {
           router.refresh();
         });
