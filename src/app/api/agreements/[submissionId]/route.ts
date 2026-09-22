@@ -19,8 +19,8 @@ export async function GET(request: Request, context: RouteContext) {
   });
   if (!agreement) return NextResponse.json({ error: "agreement_not_available" }, { status: 404 });
 
-  const locale = searchParams.get("locale") === "en" ? "en" : "it";
-  const pdfBytes = await buildSignedAgreementPdf({ agreement, locale });
+  // Agreements are Italian legal records regardless of the surrounding site locale.
+  const pdfBytes = await buildSignedAgreementPdf({ agreement });
   const attachment = searchParams.get("download") === "1";
   return new NextResponse(Buffer.from(pdfBytes), {
     headers: {

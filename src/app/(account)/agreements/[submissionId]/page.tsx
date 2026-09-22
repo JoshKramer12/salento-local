@@ -19,6 +19,6 @@ export default async function SignedAgreementPage({ params, searchParams }: Page
   });
   const italian = locale === "it";
   if (!agreement) return <main className="shell px-4 py-12 sm:px-6"><section className="card mx-auto max-w-xl p-6 text-center sm:p-8"><IconInfoCircle className="mx-auto text-[var(--accent)]" size={34} /><h1 className="mt-4 font-serif text-3xl">{italian ? "Accordo non disponibile" : "Agreement unavailable"}</h1><p className="mt-3 leading-7 text-[var(--muted)]">{italian ? "Non hai l'accesso necessario a questo accordo." : "You do not have access to this agreement."}</p><Link href="/dashboard" className="btn-secondary mt-6">{italian ? "Torna alla dashboard" : "Back to dashboard"}</Link></section></main>;
-  const apiUrl = `/api/agreements/${encodeURIComponent(submissionId)}${checkoutSessionId ? `?session=${encodeURIComponent(checkoutSessionId)}&locale=${locale}` : `?locale=${locale}`}`;
+  const apiUrl = `/api/agreements/${encodeURIComponent(submissionId)}${checkoutSessionId ? `?session=${encodeURIComponent(checkoutSessionId)}` : ""}`;
   redirect(apiUrl);
 }

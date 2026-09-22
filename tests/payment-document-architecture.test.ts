@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { PDFDocument } from "pdf-lib";
 
 import {
   buildAgreementPageUrl,
+  buildSignedAgreementPdf,
   buildPaymentReceiptPageUrl,
   buildPaymentReceiptUrl,
+  type SignedAgreementData,
   resolvePaymentBusinessId,
   selectLegacyInitialPayment,
 } from "@/lib/receipts";
@@ -20,6 +23,40 @@ const paymentReceiptPage = readFileSync("src/app/(account)/receipts/payment/[pay
 const agreementPage = readFileSync("src/app/(account)/agreements/[submissionId]/page.tsx", "utf8");
 const receiptRoute = readFileSync("src/app/api/receipts/payment/[paymentId]/route.ts", "utf8");
 const agreementRoute = readFileSync("src/app/api/agreements/[submissionId]/route.ts", "utf8");
+
+function sampleAgreement(): SignedAgreementData {
+  return {
+    agreementFileName: "caffe-del-centro-sla-test.pdf",
+    agreementNumber: "SLA-TEST2026",
+    agreementUrl: "/agreements/test-submission",
+    submission: {
+      address: "Via Duca degli Abruzzi 67",
+      agreementSignature: JSON.stringify({ strokes: [[{ x: 0, y: 0 }, { x: 80, y: 40 }]], version: 1 }),
+      amountPaidCents: 10000,
+      automaticRenewalAtAcceptance: false,
+      businessName: "Caffè del Centro",
+      businessTermsAcceptedAt: new Date("2026-09-14T12:00:00Z"),
+      businessTermsVersion: "business-terms-2026-09-14",
+      createdAt: new Date("2026-09-14T12:00:00Z"),
+      contractualEmail: "owner@example.test",
+      email: "owner@example.test",
+      firstYearPriceCentsAtAcceptance: 10000,
+      id: "test-submission",
+      listingTermMonthsAtAcceptance: 12,
+      ownerEmail: "owner@example.test",
+      ownerHasNoEmail: false,
+      paymentStatus: "PAID",
+      privacyPolicyVersionPresented: "privacy-policy-2026-09-14",
+      purchaseConfirmationSentAt: null,
+      renewalPriceCentsAtAcceptance: 10000,
+      signedAt: new Date("2026-09-17T00:07:00Z"),
+      signerFullName: "Giulia D'Amico",
+      signerRole: "LEGAL_REPRESENTATIVE",
+      signerRoleOther: null,
+      townName: "Lecce",
+    },
+  } as SignedAgreementData;
+}
 
 test("historical payment selections keep their exact identity and legacy links cannot select a newer renewal", () => {
   const initial = { id: "payment-a", purpose: "INITIAL_MEMBERSHIP" as const };
@@ -81,11 +118,23 @@ test("payment receipt and signed agreement stay separate documents", () => {
   const agreementPdf = receipts.slice(receipts.indexOf("export async function buildSignedAgreementPdf"));
   assert.match(paymentPdf, /PAYMENT RECEIPT/);
   assert.doesNotMatch(paymentPdf, /Recorded signature|Firma registrata|drawSignatureBox/);
-  assert.match(agreementPdf, /SIGNED MEMBERSHIP AGREEMENT/);
   assert.match(agreementPdf, /ACCORDO DI ADESIONE FIRMATO/);
+  assert.match(agreementPdf, /Termini per le attività/);
+  assert.doesNotMatch(agreementPdf, /SIGNED MEMBERSHIP AGREEMENT/);
   assert.match(agreementPdf, /drawSignatureBox/);
-  assert.match(agreementPdf, /Renewals and reactivations do not create a new signature/);
+  assert.doesNotMatch(agreementPdf, /Rinnovo annuale|Versione Privacy|Privacy version/);
   assert.equal(buildAgreementPageUrl("submission-a"), "/agreements/submission-a");
+});
+
+test("signed agreements render as one Italian PDF from the recorded agreement data", async () => {
+  const bytes = await buildSignedAgreementPdf({ agreement: sampleAgreement() });
+  const pdf = await PDFDocument.load(bytes);
+  assert.equal(pdf.getPageCount(), 1);
+  assert.match(receipts, /formatItalianAgreementDate/);
+  assert.match(receipts, /timeZone: "Europe\/Rome"/);
+  assert.match(receipts, /Termini per le attività/);
+  assert.match(receipts, /Rappresentante legale/);
+  assert.match(receipts, /parseSignatureDrawing\(submission\.agreementSignature\)/);
 });
 
 test("new routes enforce protected, exact payment and agreement retrieval", () => {
@@ -95,6 +144,8 @@ test("new routes enforce protected, exact payment and agreement retrieval", () =
   assert.match(receiptRoute, /download/);
   assert.match(agreementRoute, /getSignedAgreementData/);
   assert.match(agreementRoute, /checkoutSessionId/);
+  assert.match(agreementRoute, /buildSignedAgreementPdf\(\{ agreement \}\)/);
+  assert.doesNotMatch(agreementRoute, /searchParams\.get\("locale"\)/);
   assert.match(receipts, /payment\.businessId && submissionBusinessId && payment\.businessId !== submissionBusinessId/);
   assert.match(receipts, /canManageBusiness/);
   assert.match(receiptRoute, /Content-Disposition.*inline/);

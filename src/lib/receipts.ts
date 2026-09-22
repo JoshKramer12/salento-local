@@ -275,6 +275,7 @@ function drawLabelValueRow(params: {
 }
 
 function drawSignatureBox(params: {
+  borderColor?: ReturnType<typeof rgb>;
   drawing: SignatureDrawing | null;
   font: PDFFont;
   locale: Locale;
@@ -288,7 +289,7 @@ function drawSignatureBox(params: {
   const boxHeight = params.height ?? 92;
 
   params.page.drawRectangle({
-    borderColor: rgb(0.84, 0.79, 0.74),
+    borderColor: params.borderColor ?? rgb(0.84, 0.79, 0.74),
     borderWidth: 1,
     color: rgb(1, 1, 1),
     height: boxHeight,
@@ -361,6 +362,132 @@ function drawSignatureBox(params: {
       });
     }
   }
+}
+
+const agreementColors = {
+  green: rgb(0.12, 0.39, 0.34),
+  label: rgb(0.31, 0.43, 0.46),
+  navy: rgb(0.04, 0.12, 0.18),
+  orange: rgb(0.79, 0.31, 0.14),
+  signatureBorder: rgb(0.88, 0.87, 0.84),
+};
+
+function drawRoundedSquare(params: {
+  color: ReturnType<typeof rgb>;
+  page: PDFPage;
+  radius: number;
+  size: number;
+  x: number;
+  y: number;
+}) {
+  const { color, page, radius, size, x, y } = params;
+  page.drawRectangle({ color, height: size, width: size - radius * 2, x: x + radius, y });
+  page.drawRectangle({ color, height: size - radius * 2, width: size, x, y: y + radius });
+
+  for (const [centerX, centerY] of [
+    [x + radius, y + radius],
+    [x + size - radius, y + radius],
+    [x + radius, y + size - radius],
+    [x + size - radius, y + size - radius],
+  ]) {
+    page.drawEllipse({ color, x: centerX, xScale: radius, y: centerY, yScale: radius });
+  }
+}
+
+function drawAgreementLogo(params: { localFont: PDFFont; page: PDFPage; serifFont: PDFFont }) {
+  const { localFont, page, serifFont } = params;
+  const markX = 48;
+  const markY = 752;
+  const markSize = 45;
+  drawRoundedSquare({ color: agreementColors.green, page, radius: 10, size: markSize, x: markX, y: markY });
+
+  const pinX = markX + markSize / 2;
+  const pinY = markY + 27;
+  page.drawCircle({ color: rgb(1, 1, 1), size: 10.5, x: pinX, y: pinY });
+  page.drawCircle({ color: agreementColors.green, size: 4.2, x: pinX, y: pinY });
+  page.drawLine({ color: rgb(1, 1, 1), end: { x: pinX - 6.5, y: markY + 12 }, start: { x: pinX - 8, y: pinY - 4 }, thickness: 3.2 });
+  page.drawLine({ color: rgb(1, 1, 1), end: { x: pinX + 6.5, y: markY + 12 }, start: { x: pinX + 8, y: pinY - 4 }, thickness: 3.2 });
+
+  const wordmarkX = markX + markSize + 14;
+  const salento = "Salento";
+  const salentoSize = 29;
+  page.drawText(salento, { color: agreementColors.navy, font: serifFont, size: salentoSize, x: wordmarkX, y: 766 });
+  page.drawText("Local", {
+    color: agreementColors.orange,
+    font: localFont,
+    size: 29,
+    x: wordmarkX + serifFont.widthOfTextAtSize(salento, salentoSize) + 5,
+    y: 767,
+  });
+}
+
+function drawTrackedText(params: {
+  color: ReturnType<typeof rgb>;
+  font: PDFFont;
+  letterSpacing: number;
+  page: PDFPage;
+  size: number;
+  text: string;
+  x: number;
+  y: number;
+}) {
+  let cursor = params.x;
+  for (const character of params.text) {
+    params.page.drawText(character, { color: params.color, font: params.font, size: params.size, x: cursor, y: params.y });
+    cursor += params.font.widthOfTextAtSize(character, params.size) + params.letterSpacing;
+  }
+}
+
+function wrapPdfText(params: { font: PDFFont; maxWidth: number; size: number; text: string }) {
+  const words = params.text.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return ["—"];
+  const lines: string[] = [];
+  let line = "";
+
+  for (const word of words) {
+    const candidate = line ? `${line} ${word}` : word;
+    if (params.font.widthOfTextAtSize(candidate, params.size) <= params.maxWidth) {
+      line = candidate;
+      continue;
+    }
+    if (line) lines.push(line);
+    line = word;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function formatItalianAgreementDate(value: Date) {
+  return new Intl.DateTimeFormat("it-IT", {
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "long",
+    timeZone: "Europe/Rome",
+    year: "numeric",
+  }).format(value).replace(" alle ore ", " alle ");
+}
+
+function formatItalianAgreementTermsDate(params: { acceptedAt: Date; version: string | null }) {
+  const versionDate = params.version?.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+  const date = versionDate
+    ? new Date(Date.UTC(Number(versionDate[1]), Number(versionDate[2]) - 1, Number(versionDate[3]), 12))
+    : params.acceptedAt;
+  return new Intl.DateTimeFormat("it-IT", { day: "numeric", month: "long", year: "numeric" }).format(date);
+}
+
+function formatItalianMembershipPrice(amountCents: number) {
+  const amount = amountCents / 100;
+  const value = new Intl.NumberFormat("it-IT", {
+    maximumFractionDigits: amount % 1 === 0 ? 0 : 2,
+    minimumFractionDigits: amount % 1 === 0 ? 0 : 2,
+  }).format(amount);
+  return `€${value} / anno`;
+}
+
+function getAgreementSignerRole(submission: Pick<ReceiptSubmission, "signerRole" | "signerRoleOther">) {
+  if (submission.signerRole === "LEGAL_REPRESENTATIVE") return "Rappresentante legale";
+  return getSignerRoleLabel({ locale: "it", otherRole: submission.signerRoleOther, role: submission.signerRole });
 }
 
 const receiptPaymentSelect = {
@@ -686,56 +813,82 @@ export async function buildReceiptPdf(params: {
 
 export async function buildSignedAgreementPdf(params: {
   agreement: SignedAgreementData;
-  locale: Locale;
 }) {
   const document = await PDFDocument.create();
   const page = document.addPage([595, 842]);
   const serifFont = await document.embedFont(StandardFonts.TimesRomanBold);
+  const localFont = await document.embedFont(StandardFonts.TimesRomanItalic);
   const bodyFont = await document.embedFont(StandardFonts.Helvetica);
   const bodyBold = await document.embedFont(StandardFonts.HelveticaBold);
-  const { agreement, locale } = params;
+  const { agreement } = params;
   const submission = agreement.submission;
-  const acceptedAt = new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-US", {
-    dateStyle: "medium", timeStyle: "short",
-  }).format(submission.businessTermsAcceptedAt ?? submission.signedAt ?? submission.createdAt);
-  const firstYearPrice = formatCurrencyFromCents(
-    submission.firstYearPriceCentsAtAcceptance ?? LISTING_OFFER.annualPriceCents, locale,
-  );
-  const renewalPrice = formatCurrencyFromCents(
-    submission.renewalPriceCentsAtAcceptance ?? LISTING_OFFER.renewalPriceCents, locale,
+  const acceptedAt = submission.businessTermsAcceptedAt ?? submission.signedAt ?? submission.createdAt;
+  const signedAt = submission.signedAt ?? acceptedAt;
+  const firstYearPrice = formatItalianMembershipPrice(
+    submission.firstYearPriceCentsAtAcceptance ?? submission.amountPaidCents ?? LISTING_OFFER.annualPriceCents,
   );
   const signatureDrawing = parseSignatureDrawing(submission.agreementSignature);
 
-  page.drawText("Salento Local", { color: rgb(0.18, 0.42, 0.37), font: serifFont, size: 24, x: 48, y: 780 });
-  page.drawText(locale === "it" ? "ACCORDO DI ADESIONE FIRMATO" : "SIGNED MEMBERSHIP AGREEMENT", {
-    font: serifFont, size: 23, x: 48, y: 730,
+  drawAgreementLogo({ localFont, page, serifFont });
+  page.drawText("ACCORDO DI ADESIONE FIRMATO", {
+    color: agreementColors.navy, font: serifFont, size: 25, x: 48, y: 691,
   });
+  drawTrackedText({
+    color: agreementColors.label,
+    font: bodyBold,
+    letterSpacing: 1.1,
+    page,
+    size: 8.5,
+    text: `ACCORDO ${agreement.agreementNumber}`,
+    x: 49,
+    y: 660,
+  });
+  page.drawLine({ color: agreementColors.green, end: { x: 547, y: 628 }, start: { x: 48, y: 628 }, thickness: 1.25 });
+
+  const signerRole = getAgreementSignerRole(submission);
   const details = [
-    [locale === "it" ? "Accordo n." : "Agreement no.", agreement.agreementNumber],
-    [locale === "it" ? "Attività" : "Business", submission.businessName],
-    [locale === "it" ? "Località" : "Location", `${submission.townName} · ${submission.address}`],
-    [locale === "it" ? "Firmatario" : "Signer", submission.signerFullName || (locale === "it" ? "Non indicato" : "Not provided")],
-    [locale === "it" ? "Ruolo" : "Role", getSignerRoleLabel({ locale, otherRole: submission.signerRoleOther, role: submission.signerRole })],
-    [locale === "it" ? "Accettato e firmato il" : "Accepted and signed on", acceptedAt],
-    [locale === "it" ? "Membership iniziale" : "Initial membership", firstYearPrice],
-    [locale === "it" ? "Rinnovo annuale" : "Annual renewal", `${renewalPrice}${locale === "it" ? "/anno per attività" : "/year per business"}`],
-    [locale === "it" ? "Durata" : "Term", `365 ${locale === "it" ? "giorni" : "days"}`],
-    [locale === "it" ? "Versione Termini" : "Terms version", submission.businessTermsVersion || LISTING_OFFER.businessTermsVersion],
-    [locale === "it" ? "Versione Privacy" : "Privacy version", submission.privacyPolicyVersionPresented || LISTING_OFFER.privacyPolicyVersion],
-  ];
-  let y = 676;
+    ["ATTIVITÀ", submission.businessName],
+    ["INDIRIZZO", [submission.address, submission.townName].filter(Boolean).join(", ")],
+    ["ADESIONE", firstYearPrice],
+    ["FIRMATO DA", `${submission.signerFullName || "Non indicato"} · ${signerRole}`],
+    ["DATA DELLA FIRMA", formatItalianAgreementDate(signedAt)],
+    ["TERMINI ACCETTATI", `Termini per le attività · ${formatItalianAgreementTermsDate({ acceptedAt, version: submission.businessTermsVersion })}`],
+  ] as const;
+
+  let y = 584;
   for (const [label, value] of details) {
-    drawLabelValueRow({ bodyBold, bodyFont, label, page, value, x: 48, y });
-    y -= 37;
+    const lines = wrapPdfText({ font: bodyFont, maxWidth: 348, size: 13.2, text: value });
+    drawTrackedText({
+      color: agreementColors.label,
+      font: bodyBold,
+      letterSpacing: 1.8,
+      page,
+      size: 8.4,
+      text: label,
+      x: 48,
+      y: y + 3,
+    });
+    lines.forEach((line, index) => {
+      page.drawText(line, {
+        color: agreementColors.navy,
+        font: bodyFont,
+        size: 13.2,
+        x: 184,
+        y: y - index * 17,
+      });
+    });
+    y -= Math.max(38, lines.length * 17 + 15);
   }
-  page.drawText(locale === "it" ? "Firma registrata" : "Recorded signature", {
-    color: rgb(0.62, 0.41, 0.26), font: bodyBold, size: 11, x: 48, y: 223,
-  });
-  drawSignatureBox({ drawing: signatureDrawing, font: bodyFont, height: 112, locale, page, width: 310, x: 48, y: 94 });
-  page.drawText(locale === "it" ? "Questo documento conserva l'accettazione originale. Rinnovi e riattivazioni non creano una nuova firma." : "This document preserves the original acceptance. Renewals and reactivations do not create a new signature.", {
-    font: bodyFont, size: 9, x: 48, y: 66,
-  });
-  page.drawText("salentolocal.com", { font: bodyBold, size: 11, x: 48, y: 38 });
+
+  drawTrackedText({ color: agreementColors.label, font: bodyBold, letterSpacing: 1.8, page, size: 8.4, text: "FIRMA", x: 48, y: 319 });
+  drawSignatureBox({ borderColor: agreementColors.signatureBorder, drawing: signatureDrawing, font: bodyFont, height: 86, locale: "it", page, width: 250, x: 48, y: 207 });
+  page.drawText(submission.signerFullName || "Non indicato", { color: agreementColors.navy, font: serifFont, size: 13, x: 49, y: 182 });
+  page.drawText(signerRole, { color: agreementColors.label, font: bodyFont, size: 10.5, x: 49, y: 165 });
+
+  page.drawLine({ color: agreementColors.label, end: { x: 547, y: 72 }, start: { x: 48, y: 72 }, thickness: 0.7 });
+  page.drawText("Salento Local", { color: agreementColors.green, font: serifFont, size: 13.5, x: 49, y: 47 });
+  page.drawText("salentolocal.com", { color: agreementColors.label, font: bodyFont, size: 9.5, x: 49, y: 31 });
+  page.drawText(`Accordo ${agreement.agreementNumber}`, { color: agreementColors.label, font: bodyFont, size: 9.5, x: 417, y: 38 });
   return document.save();
 }
 
