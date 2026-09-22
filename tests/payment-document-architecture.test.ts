@@ -170,11 +170,14 @@ test("owner-facing success and payments surfaces expose distinct, payment-scoped
   assert.match(dashboard, /Visualizza pagamenti e documenti/);
   assert.doesNotMatch(dashboard, /View receipt/);
   assert.match(paymentHistory, /Payments & Documents/);
-  assert.match(paymentHistory, /MEMBERSHIP DOCUMENTS/);
+  assert.match(paymentHistory, /Membership document/);
   assert.match(paymentHistory, /Signed membership agreement/);
-  assert.match(paymentHistory, /PAYMENT HISTORY/);
+  assert.match(paymentHistory, /Payment history/);
   assert.match(paymentHistory, /Payment receipt/);
   assert.match(paymentHistory, /payment\.purpose === "INITIAL_MEMBERSHIP"/);
   assert.match(paymentHistory, /payment\.status === "PAID" \|\| payment\.status === "REFUNDED"/);
-  assert.match(paymentHistory, /sm:flex-row sm:items-center sm:justify-between/);
+  assert.match(paymentHistory, /md:grid-cols-\[minmax\(0,1\.62fr\)_minmax\(16\.5rem,1fr\)\]/);
+  assert.match(paymentHistory, /md:border-l md:border-t-0/);
+  assert.doesNotMatch(paymentHistory, /AREA ACCOUNT/);
+  assert.doesNotMatch(paymentHistory, /Permanent documents/);
 });
