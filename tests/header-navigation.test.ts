@@ -18,8 +18,8 @@ test("desktop Local Partners receive the localized existing publish action", () 
   });
 });
 
-test("desktop language control remains in place for visitors and non-Partner roles", () => {
-  for (const role of [undefined, null, "ADMIN", "BUSINESS_OWNER", "USER"] as const) {
+test("desktop language control remains in place for visitors and non-account roles", () => {
+  for (const role of [undefined, null, "ADMIN", "USER"] as const) {
     assert.equal(getDesktopPartnerAddBusinessAction("en", role), null);
   }
 });
@@ -37,7 +37,7 @@ test("the existing mobile Partner navigation keeps its publish action", () => {
   });
 });
 
-test("Partner Settings retains the shared language control", () => {
+test("Partner and Business Owner Settings retain the shared language control", () => {
   const settingsPage = readFileSync(
     new URL("../src/app/(account)/settings/page.tsx", import.meta.url),
     "utf8",
@@ -45,11 +45,11 @@ test("Partner Settings retains the shared language control", () => {
 
   assert.match(
     settingsPage,
-    /viewer\.role === "GETTER"[\s\S]*<LanguageToggle locale=\{locale\} \/>/,
+    /viewer\.role === "GETTER" \|\| viewer\.role === "BUSINESS_OWNER"[\s\S]*<LanguageToggle locale=\{locale\} \/>/,
   );
 });
 
-test("header keeps the compact mobile publish action separate from the desktop Partner action", () => {
+test("owner headers defer language selection to Settings while visitor and Partner header behavior stays intact", () => {
   const siteHeader = readFileSync(
     new URL("../src/components/site-header.tsx", import.meta.url),
     "utf8",
@@ -57,10 +57,15 @@ test("header keeps the compact mobile publish action separate from the desktop P
 
   assert.match(
     siteHeader,
-    /className="hidden items-center gap-1\.5 xl:flex"[\s\S]*desktopPartnerAddBusinessAction[\s\S]*<LanguageToggle locale=\{locale\} \/>/,
+    /className="hidden items-center gap-1\.5 xl:flex"[\s\S]*desktopPartnerAddBusinessAction[\s\S]*viewer\?\.role !== "BUSINESS_OWNER"[\s\S]*<LanguageToggle locale=\{locale\} \/>/,
   );
   assert.match(
     siteHeader,
     /className="flex min-w-0 items-center gap-1 xl:hidden"[\s\S]*href="\/publish"[\s\S]*\+ \{copy\.addBusiness\}/,
   );
+  const mobileDrawer = readFileSync(
+    new URL("../src/components/mobile-navigation-drawer.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(mobileDrawer, /viewer\?\.role !== "BUSINESS_OWNER"[\s\S]*<LanguageToggle locale=\{locale\} \/>/);
 });

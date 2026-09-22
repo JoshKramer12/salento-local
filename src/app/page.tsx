@@ -22,7 +22,7 @@ export default async function HomePage() {
 
   return (
     <main className="homepage">
-      <section className="homepage-hero relative isolate overflow-visible">
+      <section className="homepage-hero relative overflow-visible">
         {heroTown ? <div className="absolute inset-0 -z-20 bg-cover bg-center" style={{ backgroundImage: `url("${buildTownImage(heroTown, 1800)}")` }} /> : null}
         <div className="absolute inset-0 -z-10 bg-[linear-gradient(180deg,rgba(24,29,27,0.4),rgba(24,29,27,0.48)_54%,rgba(24,29,27,0.68))]" />
         <div className="mx-auto flex min-h-[29rem] max-w-4xl flex-col items-center justify-center px-4 pb-24 pt-20 text-center sm:min-h-[32rem] sm:px-6 sm:pt-24">

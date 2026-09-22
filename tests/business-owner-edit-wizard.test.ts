@@ -53,22 +53,26 @@ test("shared publish form keeps create mode and ends owner edit mode at the list
 });
 
 test("Business Owner navigation keeps claim actions out of account and workspace navigation", () => {
-  assert.match(ownerDashboard, /<BusinessOwnerAccountNav active="businesses" locale=\{locale\} \/>/);
-  assert.match(businessesPage, /<BusinessOwnerAccountNav active="drafts" locale=\{locale\} \/>/);
+  assert.match(ownerDashboard, /<BusinessOwnerAccountNav active="businesses" draftCount=\{draftCount\} locale=\{locale\} \/>/);
+  assert.match(businessesPage, /<BusinessOwnerAccountNav active="drafts" draftCount=\{draftSubmissions\.length\} locale=\{locale\} \/>/);
   assert.deepEqual(getBusinessOwnerNavigationItems("en"), [
     { href: "/dashboard", key: "businesses", label: "My businesses" },
     { href: "/dashboard/businesses#drafts", key: "drafts", label: "Drafts" },
   ]);
   assert.match(ownerNav, /<AccountWorkspaceNav/);
+  assert.match(ownerNav, /columns=\{2\}/);
   assert.match(ownerNav, /dashboard-nav flex flex-wrap gap-2/);
-  assert.match(ownerNav, /nav-link \$\{active === item\.key \? "nav-link-active" : ""\}/);
+  assert.match(ownerNav, /DraftCountBadge className="absolute -right-1 -top-1" count=\{draftCount\}/);
+  assert.match(ownerNav, /nav-link relative \$\{active === item\.key \? "nav-link-active" : ""\}/);
   assert.doesNotMatch(ownerNav, /bg-\[var\(--primary\)\] text-white/);
   assert.match(partnerWorkspaceNav, /<AccountWorkspaceNav/);
-  assert.match(accountWorkspaceNav, /grid grid-cols-3 gap-1/);
+  assert.match(accountWorkspaceNav, /columns === 2 \? "grid-cols-2" : "grid-cols-3"/);
   assert.match(accountWorkspaceNav, /bg-white text-\[var\(--foreground\)\] shadow-sm/);
   assert.match(businessesPage, /<BusinessOwnerWorkspaceNav active="drafts" locale=\{locale\} \/>/);
   assert.doesNotMatch(claimPage, /BusinessOwner(?:Account|Workspace)Nav/);
   assert.match(dashboardPage, /<BusinessOwnerWorkspaceNav active="businesses" locale=\{locale\} \/>/);
+  assert.match(ownerDashboard, /accountNavigation=\{<BusinessOwnerAccountNav/);
+  assert.match(ownerDashboard, /<BusinessOwnerDashboardClient accountNavigation=/);
   assert.match(businessesPage, /viewer\.role === "BUSINESS_OWNER"/);
   assert.match(businessesPage, /<DashboardNav/);
   assert.match(dashboardPage, /<DashboardNav/);

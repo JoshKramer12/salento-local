@@ -20,13 +20,14 @@ type OwnerDashboardBusiness = Omit<DashboardBusiness, "images" | "membership" | 
 
 type BusinessOwnerDashboardProps = {
   businesses: OwnerDashboardBusiness[];
+  draftCount: number;
   firstName: string;
   locale: Locale;
 };
 
 /** Keeps lifecycle and Stripe-health decisions on the server. Selection only
  * changes which authorised business is presented; it cannot change a term. */
-export function BusinessOwnerDashboard({ businesses, firstName, locale }: BusinessOwnerDashboardProps) {
+export function BusinessOwnerDashboard({ businesses, draftCount, firstName, locale }: BusinessOwnerDashboardProps) {
   const dashboardBusinesses: DashboardBusiness[] = businesses.map((business) => {
     const fallbackImage = buildBusinessImage({ heroImageSeed: business.heroImageSeed, name: business.name }, business.category.slug, 1500);
     const images = getBusinessPhotoUrls(business.images, business.submissions[0]?.photoUrls).map((url, index) => {
@@ -50,5 +51,5 @@ export function BusinessOwnerDashboard({ businesses, firstName, locale }: Busine
     };
   });
 
-  return <><BusinessOwnerAccountNav active="businesses" locale={locale} /><BusinessOwnerDashboardClient businesses={dashboardBusinesses} firstName={firstName} locale={locale} /></>;
+  return <BusinessOwnerDashboardClient accountNavigation={<BusinessOwnerAccountNav active="businesses" draftCount={draftCount} locale={locale} />} businesses={dashboardBusinesses} firstName={firstName} locale={locale} />;
 }

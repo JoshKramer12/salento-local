@@ -206,7 +206,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         </article>
       </section>
 
-      {viewer.role === "GETTER" ? (
+      {viewer.role === "GETTER" || viewer.role === "BUSINESS_OWNER" ? (
         <section className="mt-6">
           <article className="card p-6">
             <h2 className="font-serif text-2xl text-[var(--foreground)]">

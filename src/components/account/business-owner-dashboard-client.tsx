@@ -60,7 +60,7 @@ export type DashboardBusiness = {
   websiteLabel: string | null;
 };
 
-type Props = { businesses: DashboardBusiness[]; firstName: string; locale: Locale };
+type Props = { accountNavigation?: ReactNode; businesses: DashboardBusiness[]; firstName: string; locale: Locale };
 type State = "ACTIVE" | "GRACE" | "EXPIRED" | "LEGACY";
 
 function date(locale: Locale, value: Date) {
@@ -102,7 +102,7 @@ function membershipLine(business: DashboardBusiness, state: State, c: ReturnType
     : `${c.until} ${date(locale, membership.currentPeriodEnd)} · ${c.statusManual}`;
 }
 
-export function BusinessOwnerDashboardClient({ businesses, firstName, locale }: Props) {
+export function BusinessOwnerDashboardClient({ accountNavigation, businesses, firstName, locale }: Props) {
   const c = copyFor(locale);
   const defaultBusiness = businesses.find((business) => ["EXPIRED", "GRACE"].includes(stateFor(business))) ?? businesses[0];
   const [selectedId, setSelectedId] = useState(defaultBusiness?.id ?? "");
@@ -112,6 +112,7 @@ export function BusinessOwnerDashboardClient({ businesses, firstName, locale }: 
     : businesses.length === 2 ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3";
 
   return <main className="shell px-4 py-8 sm:px-6 sm:py-12">
+    {accountNavigation}
     <section className="mb-7 grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
       <div><p className="section-kicker mb-2">{c.account}</p><h1 className="font-serif text-[2.35rem] leading-[1.03] text-[var(--foreground)] sm:text-5xl">{c.welcome}, {firstName}</h1><p className="mt-3 text-base leading-7 text-[var(--muted)]">{c.welcomeBody}</p></div>
       <HardNavigationLink href="/publish" className="btn-primary min-h-12 justify-center"><IconPlus size={18} /> {c.add}</HardNavigationLink>

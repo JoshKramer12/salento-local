@@ -1,4 +1,5 @@
 import { AccountWorkspaceNav } from "@/components/account/account-workspace-nav";
+import { DraftCountBadge } from "@/components/account/dashboard-nav";
 import { HardNavigationLink } from "@/components/hard-navigation-link";
 import {
   getBusinessOwnerNavigationItems,
@@ -8,6 +9,7 @@ import type { Locale } from "@/lib/i18n";
 
 type BusinessOwnerAccountNavProps = {
   active: BusinessOwnerNavigationKey;
+  draftCount?: number;
   locale: Locale;
 };
 
@@ -20,12 +22,13 @@ export function BusinessOwnerWorkspaceNav({ active, locale }: BusinessOwnerAccou
     <AccountWorkspaceNav
       active={active}
       ariaLabel={getAriaLabel(locale)}
+      columns={2}
       items={getBusinessOwnerNavigationItems(locale)}
     />
   );
 }
 
-export function BusinessOwnerAccountNav({ active, locale }: BusinessOwnerAccountNavProps) {
+export function BusinessOwnerAccountNav({ active, draftCount = 0, locale }: BusinessOwnerAccountNavProps) {
   const items = getBusinessOwnerNavigationItems(locale);
 
   return (
@@ -35,10 +38,13 @@ export function BusinessOwnerAccountNav({ active, locale }: BusinessOwnerAccount
           <HardNavigationLink
             key={item.key}
             ariaCurrent={active === item.key ? "true" : undefined}
-            className={`nav-link ${active === item.key ? "nav-link-active" : ""}`}
+            className={`nav-link relative ${active === item.key ? "nav-link-active" : ""}`}
             href={item.href}
           >
-            {item.label}
+            <span>{item.label}</span>
+            {item.key === "drafts" ? (
+              <DraftCountBadge className="absolute -right-1 -top-1" count={draftCount} />
+            ) : null}
           </HardNavigationLink>
         ))}
       </div>

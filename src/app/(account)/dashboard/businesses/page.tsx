@@ -226,7 +226,7 @@ export default async function DashboardBusinessesPage({
       ) : null}
       <main className="shell px-4 py-12 sm:px-6">
       {viewer.role === "BUSINESS_OWNER" ? (
-        <BusinessOwnerAccountNav active="drafts" locale={locale} />
+        <BusinessOwnerAccountNav active="drafts" draftCount={draftSubmissions.length} locale={locale} />
       ) : (
         <div className="dashboard-nav-shell mb-8">
           <DashboardNav

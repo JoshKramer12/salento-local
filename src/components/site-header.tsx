@@ -183,9 +183,9 @@ export function SiteHeader({ locale, notificationCount = 0, viewer }: SiteHeader
               >
                 + {desktopPartnerAddBusinessAction.label}
               </HardNavigationLink>
-            ) : (
+            ) : viewer?.role !== "BUSINESS_OWNER" ? (
               <LanguageToggle locale={locale} />
-            )}
+            ) : null}
             <SearchAutocomplete
               locale={locale}
               placeholder={copy.searchPlaceholder}

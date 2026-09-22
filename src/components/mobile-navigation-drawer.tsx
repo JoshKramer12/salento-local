@@ -229,17 +229,19 @@ export function MobileNavigationDrawer({
             </div>
           </section>
 
-          <section className="mt-6 border-t border-[var(--border)] pt-5" aria-labelledby="mobile-language-heading">
-            <h2
-              id="mobile-language-heading"
-              className="px-1 text-[0.68rem] font-bold uppercase tracking-[0.18em] text-[var(--primary)]"
-            >
-              {copy.language}
-            </h2>
-            <div className="mt-3 px-1">
-              <LanguageToggle locale={locale} />
-            </div>
-          </section>
+          {viewer?.role !== "BUSINESS_OWNER" ? (
+            <section className="mt-6 border-t border-[var(--border)] pt-5" aria-labelledby="mobile-language-heading">
+              <h2
+                id="mobile-language-heading"
+                className="px-1 text-[0.68rem] font-bold uppercase tracking-[0.18em] text-[var(--primary)]"
+              >
+                {copy.language}
+              </h2>
+              <div className="mt-3 px-1">
+                <LanguageToggle locale={locale} />
+              </div>
+            </section>
+          ) : null}
 
           {!viewer ? (
             <div className="mt-6 grid gap-2 border-t border-[var(--border)] pt-5">
