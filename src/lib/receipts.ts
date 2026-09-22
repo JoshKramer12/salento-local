@@ -783,7 +783,7 @@ export async function buildSignedAgreementPdf(params: {
 
   const logoPng = await readFile(join(process.cwd(), "public", "brand", "salento-local-agreement-logo.png"));
   const logo = await document.embedPng(logoPng);
-  page.drawImage(logo, { x: 35, y: 742, width: 203, height: 67 });
+  page.drawImage(logo, { x: 35, y: 742, width: 203, height: (203 * logo.height) / logo.width });
   page.drawText("ACCORDO DI ADESIONE FIRMATO", {
     color: agreementColors.navy, font: serifFont, size: 25, x: 48, y: 691,
   });
