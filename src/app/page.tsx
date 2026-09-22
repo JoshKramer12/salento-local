@@ -19,12 +19,11 @@ export default async function HomePage() {
   const localities = Array.from(new Map(featuredLocalities.map((locality) => [locality.name, locality])).values()).slice(0, 6);
   const towns = featuredTowns.slice(0, 4);
   const copy = getCopy(locale);
+  const heroOverlay = "linear-gradient(180deg,rgba(24,29,27,0.4),rgba(24,29,27,0.48) 54%,rgba(24,29,27,0.68))";
 
   return (
     <main className="homepage">
-      <section className="homepage-hero relative overflow-visible">
-        {heroTown ? <div className="absolute inset-0 -z-20 bg-cover bg-center" style={{ backgroundImage: `url("${buildTownImage(heroTown, 1800)}")` }} /> : null}
-        <div className="absolute inset-0 -z-10 bg-[linear-gradient(180deg,rgba(24,29,27,0.4),rgba(24,29,27,0.48)_54%,rgba(24,29,27,0.68))]" />
+      <section className="homepage-hero relative overflow-visible bg-cover bg-center" style={{ backgroundImage: heroTown ? `${heroOverlay}, url("${buildTownImage(heroTown, 1800)}")` : heroOverlay }}>
         <div className="mx-auto flex min-h-[29rem] max-w-4xl flex-col items-center justify-center px-4 pb-24 pt-20 text-center sm:min-h-[32rem] sm:px-6 sm:pt-24">
           <div className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-black/15 px-3 py-1.5 text-xs font-medium text-white/90 backdrop-blur-sm"><IconMapPin size={13} />{copy.heroBadge}</div>
           <h1 className="font-serif text-5xl leading-[0.94] tracking-[-0.035em] text-white sm:text-6xl lg:text-7xl">{copy.heroTitle}<span className="mt-1 block font-normal italic text-white/90">{copy.heroTitleAccent}</span></h1>

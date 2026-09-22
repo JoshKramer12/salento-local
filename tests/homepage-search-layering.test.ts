@@ -8,6 +8,8 @@ const autocomplete = readFileSync("src/components/search-autocomplete.tsx", "utf
 test("homepage search suggestions are not trapped beneath the category strip stacking context", () => {
   assert.match(homepage, /homepage-hero relative overflow-visible/);
   assert.doesNotMatch(homepage, /homepage-hero[^"\n]*\bisolate\b/);
+  assert.match(homepage, /backgroundImage: heroTown \? `\$\{heroOverlay\}, url\("\$\{buildTownImage\(heroTown, 1800\)\}"\)` : heroOverlay/);
+  assert.doesNotMatch(homepage, /absolute inset-0 -z-(?:10|20)/);
   assert.match(homepage, /homepage-category-row relative z-10/);
   assert.match(autocomplete, /absolute left-0 right-0 top-\[calc\(100%\+0\.6rem\)\] z-50/);
 });
