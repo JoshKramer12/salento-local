@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import type { PaymentPurpose, PaymentRecordMethod, PaymentStatus, UserRole } from "@prisma/client";
 
@@ -368,58 +371,8 @@ const agreementColors = {
   green: rgb(0.12, 0.39, 0.34),
   label: rgb(0.31, 0.43, 0.46),
   navy: rgb(0.04, 0.12, 0.18),
-  orange: rgb(0.79, 0.31, 0.14),
   signatureBorder: rgb(0.88, 0.87, 0.84),
 };
-
-function drawRoundedSquare(params: {
-  color: ReturnType<typeof rgb>;
-  page: PDFPage;
-  radius: number;
-  size: number;
-  x: number;
-  y: number;
-}) {
-  const { color, page, radius, size, x, y } = params;
-  page.drawRectangle({ color, height: size, width: size - radius * 2, x: x + radius, y });
-  page.drawRectangle({ color, height: size - radius * 2, width: size, x, y: y + radius });
-
-  for (const [centerX, centerY] of [
-    [x + radius, y + radius],
-    [x + size - radius, y + radius],
-    [x + radius, y + size - radius],
-    [x + size - radius, y + size - radius],
-  ]) {
-    page.drawEllipse({ color, x: centerX, xScale: radius, y: centerY, yScale: radius });
-  }
-}
-
-function drawAgreementLogo(params: { localFont: PDFFont; page: PDFPage; serifFont: PDFFont }) {
-  const { localFont, page, serifFont } = params;
-  const markX = 48;
-  const markY = 752;
-  const markSize = 45;
-  drawRoundedSquare({ color: agreementColors.green, page, radius: 10, size: markSize, x: markX, y: markY });
-
-  const pinX = markX + markSize / 2;
-  const pinY = markY + 27;
-  page.drawCircle({ color: rgb(1, 1, 1), size: 10.5, x: pinX, y: pinY });
-  page.drawCircle({ color: agreementColors.green, size: 4.2, x: pinX, y: pinY });
-  page.drawLine({ color: rgb(1, 1, 1), end: { x: pinX - 6.5, y: markY + 12 }, start: { x: pinX - 8, y: pinY - 4 }, thickness: 3.2 });
-  page.drawLine({ color: rgb(1, 1, 1), end: { x: pinX + 6.5, y: markY + 12 }, start: { x: pinX + 8, y: pinY - 4 }, thickness: 3.2 });
-
-  const wordmarkX = markX + markSize + 14;
-  const salento = "Salento";
-  const salentoSize = 29;
-  page.drawText(salento, { color: agreementColors.navy, font: serifFont, size: salentoSize, x: wordmarkX, y: 766 });
-  page.drawText("Local", {
-    color: agreementColors.orange,
-    font: localFont,
-    size: 29,
-    x: wordmarkX + serifFont.widthOfTextAtSize(salento, salentoSize) + 5,
-    y: 767,
-  });
-}
 
 function drawTrackedText(params: {
   color: ReturnType<typeof rgb>;
@@ -817,7 +770,6 @@ export async function buildSignedAgreementPdf(params: {
   const document = await PDFDocument.create();
   const page = document.addPage([595, 842]);
   const serifFont = await document.embedFont(StandardFonts.TimesRomanBold);
-  const localFont = await document.embedFont(StandardFonts.TimesRomanItalic);
   const bodyFont = await document.embedFont(StandardFonts.Helvetica);
   const bodyBold = await document.embedFont(StandardFonts.HelveticaBold);
   const { agreement } = params;
@@ -829,7 +781,9 @@ export async function buildSignedAgreementPdf(params: {
   );
   const signatureDrawing = parseSignatureDrawing(submission.agreementSignature);
 
-  drawAgreementLogo({ localFont, page, serifFont });
+  const logoPng = await readFile(join(process.cwd(), "public", "brand", "salento-local-agreement-logo.png"));
+  const logo = await document.embedPng(logoPng);
+  page.drawImage(logo, { x: 35, y: 742, width: 203, height: 67 });
   page.drawText("ACCORDO DI ADESIONE FIRMATO", {
     color: agreementColors.navy, font: serifFont, size: 25, x: 48, y: 691,
   });
