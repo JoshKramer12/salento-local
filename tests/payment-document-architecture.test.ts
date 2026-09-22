@@ -16,6 +16,8 @@ const stripeReceipts = readFileSync("src/lib/stripe-receipts.ts", "utf8");
 const paymentHistory = readFileSync("src/app/(account)/dashboard/payment-history/page.tsx", "utf8");
 const dashboard = readFileSync("src/components/account/business-owner-dashboard-client.tsx", "utf8");
 const successPage = readFileSync("src/app/(account)/publish/payment/success/page.tsx", "utf8");
+const paymentReceiptPage = readFileSync("src/app/(account)/receipts/payment/[paymentId]/page.tsx", "utf8");
+const agreementPage = readFileSync("src/app/(account)/agreements/[submissionId]/page.tsx", "utf8");
 const receiptRoute = readFileSync("src/app/api/receipts/payment/[paymentId]/route.ts", "utf8");
 const agreementRoute = readFileSync("src/app/api/agreements/[submissionId]/route.ts", "utf8");
 
@@ -95,6 +97,18 @@ test("new routes enforce protected, exact payment and agreement retrieval", () =
   assert.match(agreementRoute, /checkoutSessionId/);
   assert.match(receipts, /payment\.businessId && submissionBusinessId && payment\.businessId !== submissionBusinessId/);
   assert.match(receipts, /canManageBusiness/);
+  assert.match(receiptRoute, /Content-Disposition.*inline/);
+  assert.match(agreementRoute, /Content-Disposition.*inline/);
+});
+
+test("protected document links bypass the action page and open their exact PDFs directly", () => {
+  assert.match(paymentReceiptPage, /getReceiptData/);
+  assert.match(paymentReceiptPage, /getStripeHostedReceiptUrl/);
+  assert.match(paymentReceiptPage, /redirect\(stripeReceiptUrl \|\| apiUrl\)/);
+  assert.doesNotMatch(paymentReceiptPage, /DocumentActions/);
+  assert.match(agreementPage, /getSignedAgreementData/);
+  assert.match(agreementPage, /redirect\(apiUrl\)/);
+  assert.doesNotMatch(agreementPage, /DocumentActions/);
 });
 
 test("owner-facing success and payments surfaces expose distinct, payment-scoped documents without a desktop-only table", () => {

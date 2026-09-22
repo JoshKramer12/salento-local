@@ -1,10 +1,10 @@
 import Link from "next/link";
-import { IconFileDescription, IconInfoCircle } from "@tabler/icons-react";
+import { redirect } from "next/navigation";
+import { IconInfoCircle } from "@tabler/icons-react";
 
-import { DocumentActions } from "@/components/account/document-actions";
 import { auth } from "@/lib/auth";
 import { getCurrentLocale } from "@/lib/locale";
-import { buildPaymentReceiptPageUrl, getReceiptData } from "@/lib/receipts";
+import { getReceiptData } from "@/lib/receipts";
 import { getStripeHostedReceiptUrl } from "@/lib/stripe-receipts";
 
 type PageProps = { params: Promise<{ paymentId: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> };
@@ -24,7 +24,5 @@ export default async function PaymentReceiptPage({ params, searchParams }: PageP
 
   const stripeReceiptUrl = await getStripeHostedReceiptUrl(receipt.payment);
   const apiUrl = `/api/receipts/payment/${encodeURIComponent(paymentId)}${checkoutSessionId ? `?session=${encodeURIComponent(checkoutSessionId)}&locale=${locale}` : `?locale=${locale}`}`;
-  const downloadUrl = `${apiUrl}${checkoutSessionId ? "&" : "?"}download=1`;
-  const viewUrl = stripeReceiptUrl || apiUrl;
-  return <main className="shell px-4 py-10 sm:px-6"><section className="card mx-auto max-w-xl p-6 sm:p-8"><IconFileDescription className="text-[var(--primary)]" size={34} /><p className="section-kicker mt-5">{italian ? "DOCUMENTI" : "DOCUMENTS"}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{italian ? "Ricevuta di pagamento" : "Payment Receipt"}</h1><p className="mt-3 leading-7 text-[var(--muted)]">{italian ? "Prova finanziaria di questa esatta transazione." : "Financial proof for this exact transaction."}</p>{stripeReceiptUrl ? <p className="mt-3 text-sm text-[var(--muted)]">{italian ? "È disponibile il documento finanziario ospitato da Stripe." : "A Stripe-hosted financial document is available."}</p> : null}<div className="mt-6"><DocumentActions downloadUrl={downloadUrl} locale={locale} shareUrl={buildPaymentReceiptPageUrl(paymentId)} title={italian ? "Ricevuta di pagamento Salento Local" : "Salento Local Payment Receipt"} viewUrl={viewUrl} /></div></section></main>;
+  redirect(stripeReceiptUrl || apiUrl);
 }
