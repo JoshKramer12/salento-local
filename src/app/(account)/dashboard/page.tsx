@@ -274,21 +274,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             },
           },
           name: true,
-          payments: {
-            where: { status: "PAID" },
-            orderBy: { paidAt: "desc" },
-            select: {
-              createdAt: true,
-              id: true,
-              paidAt: true,
-              status: true,
-              purpose: true,
-              businessSubmission: {
-                select: { id: true, listingTermMonthsAtAcceptance: true },
-              },
-            },
-            take: 1,
-          },
           phone: true,
           rating: true,
           reviewCount: true,

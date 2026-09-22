@@ -97,13 +97,19 @@ test("new routes enforce protected, exact payment and agreement retrieval", () =
   assert.match(receipts, /canManageBusiness/);
 });
 
-test("owner-facing success and dashboard surfaces expose both document types without a desktop-only table", () => {
+test("owner-facing success and payments surfaces expose distinct, payment-scoped documents without a desktop-only table", () => {
   assert.match(successPage, /YOUR DOCUMENTS/);
   assert.match(successPage, /Signed Membership Agreement/);
   assert.match(successPage, /DocumentActions/);
-  assert.match(dashboard, /Payment receipts/);
-  assert.match(dashboard, /Signed Membership Agreement/);
-  assert.match(dashboard, /sm:grid-cols-2/);
-  assert.match(paymentHistory, /flex flex-col gap-4/);
-  assert.match(paymentHistory, /View payment receipt/);
+  assert.match(dashboard, /View payments & documents/);
+  assert.match(dashboard, /Visualizza pagamenti e documenti/);
+  assert.doesNotMatch(dashboard, /View receipt/);
+  assert.match(paymentHistory, /Payments & Documents/);
+  assert.match(paymentHistory, /MEMBERSHIP DOCUMENTS/);
+  assert.match(paymentHistory, /Signed membership agreement/);
+  assert.match(paymentHistory, /PAYMENT HISTORY/);
+  assert.match(paymentHistory, /Payment receipt/);
+  assert.match(paymentHistory, /payment\.purpose === "INITIAL_MEMBERSHIP"/);
+  assert.match(paymentHistory, /payment\.status === "PAID" \|\| payment\.status === "REFUNDED"/);
+  assert.match(paymentHistory, /sm:flex-row sm:items-center sm:justify-between/);
 });
