@@ -6,6 +6,7 @@ import {
   IconCheck,
   IconCircleCheck,
   IconEye,
+  IconExternalLink,
   IconFileDescription,
   IconInfoCircle,
   IconReceipt2,
@@ -13,7 +14,6 @@ import {
   IconWallet,
 } from "@tabler/icons-react";
 
-import { DocumentActions } from "@/components/account/document-actions";
 import { formatCurrencyFromCents } from "@/lib/account";
 import { getViewer } from "@/lib/auth-guards";
 import { getCurrentLocale } from "@/lib/locale";
@@ -47,6 +47,46 @@ function SummaryRow({
       <span className="text-sm text-[var(--foreground)] sm:text-base">{label}</span>
       <span className="max-w-40 text-right text-sm font-semibold text-[var(--foreground)] sm:max-w-none sm:text-base">{children}</span>
     </div>
+  );
+}
+
+function PaymentDocumentRow({
+  description,
+  href,
+  icon,
+  iconClassName = "bg-[rgba(42,98,87,0.09)] text-[var(--primary)]",
+  title,
+  viewLabel,
+}: {
+  description: string;
+  href: string;
+  icon: React.ReactNode;
+  iconClassName?: string;
+  title: string;
+  viewLabel: string;
+}) {
+  return (
+    <article className="rounded-[1.35rem] border border-[var(--border)] bg-white px-5 py-5 sm:px-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+        <div className="flex min-w-0 flex-1 items-start gap-4">
+          <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${iconClassName}`}>
+            {icon}
+          </span>
+          <div className="min-w-0">
+            <h3 className="text-lg font-bold text-[var(--foreground)]">{title}</h3>
+            <p className="mt-1.5 leading-6 text-[var(--muted)]">{description}</p>
+          </div>
+        </div>
+        <Link
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          className="btn-secondary min-h-12 w-full shrink-0 px-6 sm:w-auto"
+        >
+          <IconExternalLink size={18} aria-hidden="true" /> {viewLabel}
+        </Link>
+      </div>
+    </article>
   );
 }
 
@@ -129,52 +169,58 @@ export default async function PublishPaymentSuccessPage({
   const copy = locale === "it"
     ? {
         amount: "Importo pagato",
+        backDashboard: "Torna alla dashboard",
         backHome: "Torna a Salento Local",
         date: "Data pagamento",
-        download: "Scarica ricevuta",
         listingPreparing: "La tua scheda è in preparazione per la pubblicazione. Ti avviseremo quando sarà online.",
         listingPreparingTitle: "Stiamo preparando la tua scheda",
         liveBody: "La tua scheda è stata pubblicata ed è ora visibile su Salento Local. I clienti possono trovarti e contattarti.",
         liveTitle: "La tua attività è online!",
-        open: "Apri ricevuta PDF",
         pendingBody: "Stripe sta ancora confermando il pagamento. Aggiorna tra qualche istante per visualizzare la ricevuta.",
         pendingTitle: "Stiamo confermando il pagamento",
         retry: "Riprova la verifica",
         verificationUnavailable: "Non riusciamo a verificare Stripe in questo momento. Riprova tra qualche istante: non verranno effettuati altri addebiti.",
-        receiptBody: "Puoi aprire o scaricare la ricevuta in PDF per i tuoi archivi.",
-        receiptSent: "Ricevuta inviata a",
-        receiptTitle: "La tua ricevuta è pronta",
+        agreementDescription: "I termini della tua membership e il record della tua accettazione firmata.",
+        agreementTitle: "Accordo di adesione firmato",
+        documentsDescription: "Qui trovi i documenti importanti relativi alla tua iscrizione.",
+        documentsTitle: "I tuoi documenti",
+        receiptDescription: "La ricevuta ufficiale del tuo pagamento.",
+        receiptTitle: "Ricevuta di pagamento",
         status: "Stato pagamento",
         statusConfirmed: "Confermato",
         successIntro: "Grazie! Il tuo pagamento è stato ricevuto e la tua scheda",
         successLive: "è ora online.",
         successTitle: "Pagamento riuscito!",
         summaryTitle: "Riepilogo pagamento",
+        viewDocument: "Visualizza",
         viewListing: "Vedi la mia scheda",
       }
     : {
         amount: "Amount paid",
+        backDashboard: "Back to dashboard",
         backHome: "Back to Salento Local",
         date: "Payment date",
-        download: "Download receipt",
         listingPreparing: "Your listing is being prepared for publication. We’ll let you know when it is live.",
         listingPreparingTitle: "We’re preparing your listing",
         liveBody: "Your listing has been published and is now visible on Salento Local. Customers can find and contact you.",
         liveTitle: "Your business is live!",
-        open: "Open PDF receipt",
         pendingBody: "Stripe is still confirming the payment. Refresh in a moment to see your receipt.",
         pendingTitle: "We’re confirming your payment",
         retry: "Retry verification",
         verificationUnavailable: "We cannot verify Stripe right now. Try again shortly; no additional charge will be made.",
-        receiptBody: "You can open or download your receipt as a PDF for your records.",
-        receiptSent: "Receipt sent to",
-        receiptTitle: "Your receipt is ready",
+        agreementDescription: "Your membership terms and signed acceptance record.",
+        agreementTitle: "Signed Membership Agreement",
+        documentsDescription: "Find the important documents related to your membership.",
+        documentsTitle: "Your documents",
+        receiptDescription: "The official receipt for your payment.",
+        receiptTitle: "Payment receipt",
         status: "Payment status",
         statusConfirmed: "Confirmed",
         successIntro: "Thank you! Your payment has been received and your listing",
         successLive: "is now live.",
         successTitle: "Payment successful!",
         summaryTitle: "Payment summary",
+        viewDocument: "View",
         viewListing: "View my business listing",
       };
 
@@ -214,17 +260,15 @@ export default async function PublishPaymentSuccessPage({
     locale,
   );
   const receiptViewUrl = buildPaymentReceiptPageUrl(receipt.payment.id, checkoutSessionId);
-  const receiptDownloadUrl = `/api/receipts/payment/${encodeURIComponent(receipt.payment.id)}${checkoutSessionId ? `?session=${encodeURIComponent(checkoutSessionId)}&locale=${locale}&download=1` : `?locale=${locale}&download=1`}`;
   const agreementViewUrl = buildAgreementPageUrl(submissionId, checkoutSessionId);
-  const agreementDownloadUrl = `/api/agreements/${encodeURIComponent(submissionId)}${checkoutSessionId ? `?session=${encodeURIComponent(checkoutSessionId)}&locale=${locale}&download=1` : `?locale=${locale}&download=1`}`;
   return (
     <main className="shell px-4 py-7 sm:px-6 sm:py-12">
-      <section className="card mx-auto max-w-3xl overflow-hidden p-5 sm:p-8">
+      <section className="card mx-auto max-w-4xl overflow-hidden p-5 sm:p-8">
         <div className="mx-auto max-w-xl text-center">
           <div className="relative mx-auto flex h-28 w-28 items-center justify-center rounded-full border border-[rgba(42,98,87,0.16)] bg-[radial-gradient(circle_at_35%_30%,#f5faf3,#e6f0e2)] text-[var(--primary)]">
-            <span aria-hidden="true" className="absolute -left-7 -top-2 h-3 w-3 rotate-45 rounded-sm bg-[#eead7d]" />
-            <span aria-hidden="true" className="absolute -right-8 top-7 h-3 w-3 rotate-45 rounded-sm bg-[#9dbca1]" />
-            <span aria-hidden="true" className="absolute -bottom-3 left-1 h-2.5 w-2.5 rotate-45 rounded-sm bg-[#d4c882]" />
+            <span aria-hidden="true" className="absolute -left-7 -top-2 h-3 w-3 rounded-full bg-[#d4c882]" />
+            <span aria-hidden="true" className="absolute -right-8 top-7 h-3 w-3 rounded-full bg-[#eead7d]" />
+            <span aria-hidden="true" className="absolute -bottom-3 left-1 h-2.5 w-2.5 rounded-full bg-[#9dbca1]" />
             <IconCheck size={58} stroke={3} />
           </div>
           <h1 className="mt-7 font-serif text-4xl text-[var(--foreground)] sm:text-5xl">{copy.successTitle}</h1>
@@ -241,6 +285,11 @@ export default async function PublishPaymentSuccessPage({
               <p className="mt-2 leading-7 text-[var(--foreground)]">{listingIsLive ? copy.liveBody : copy.listingPreparing}</p>
             </div>
           </div>
+          {businessListingHref ? (
+            <Link href={businessListingHref} className="btn-primary mt-6 flex min-h-14 w-full text-base">
+              <IconEye size={22} aria-hidden="true" /> {copy.viewListing}
+            </Link>
+          ) : null}
         </div>
 
         <section className="mt-8">
@@ -254,30 +303,34 @@ export default async function PublishPaymentSuccessPage({
           </div>
         </section>
 
-        <section className="mt-6 rounded-[1.4rem] border border-[rgba(191,91,42,0.15)] bg-[linear-gradient(135deg,rgba(255,248,243,0.96),rgba(255,255,255,0.98))] p-5 sm:p-6">
-          <p className="section-kicker mb-4">{locale === "it" ? "I TUOI DOCUMENTI" : "YOUR DOCUMENTS"}</p>
-          <div className="flex items-start gap-4">
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[rgba(191,91,42,0.09)] text-[var(--accent)]"><IconReceipt2 size={25} /></span>
-            <div>
-              <h2 className="text-xl font-bold text-[var(--foreground)]">{copy.receiptTitle}</h2>
-              <p className="mt-2 leading-7 text-[var(--foreground)]">{copy.receiptBody}</p>
-              {receipt.submission.purchaseConfirmationSentAt && receipt.recipientEmail ? (
-                <p className="mt-3 text-sm font-medium text-[var(--primary)]">{copy.receiptSent} {receipt.recipientEmail}</p>
-              ) : null}
-            </div>
+        <section className="mt-8">
+          <h2 className="text-xl font-bold text-[var(--foreground)]">{copy.documentsTitle}</h2>
+          <p className="mt-2 leading-7 text-[var(--muted)]">{copy.documentsDescription}</p>
+          <div className="mt-5 grid gap-3">
+            <PaymentDocumentRow
+              description={copy.receiptDescription}
+              href={receiptViewUrl}
+              icon={<IconReceipt2 size={25} aria-hidden="true" />}
+              iconClassName="bg-[rgba(191,91,42,0.09)] text-[var(--accent)]"
+              title={copy.receiptTitle}
+              viewLabel={copy.viewDocument}
+            />
+            {agreement ? (
+              <PaymentDocumentRow
+                description={copy.agreementDescription}
+                href={agreementViewUrl}
+                icon={<IconFileDescription size={25} aria-hidden="true" />}
+                title={copy.agreementTitle}
+                viewLabel={copy.viewDocument}
+              />
+            ) : null}
           </div>
-          <div className="mt-5"><DocumentActions downloadUrl={receiptDownloadUrl} locale={locale} shareUrl={buildPaymentReceiptPageUrl(receipt.payment.id)} title={locale === "it" ? "Ricevuta di pagamento Salento Local" : "Salento Local Payment Receipt"} viewUrl={receiptViewUrl} /></div>
-          {agreement ? <div className="mt-6 border-t border-[rgba(191,91,42,0.16)] pt-5"><div className="flex items-start gap-4"><span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[rgba(42,98,87,0.09)] text-[var(--primary)]"><IconFileDescription size={25} /></span><div><h2 className="text-xl font-bold text-[var(--foreground)]">{locale === "it" ? "Accordo di adesione firmato" : "Signed Membership Agreement"}</h2><p className="mt-2 leading-7 text-[var(--foreground)]">{locale === "it" ? "I termini della tua membership e il record della tua accettazione firmata." : "Your membership terms and signed acceptance record."}</p></div></div><div className="mt-5"><DocumentActions downloadUrl={agreementDownloadUrl} locale={locale} shareUrl={buildAgreementPageUrl(submissionId)} title={locale === "it" ? "Accordo di adesione firmato Salento Local" : "Salento Local Signed Membership Agreement"} viewUrl={agreementViewUrl} /></div></div> : null}
         </section>
 
-        <div className="mt-8 grid gap-3">
-          {businessListingHref ? (
-            <Link href={businessListingHref} className="btn-primary flex w-full py-4 text-base">
-              <IconEye size={22} /> {copy.viewListing}
-            </Link>
-          ) : (
-            <Link href="/" className="btn-primary flex w-full py-4 text-base">{copy.backHome}</Link>
-          )}
+        <div className="mt-8">
+          <Link href="/dashboard" className="btn-primary flex min-h-14 w-full text-base">
+            {copy.backDashboard}
+          </Link>
         </div>
       </section>
     </main>

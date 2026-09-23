@@ -162,10 +162,24 @@ test("protected document links bypass the action page and open their exact PDFs 
   assert.doesNotMatch(agreementPage, /DocumentActions/);
 });
 
-test("owner-facing success and payments surfaces expose distinct, payment-scoped documents without a desktop-only table", () => {
-  assert.match(successPage, /YOUR DOCUMENTS/);
-  assert.match(successPage, /Signed Membership Agreement/);
-  assert.match(successPage, /DocumentActions/);
+test("owner success keeps its business and document actions focused on the completed payment", () => {
+  const paidSuccessMarkup = successPage.slice(successPage.indexOf('<main className="shell px-4 py-7'));
+  assert.match(successPage, /documentsTitle: "I tuoi documenti"/);
+  assert.match(successPage, /documentsTitle: "Your documents"/);
+  assert.match(successPage, /agreementTitle: "Signed Membership Agreement"/);
+  assert.match(successPage, /receiptTitle: "Payment receipt"/);
+  assert.match(successPage, /backDashboard: "Torna alla dashboard"/);
+  assert.match(successPage, /backDashboard: "Back to dashboard"/);
+  assert.ok(paidSuccessMarkup.indexOf("copy.viewListing") < paidSuccessMarkup.indexOf("copy.summaryTitle"));
+  assert.equal((paidSuccessMarkup.match(/copy\.viewListing/g) ?? []).length, 1);
+  assert.match(paidSuccessMarkup, /href=\{businessListingHref\}/);
+  assert.match(successPage, /buildPaymentReceiptPageUrl\(receipt\.payment\.id, checkoutSessionId\)/);
+  assert.match(paidSuccessMarkup, /href=\{receiptViewUrl\}/);
+  assert.match(paidSuccessMarkup, /href=\{agreementViewUrl\}/);
+  assert.match(successPage, /target="_blank"/);
+  assert.doesNotMatch(paidSuccessMarkup, /DocumentActions/);
+  assert.doesNotMatch(paidSuccessMarkup, /downloadUrl|shareUrl|download=1/);
+  assert.doesNotMatch(paidSuccessMarkup, /IconDownload|IconShare3/);
   assert.match(dashboard, /View payments & documents/);
   assert.match(dashboard, /Visualizza pagamenti e documenti/);
   assert.doesNotMatch(dashboard, /View receipt/);
