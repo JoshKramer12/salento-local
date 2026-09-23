@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildOwnerListingEmailCopy,
   buildPartnerOwnerWhatsAppMessage,
+  attachOwnerAccessToUser,
   canManageBusiness,
   canOfferNoEmailOwnerWhatsAppHandoff,
   ensureOwnerAccessForPublishedSubmission,
@@ -12,6 +13,7 @@ import {
   getOrCreateOwnerAccessDeliveryInvitation,
   getOwnerAccessInvitationExpiry,
   getOwnerAccessUrl,
+  getNoEmailOwnerWhatsAppHandoff,
   buildOwnerWhatsAppMessage,
   shouldContinuePartnerWhatsAppHandoffPolling,
   getOwnerWhatsAppDeepLink,
@@ -240,13 +242,17 @@ test("a publication recovery never replaces an already active claimed owner acce
   };
   let createCalled = false;
   let updateCalled = false;
+  let findFirstCalls = 0;
   const db = {
     businessOwnerAccess: {
       create: async () => {
         createCalled = true;
         return null;
       },
-      findFirst: async () => activeAccess,
+      findFirst: async () => {
+        findFirstCalls += 1;
+        return findFirstCalls === 1 ? null : activeAccess;
+      },
       update: async () => {
         updateCalled = true;
         return null;
@@ -304,6 +310,118 @@ test("a no-email owner access is bound to the normalized private WhatsApp", asyn
   assert.equal(access?.email, null);
   assert.equal(access?.phone, "+393471234567");
   assert.equal(writes.length, 0);
+});
+
+test("a Partner no-email lifecycle creates a pending phone access, durable handoff, and owner attachment", async () => {
+  const normalizedPhone = "+393471234567";
+  const submission = {
+    createdBusiness: { name: "Masseria del Sole", slug: "masseria-del-sole" },
+    createdBusinessId: "business-phone-lifecycle",
+    id: "submission-phone-lifecycle",
+    ownerEmail: "",
+    ownerHasNoEmail: true,
+    ownerName: "Giulia Bianchi",
+    ownerPhone: "+39 347 123 4567",
+    paymentStatus: "PAID",
+    status: "PUBLISHED",
+  };
+  const existingUser = { id: "existing-user-with-same-phone", phone: normalizedPhone };
+  let access: Record<string, unknown> | null = null;
+  let invitation: Record<string, unknown> | null = null;
+  let userLookupsBeforeOwnerClick = 0;
+  const db = {
+    business: { updateMany: async () => ({ count: 1 }) },
+    businessOwnerAccess: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        access = { id: "phone-access", ...data };
+        return access;
+      },
+      findFirst: async () => access,
+      findUnique: async () => access,
+      update: async ({ data }: { data: Record<string, unknown> }) => {
+        access = { ...access, ...data };
+        return access;
+      },
+    },
+    businessOwnerAccessInvitation: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        invitation = { ...data, createdAt: new Date(), revokedAt: null, usedAt: null };
+        return invitation;
+      },
+      findFirst: async () => invitation,
+      updateMany: async () => ({ count: 0 }),
+    },
+    businessSubmission: { findUnique: async () => submission },
+    user: {
+      findUnique: async () => {
+        userLookupsBeforeOwnerClick += 1;
+        return existingUser;
+      },
+    },
+  };
+
+  const handoff = await getNoEmailOwnerWhatsAppHandoff({
+    appUrl: "https://salentolocal.example",
+    db: db as never,
+    submissionId: submission.id,
+  });
+
+  assert.ok(handoff);
+  assert.match(handoff!.href, /^https:\/\/wa\.me\/393471234567\?text=/);
+  assert.match(decodeURIComponent(handoff!.href), /owner-access\//);
+  assert.equal(access?.phone, normalizedPhone);
+  assert.equal(access?.userId, null);
+  assert.ok(invitation);
+  assert.equal(userLookupsBeforeOwnerClick, 0);
+
+  // The first owner click can now create or sign in to an account, then attach
+  // that account only after the invitation has established the owner intent.
+  const attached = await attachOwnerAccessToUser({
+    accessId: "phone-access",
+    db: db as never,
+    userId: existingUser.id,
+  });
+  assert.equal(attached?.userId, existingUser.id);
+});
+
+test("a historical phone auto-binding without an invitation is repaired before handoff", async () => {
+  const writes: unknown[] = [];
+  const prematurelyBound = {
+    email: null,
+    id: "premature-phone-access",
+    invitations: [],
+    phone: "+393471234567",
+    sourceSubmissionId: "submission-repair",
+    userId: "matched-by-phone-user",
+  };
+  let findFirstCalls = 0;
+  const db = {
+    business: { updateMany: async (value: unknown) => writes.push(value) },
+    businessOwnerAccess: {
+      findFirst: async () => {
+        findFirstCalls += 1;
+        return prematurelyBound;
+      },
+      update: async ({ data }: { data: Record<string, unknown> }) => ({ ...prematurelyBound, ...data }),
+    },
+    businessSubmission: {
+      findUnique: async () => ({
+        createdBusinessId: "business-repair",
+        id: "submission-repair",
+        ownerEmail: "",
+        ownerHasNoEmail: true,
+        ownerPhone: "+39 347 123 4567",
+      }),
+    },
+    user: { findUnique: async () => { throw new Error("phone lookup must not establish ownership"); } },
+  };
+
+  const access = await ensureOwnerAccessForPublishedSubmission({ db: db as never, submissionId: "submission-repair" });
+
+  assert.equal(findFirstCalls, 2);
+  assert.equal(access?.userId, null);
+  assert.equal(access?.activatedAt, null);
+  assert.deepEqual(writes, [{ where: { id: "business-repair", ownerUserId: "matched-by-phone-user" }, data: { ownerUserId: null } }]);
 });
 
 test("WhatsApp owner handoff uses E.164 owner recipient and encodes real secure links", () => {

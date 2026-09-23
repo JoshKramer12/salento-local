@@ -174,9 +174,44 @@ export async function ensureOwnerAccessForPublishedSubmission(params: {
   const phone = noEmailOwner ? normalizePhoneNumber(submission.ownerPhone) : null;
   if (!email && !phone) return null;
 
+  const existing = await db.businessOwnerAccess.findFirst({
+    where: {
+      OR: [
+        { sourceSubmissionId: submission.id },
+        email
+          ? { AND: [{ businessId: submission.createdBusinessId }, { email }] }
+          : { AND: [{ businessId: submission.createdBusinessId }, { phone: phone! }] },
+      ],
+    },
+    select: {
+      email: true,
+      id: true,
+      invitations: { select: { id: true }, take: 1 },
+      phone: true,
+      sourceSubmissionId: true,
+      userId: true,
+    },
+  });
+
+  // A phone supplied for an owner without email is a delivery address, not
+  // proof that the existing account holding that phone owns this listing. In
+  // particular, the number may belong to a Partner or to a shared household.
+  // Ownership is attached only after the person completes the opaque
+  // invitation flow.
+  const prematurePhoneBinding = Boolean(
+    phone &&
+    existing?.sourceSubmissionId === submission.id &&
+    existing.email === null &&
+    existing.phone === phone &&
+    existing.userId &&
+    existing.invitations.length === 0,
+  );
+
   // Payment webhook retries and historical backfills can run after a listing
   // has been claimed. An active access record is the current ownership source
-  // of truth; never reapply the historical submission contact over it.
+  // of truth; never reapply the historical submission contact over it. The
+  // narrow exception repairs records created by the former phone auto-attach
+  // behavior before any invitation was ever issued.
   const activeAccess = await db.businessOwnerAccess.findFirst({
     where: {
       businessId: submission.createdBusinessId,
@@ -194,25 +229,14 @@ export async function ensureOwnerAccessForPublishedSubmission(params: {
     },
   });
 
-  if (activeAccess) {
+  if (activeAccess && !(prematurePhoneBinding && activeAccess.id === existing?.id)) {
     return activeAccess;
   }
 
   const ownerUser = email
     ? await findUserByNormalizedEmail({ db, email })
-    : await findUserByNormalizedPhone({ db, phone: phone! });
-  const existing = await db.businessOwnerAccess.findFirst({
-    where: {
-      OR: [
-        { sourceSubmissionId: submission.id },
-        email
-          ? { AND: [{ businessId: submission.createdBusinessId }, { email }] }
-          : { AND: [{ businessId: submission.createdBusinessId }, { phone: phone! }] },
-      ],
-    },
-    select: { id: true, userId: true },
-  });
-  const userId = ownerUser?.id ?? existing?.userId ?? null;
+    : null;
+  const userId = ownerUser?.id ?? (email ? existing?.userId ?? null : null);
 
   const access = existing
     ? await db.businessOwnerAccess.update({
@@ -223,6 +247,7 @@ export async function ensureOwnerAccessForPublishedSubmission(params: {
           sourceSubmissionId: submission.id,
           userId,
           ...(userId && !existing.userId ? { activatedAt: new Date() } : {}),
+          ...(prematurePhoneBinding ? { activatedAt: null } : {}),
           verifiedAt: new Date(),
         },
       })
@@ -240,7 +265,12 @@ export async function ensureOwnerAccessForPublishedSubmission(params: {
   // Keep the legacy owner field populated for old queries and existing screens.
   // New authorization is based on BusinessOwnerAccess, so this never limits an
   // account to a single business.
-  if (userId) {
+  if (prematurePhoneBinding && existing?.userId) {
+    await db.business.updateMany({
+      where: { id: submission.createdBusinessId, ownerUserId: existing.userId },
+      data: { ownerUserId: null },
+    });
+  } else if (userId) {
     await db.business.updateMany({
       where: { id: submission.createdBusinessId, ownerUserId: null },
       data: { ownerUserId: userId },
@@ -574,9 +604,11 @@ export function shouldContinuePartnerWhatsAppHandoffPolling(params: {
  */
 export async function getNoEmailOwnerWhatsAppHandoff(params: {
   appUrl?: string;
+  db?: OwnerAccessDb;
   submissionId: string;
 }) {
-  const submission = await prisma.businessSubmission.findUnique({
+  const db = params.db ?? prisma;
+  const submission = await db.businessSubmission.findUnique({
     where: { id: params.submissionId },
     select: {
       createdBusiness: { select: { name: true, slug: true } },
@@ -592,9 +624,9 @@ export async function getNoEmailOwnerWhatsAppHandoff(params: {
 
   const phone = normalizePhoneNumber(submission.ownerPhone);
   if (!phone) return null;
-  const access = await ensureOwnerAccessForPublishedSubmission({ submissionId: params.submissionId });
+  const access = await ensureOwnerAccessForPublishedSubmission({ db, submissionId: params.submissionId });
   if (!access || access.userId || access.phone !== phone) return null;
-  const invitation = await getOrCreateOwnerAccessDeliveryInvitation({ accessId: access.id });
+  const invitation = await getOrCreateOwnerAccessDeliveryInvitation({ accessId: access.id, db });
   const appUrl = (params.appUrl || getAppUrl()).replace(/\/+$/, "");
   const viewUrl = `${appUrl}/businesses/${encodeURIComponent(submission.createdBusiness.slug)}`;
   const manageUrl = getOwnerAccessUrl(invitation.token, appUrl);
