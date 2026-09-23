@@ -539,8 +539,31 @@ export function canOfferNoEmailOwnerWhatsAppHandoff(params: {
   return (
     params.paymentStatus === "PAID" &&
     params.status === "PUBLISHED" &&
-    !(!params.ownerHasNoEmail && params.ownerEmail.trim()) &&
+    !params.ownerEmail.trim() &&
     Boolean(normalizePhoneNumber(params.ownerPhone))
+  );
+}
+
+/**
+ * The payment page is allowed to keep its authoritative status watcher alive
+ * for this one narrow post-payment state.  A refresh can observe PAID before
+ * the server component has been able to read the durable owner invitation;
+ * without this retry, the watcher unmounts with the paid screen and the
+ * Partner has to reload manually to receive the handoff.
+ */
+export function shouldContinuePartnerWhatsAppHandoffPolling(params: {
+  handoffAvailable: boolean;
+  ownerEmail: string;
+  ownerHasNoEmail: boolean;
+  ownerPhone: string;
+  paymentStatus: "PAID" | string;
+  status: "PUBLISHED" | string;
+  viewerRole: string;
+}) {
+  return (
+    params.viewerRole === "GETTER" &&
+    !params.handoffAvailable &&
+    canOfferNoEmailOwnerWhatsAppHandoff(params)
   );
 }
 

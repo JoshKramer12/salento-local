@@ -21,4 +21,6 @@ test("the Partner QR refresh keeps polling until the paid handoff can render", (
   assert.match(statusWatcher, /router\.refresh\(\)/);
   assert.doesNotMatch(statusWatcher, /hasSyncedPaidState/);
   assert.doesNotMatch(statusWatcher, /setStatusMessage\(copy\.paid\);\s+window\.clearInterval\(intervalId\);/);
+  assert.match(partnerPaymentPage, /shouldContinuePartnerWhatsAppHandoffPolling/);
+  assert.match(partnerPaymentPage, /shouldContinueHandoffPolling \? <CheckoutStatusWatcher/);
 });

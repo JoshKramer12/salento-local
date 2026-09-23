@@ -13,6 +13,7 @@ import {
   getOwnerAccessInvitationExpiry,
   getOwnerAccessUrl,
   buildOwnerWhatsAppMessage,
+  shouldContinuePartnerWhatsAppHandoffPolling,
   getOwnerWhatsAppDeepLink,
 } from "@/lib/business-owner-access";
 import { sendPurchaseConfirmationForSubmission } from "@/lib/receipts";
@@ -350,7 +351,30 @@ test("the Partner-to-owner WhatsApp handoff is always Italian and only eligible 
   assert.equal(canOfferNoEmailOwnerWhatsAppHandoff({ ...eligible, paymentStatus: "PENDING" }), false);
   assert.equal(canOfferNoEmailOwnerWhatsAppHandoff({ ...eligible, status: "PAYMENT_PENDING" }), false);
   assert.equal(canOfferNoEmailOwnerWhatsAppHandoff({ ...eligible, ownerEmail: "owner@example.com", ownerHasNoEmail: false }), false);
+  assert.equal(canOfferNoEmailOwnerWhatsAppHandoff({ ...eligible, ownerEmail: "owner@example.com", ownerHasNoEmail: true }), false);
   assert.equal(canOfferNoEmailOwnerWhatsAppHandoff({ ...eligible, ownerPhone: "not-a-phone" }), false);
+  assert.equal(canOfferNoEmailOwnerWhatsAppHandoff({ ...eligible, ownerEmail: "", ownerHasNoEmail: false }), true);
+  assert.equal(canOfferNoEmailOwnerWhatsAppHandoff({ ...eligible, ownerEmail: "   ", ownerHasNoEmail: false }), true);
+});
+
+test("eligible Partner payment pages keep refreshing until the durable WhatsApp handoff is available", () => {
+  const eligible = {
+    handoffAvailable: false,
+    ownerEmail: "",
+    ownerHasNoEmail: true,
+    ownerPhone: "+39 347 123 4567",
+    paymentStatus: "PAID",
+    status: "PUBLISHED",
+    viewerRole: "GETTER",
+  } as const;
+
+  assert.equal(shouldContinuePartnerWhatsAppHandoffPolling(eligible), true);
+  assert.equal(shouldContinuePartnerWhatsAppHandoffPolling({ ...eligible, handoffAvailable: true }), false);
+  assert.equal(shouldContinuePartnerWhatsAppHandoffPolling({ ...eligible, ownerEmail: "owner@example.com", ownerHasNoEmail: false }), false);
+  assert.equal(shouldContinuePartnerWhatsAppHandoffPolling({ ...eligible, ownerEmail: "owner@example.com" }), false);
+  assert.equal(shouldContinuePartnerWhatsAppHandoffPolling({ ...eligible, ownerPhone: "invalid" }), false);
+  assert.equal(shouldContinuePartnerWhatsAppHandoffPolling({ ...eligible, paymentStatus: "PENDING_PAYMENT" }), false);
+  assert.equal(shouldContinuePartnerWhatsAppHandoffPolling({ ...eligible, viewerRole: "BUSINESS_OWNER" }), false);
 });
 
 test("business management authorization requires the owner relationship", async () => {
