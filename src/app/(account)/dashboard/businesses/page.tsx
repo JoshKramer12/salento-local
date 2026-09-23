@@ -274,7 +274,7 @@ export default async function DashboardBusinessesPage({
         </div>
       ) : null}
 
-      {personalView && draftSubmissions.length && viewer.role !== "GETTER" ? (
+      {personalView && viewer.role !== "GETTER" && (draftSubmissions.length > 0 || viewer.role === "BUSINESS_OWNER") ? (
         <section id="drafts" className="mb-10 scroll-mt-6">
           <div className="mb-5">
             <h2 className="flex items-center gap-2 font-serif text-3xl text-[var(--foreground)]">
@@ -288,6 +288,7 @@ export default async function DashboardBusinessesPage({
             </p>
           </div>
           <SubmissionList
+            emptyMessage={locale === "it" ? "Al momento non hai bozze." : "You currently have no drafts."}
             locale={locale}
             role={viewer.role}
             returnPath="/dashboard/businesses"

@@ -19,3 +19,9 @@ test("autocomplete continues to use the existing suggestion endpoint and result 
   assert.match(autocomplete, /router\.push\(suggestion\.href\)/);
   assert.match(autocomplete, /router\.push\(`\$\{searchPath\}\?q=/);
 });
+
+test("homepage hero omits the location pill while retaining its image and search", () => {
+  assert.doesNotMatch(homepage, /heroBadge|Salento, Puglia · (?:Italia|Italy)/);
+  assert.match(homepage, /backgroundImage: heroTown \? `\$\{heroOverlay\}, url\("\$\{buildTownImage\(heroTown, 1800\)\}"\)` : heroOverlay/);
+  assert.match(homepage, /<SearchAutocomplete buttonLabel=\{copy\.searchButton\}/);
+});

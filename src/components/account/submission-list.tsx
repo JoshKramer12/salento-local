@@ -31,6 +31,7 @@ type SubmissionListItem = {
 };
 
 type SubmissionListProps = {
+  emptyMessage?: string;
   isAdmin?: boolean;
   locale: Locale;
   role?: "ADMIN" | "BUSINESS_OWNER" | "GETTER" | "USER";
@@ -40,6 +41,7 @@ type SubmissionListProps = {
 };
 
 export function SubmissionList({
+  emptyMessage,
   isAdmin = false,
   locale,
   role = "USER",
@@ -93,7 +95,7 @@ export function SubmissionList({
   if (!submissions.length) {
     return (
       <div className="card p-6 text-sm text-[var(--muted)]">
-        {copy.empty}
+        {emptyMessage ?? copy.empty}
       </div>
     );
   }
