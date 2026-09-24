@@ -75,7 +75,7 @@ import {
   normalizeIban,
 } from "@/lib/partner-payout-methods";
 import { LISTING_OFFER, resolveContractualEmail } from "@/lib/listing-offer";
-import { ensureNoEmailPaymentIntent, getInitialOnlinePaymentInterface } from "@/lib/no-email-payment";
+import { ensureNoEmailPaymentIntent, getInitialOnlinePaymentInterface, getNoEmailPaymentPhoneError } from "@/lib/no-email-payment";
 import {
   DEFAULT_COMMISSION_CENTS,
   DEFAULT_LISTING_PRICE_CENTS,
@@ -1500,6 +1500,15 @@ async function saveBusinessSubmission(
       submission: rawSubmission,
     };
   }
+
+  const noEmailPhoneError = wantsPaymentStep ? getNoEmailPaymentPhoneError({
+    locale,
+    ownerEmail: parsed.data.ownerEmail,
+    ownerPhone: parsed.data.ownerPhone,
+    paymentMethod: parsed.data.paymentMethod,
+    submitterRole: viewer.role,
+  }) : null;
+  if (noEmailPhoneError) return { ...noEmailPhoneError, submission: rawSubmission };
 
   if (wantsPaymentStep && viewer.role === "GETTER" &&
     parsed.data.paymentMethod === "ONLINE" && !parsed.data.ownerEmail?.trim() &&

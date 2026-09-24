@@ -297,8 +297,19 @@ function isPossiblePhoneNumber(value: string) {
   return Boolean(parsed?.isPossible());
 }
 
-function getLivePhoneValidationMessage(value: string, locale: Locale) {
-  if (!value.trim() || isPossiblePhoneNumber(value)) {
+function isValidPhoneNumber(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+
+  const parsed =
+    parsePhoneNumberFromString(trimmed) ??
+    parsePhoneNumberFromString(trimmed, defaultPhoneCountry);
+
+  return Boolean(parsed?.isValid());
+}
+
+function getLivePhoneValidationMessage(value: string, locale: Locale, requireValid = false) {
+  if (!value.trim() || (requireValid ? isValidPhoneNumber(value) : isPossiblePhoneNumber(value))) {
     return "";
   }
 
@@ -966,7 +977,7 @@ export function PublishForm({
   const businessWhatsappErrorMessage =
     state.fieldErrors?.whatsapp || getLivePhoneValidationMessage(businessWhatsapp, locale);
   const ownerPhoneErrorMessage =
-    state.fieldErrors?.ownerPhone || getLivePhoneValidationMessage(ownerContact, locale);
+    state.fieldErrors?.ownerPhone || getLivePhoneValidationMessage(ownerContact, locale, role === "GETTER" && ownerHasNoEmail);
   const ownerEmailErrorMessage =
     state.fieldErrors?.ownerEmail ||
     (ownerHasNoEmail ? "" : getLiveEmailValidationMessage(ownerEmail, locale));
@@ -2391,7 +2402,7 @@ export function PublishForm({
     } else if (wizardStep === "contact" && (!businessPhone || !isPossiblePhoneNumber(businessPhone))) {
       error = locale === "it" ? "Inserisci un numero di telefono valido dell'attività." : "Enter a valid business phone number.";
     } else if (wizardStep === "owner") {
-      if (!ownerName.trim() || !ownerContact || !isPossiblePhoneNumber(ownerContact) || (!ownerHasNoEmail && !emailValidationPattern.test(ownerEmail))) {
+      if (!ownerName.trim() || !ownerContact || !(role === "GETTER" && ownerHasNoEmail ? isValidPhoneNumber(ownerContact) : isPossiblePhoneNumber(ownerContact)) || (!ownerHasNoEmail && !emailValidationPattern.test(ownerEmail))) {
         error = locale === "it" ? "Completa i dati privati del titolare, oppure conferma che non ha email." : "Complete the owner's private details, or confirm they do not have an email.";
       }
     } else if (wizardStep === "about" && offerItemsCount < 2) {

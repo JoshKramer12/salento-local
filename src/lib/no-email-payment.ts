@@ -13,6 +13,27 @@ export function getInitialOnlinePaymentInterface(params: { ownerEmail?: string |
   return params.submitterRole === "GETTER" && !params.ownerEmail?.trim() ? "ELEMENT" as const : "CHECKOUT" as const;
 }
 
+export function hasValidNoEmailOwnerPhone(ownerPhone: string | null | undefined) {
+  return Boolean(normalizePhoneNumber(ownerPhone));
+}
+
+export function getNoEmailPaymentPhoneError(params: {
+  locale: "en" | "it";
+  ownerEmail?: string | null;
+  ownerPhone: string;
+  paymentMethod?: string | null;
+  submitterRole: string;
+}) {
+  if (params.paymentMethod !== "ONLINE" ||
+    getInitialOnlinePaymentInterface({ ownerEmail: params.ownerEmail, submitterRole: params.submitterRole }) !== "ELEMENT" ||
+    hasValidNoEmailOwnerPhone(params.ownerPhone)) return null;
+
+  const message = params.locale === "it"
+    ? "Inserisci un numero del titolare valido per aprire il QR di pagamento."
+    : "Enter a valid owner phone number before opening the payment QR.";
+  return { error: message, fieldErrors: { ownerPhone: message }, invalidFields: ["ownerPhone"] };
+}
+
 type EligibleSubmission = {
   agreementSignature: string | null;
   amountOwedCents: number;
@@ -30,7 +51,7 @@ type EligibleSubmission = {
 export function isNoEmailElementEligible(submission: EligibleSubmission) {
   return !submission.ownerEmail.trim() &&
     submission.submittingUserRole === "GETTER" &&
-    Boolean(normalizePhoneNumber(submission.ownerPhone)) &&
+    hasValidNoEmailOwnerPhone(submission.ownerPhone) &&
     submission.paymentMethod === "ONLINE" &&
     submission.paymentStatus === "PENDING_PAYMENT" &&
     submission.status === "AWAITING_PAYMENT" &&
@@ -82,7 +103,7 @@ export async function findNoEmailTokenPayment(token: string, required?: { paymen
     payment.userId !== payment.businessSubmission.userId ||
     !payment.stripePaymentIntentId || payment.purpose !== "INITIAL_MEMBERSHIP" ||
     payment.businessSubmission.ownerEmail.trim() ||
-    !normalizePhoneNumber(payment.businessSubmission.ownerPhone) ||
+    !hasValidNoEmailOwnerPhone(payment.businessSubmission.ownerPhone) ||
     (required?.submissionId && payment.businessSubmissionId !== required.submissionId) ||
     (required?.paid && payment.status !== "PAID")) return null;
   return payment;
@@ -122,7 +143,7 @@ export async function getVerifiedNoEmailPaymentIntent(paymentIntent: Stripe.Paym
     payment.userId !== payment.businessSubmission.userId ||
     payment.method !== "STRIPE_CHECKOUT" || payment.purpose !== "INITIAL_MEMBERSHIP" ||
     payment.businessSubmission.ownerEmail.trim() ||
-    !normalizePhoneNumber(payment.businessSubmission.ownerPhone) ||
+    !hasValidNoEmailOwnerPhone(payment.businessSubmission.ownerPhone) ||
     payment.businessSubmission.paymentMethod !== "ONLINE" ||
     ((payment.businessSubmission.paymentStatus === "PAID" || payment.businessSubmission.status === "PUBLISHED") && payment.status !== "PAID") ||
     payment.businessSubmission.automaticRenewalAtAcceptance ||

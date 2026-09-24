@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { parsePhoneNumberFromString } from "libphonenumber-js/core";
+import rawPhoneNumberMetadata from "libphonenumber-js/metadata.min.json";
 import type Stripe from "stripe";
 
 import {
@@ -7,13 +9,14 @@ import {
   ensureNoEmailPaymentIntent,
   findNoEmailTokenPayment,
   getInitialOnlinePaymentInterface,
+  getNoEmailPaymentPhoneError,
   getVerifiedNoEmailPaymentIntent,
   isNoEmailElementEligible,
   matchesNoEmailPaymentIntent,
   NO_EMAIL_PAYMENT_FLOW,
   parseNoEmailPaymentToken,
 } from "@/lib/no-email-payment";
-import { buildNoEmailPaymentQrPayload, buildStripePaymentQrPayload } from "@/lib/stripe-payment-qr";
+import { buildNoEmailPaymentQrPayload, buildStripePaymentQrPayload, generateStripePaymentQrDataUrl } from "@/lib/stripe-payment-qr";
 import { processPaidSubmissionWebhook } from "@/lib/stripe-payment-webhook";
 
 const signed = new Date("2026-09-24T12:00:00Z");
@@ -34,6 +37,37 @@ const submission = {
   user: { role: "GETTER" },
   userId: "partner-1",
 };
+const possibleButInvalidOwnerPhone = "+39 123 456 789";
+const phoneNumberMetadataModule = rawPhoneNumberMetadata as typeof rawPhoneNumberMetadata & {
+  default?: typeof rawPhoneNumberMetadata;
+};
+const phoneNumberMetadata = phoneNumberMetadataModule.default ?? rawPhoneNumberMetadata;
+
+test("a plausible but invalid no-email owner phone gets a field error before payment setup", async () => {
+  const parsed = parsePhoneNumberFromString(possibleButInvalidOwnerPhone, "IT", phoneNumberMetadata);
+  assert.equal(parsed?.isPossible(), true);
+  assert.equal(parsed?.isValid(), false);
+  const params = {
+    locale: "en" as const,
+    ownerEmail: "",
+    ownerPhone: possibleButInvalidOwnerPhone,
+    paymentMethod: "ONLINE",
+    submitterRole: "GETTER",
+  };
+  const error = getNoEmailPaymentPhoneError(params);
+  assert.equal(error?.error, "Enter a valid owner phone number before opening the payment QR.");
+  assert.deepEqual(error?.invalidFields, ["ownerPhone"]);
+  assert.equal(error?.fieldErrors.ownerPhone, error?.error);
+  assert.equal(getNoEmailPaymentPhoneError({ ...params, ownerEmail: "owner@example.com" }), null);
+  assert.equal(getNoEmailPaymentPhoneError({ ...params, paymentMethod: "BANK_TRANSFER" }), null);
+  assert.equal(isNoEmailElementEligible({ ...submission, ownerPhone: possibleButInvalidOwnerPhone, submittingUserRole: "GETTER" }), false);
+  const db = {
+    businessSubmission: { findUnique: async () => ({ ...submission, ownerPhone: possibleButInvalidOwnerPhone }) },
+    payment: { findFirst: async () => { throw new Error("Payment lookup must not run"); } },
+  };
+  const stripe = { paymentIntents: { create: async () => { throw new Error("Stripe must not run"); } } };
+  assert.equal(await ensureNoEmailPaymentIntent(submission.id, { db: db as never, stripe: stripe as never }), null);
+});
 
 test("only a signed Partner submission with no usable owner email and valid phone selects Payment Element", () => {
   assert.equal(getInitialOnlinePaymentInterface({ ownerEmail: "owner@example.com", submitterRole: "GETTER" }), "CHECKOUT");
@@ -76,11 +110,12 @@ test("the QR token is signed, expires, and binds one Payment rather than a user-
 });
 
 test("refresh reuses one server-priced PaymentIntent and its exact Payment record", async () => {
+  let ownerPhone = possibleButInvalidOwnerPhone;
   let storedPayment: Record<string, unknown> | null = null;
   let intent: Stripe.PaymentIntent | null = null;
   const createCalls: Array<{ amount: number; currency: string; metadata: Record<string, string>; idempotencyKey: string; paymentMethodTypes: string[] }> = [];
   const db = {
-    businessSubmission: { findUnique: async () => submission },
+    businessSubmission: { findUnique: async () => ({ ...submission, ownerPhone }) },
     payment: {
       findFirst: async () => null,
       findMany: async () => [],
@@ -106,6 +141,10 @@ test("refresh reuses one server-priced PaymentIntent and its exact Payment recor
     },
     checkout: { sessions: { retrieve: async () => { throw new Error("unexpected Checkout lookup"); } } },
   };
+  assert.equal(await ensureNoEmailPaymentIntent(submission.id, { db: db as never, stripe: stripe as never }), null);
+  assert.equal(storedPayment, null);
+  assert.equal(createCalls.length, 0);
+  ownerPhone = submission.ownerPhone;
   const first = await ensureNoEmailPaymentIntent(submission.id, { db: db as never, stripe: stripe as never });
   const second = await ensureNoEmailPaymentIntent(submission.id, { db: db as never, stripe: stripe as never });
   assert.equal(createCalls.length, 1);
@@ -128,6 +167,23 @@ test("refresh reuses one server-priced PaymentIntent and its exact Payment recor
   assert.equal(matchesNoEmailPaymentIntent({ ...intent!, metadata: { ...intent!.metadata, paymentFlow: "CHECKOUT" } } as Stripe.PaymentIntent, storedPayment as never), false);
   assert.equal(matchesNoEmailPaymentIntent({ ...intent!, amount: 100 } as Stripe.PaymentIntent, storedPayment as never), false);
   assert.equal(matchesNoEmailPaymentIntent({ ...intent!, metadata: { ...intent!.metadata, partnerId: "other-partner" } } as Stripe.PaymentIntent, storedPayment as never), false);
+
+  const previous = process.env.AUTH_SECRET;
+  process.env.AUTH_SECRET = "test-only-secret";
+  try {
+    const token = createNoEmailPaymentToken(first!.id);
+    const url = buildNoEmailPaymentQrPayload({
+      appUrl: "https://web-production-6f26e.up.railway.app",
+      token,
+      runtimeEnvironment: "production",
+    });
+    assert.equal(parseNoEmailPaymentToken(token), first!.id);
+    assert.ok(url.startsWith("https://web-production-6f26e.up.railway.app/pay/element/"));
+    assert.match(await generateStripePaymentQrDataUrl(url), /^data:image\/png;base64,/);
+  } finally {
+    if (previous === undefined) delete process.env.AUTH_SECRET;
+    else process.env.AUTH_SECRET = previous;
+  }
 });
 
 test("the owner token cannot open another Payment or a document before authoritative PAID state", async () => {
