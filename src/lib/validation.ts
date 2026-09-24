@@ -1,4 +1,4 @@
-import { parsePhoneNumberFromString } from "libphonenumber-js/core";
+import { getCountryCallingCode, parsePhoneNumberFromString, type CountryCode } from "libphonenumber-js/core";
 import rawPhoneNumberMetadata from "libphonenumber-js/metadata.min.json";
 import { z } from "zod";
 
@@ -30,6 +30,10 @@ const phoneNumberMetadataModule = rawPhoneNumberMetadata as typeof rawPhoneNumbe
 };
 const phoneNumberMetadata =
   phoneNumberMetadataModule.default ?? rawPhoneNumberMetadata;
+
+export function getPhoneCountryCallingCode(country: CountryCode) {
+  return `+${getCountryCallingCode(country, phoneNumberMetadata)}`;
+}
 
 export function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
@@ -199,7 +203,7 @@ const optionalPhoneSchema = z
     message: "invalid_phone",
   });
 
-function isPossiblePhoneNumber(value: string) {
+export function isPossiblePhoneNumber(value: string) {
   const trimmed = value.trim();
 
   if (!trimmed) {

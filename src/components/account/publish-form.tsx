@@ -71,6 +71,7 @@ import { getCategoryLabel } from "@/lib/site";
 import { normalizeSubmissionSocialInput } from "@/lib/business-links";
 import { duplicateResponseMatchesSubmittedValues } from "@/lib/publish-flow";
 import { requestPaymentQr } from "@/lib/payment-choice-client";
+import { buildPhoneValue, getOwnerPhoneStepError, getOwnerStepError, ownerEmailPattern } from "@/lib/publish-owner-phone";
 import {
   isPaymentApprovalReady,
   type PaymentQrMethod,
@@ -201,7 +202,6 @@ const dialCodeByCountry = new Map(
   supportedPhoneCountries.map((country) => [country, `+${getCountryCallingCode(country)}`]),
 );
 const localDraftStorageKeyPrefix = "salento-local:publish-draft";
-const emailValidationPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function buildLocalDraftStorageKey(adminMode: boolean) {
   return `${localDraftStorageKeyPrefix}:${adminMode ? "admin" : "standard"}`;
@@ -269,16 +269,6 @@ function splitPhoneValue(
   };
 }
 
-function buildPhoneValue(parts: PhoneParts) {
-  const localNumber = parts.number.trim();
-
-  if (!localNumber) {
-    return "";
-  }
-
-  return `${dialCodeByCountry.get(parts.country) ?? "+39"} ${localNumber}`.trim();
-}
-
 function normalizeEditablePhoneNumberInput(value: string) {
   return value.replace(/[^\d\s().-]+/g, "").slice(0, phoneNumberInputMaxLength);
 }
@@ -297,19 +287,8 @@ function isPossiblePhoneNumber(value: string) {
   return Boolean(parsed?.isPossible());
 }
 
-function isValidPhoneNumber(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) return false;
-
-  const parsed =
-    parsePhoneNumberFromString(trimmed) ??
-    parsePhoneNumberFromString(trimmed, defaultPhoneCountry);
-
-  return Boolean(parsed?.isValid());
-}
-
-function getLivePhoneValidationMessage(value: string, locale: Locale, requireValid = false) {
-  if (!value.trim() || (requireValid ? isValidPhoneNumber(value) : isPossiblePhoneNumber(value))) {
+function getLivePhoneValidationMessage(value: string, locale: Locale) {
+  if (!value.trim() || isPossiblePhoneNumber(value)) {
     return "";
   }
 
@@ -321,7 +300,7 @@ function getLivePhoneValidationMessage(value: string, locale: Locale, requireVal
 function getLiveEmailValidationMessage(value: string, locale: Locale) {
   const normalized = value.trim().toLowerCase();
 
-  if (!normalized || emailValidationPattern.test(normalized)) {
+  if (!normalized || ownerEmailPattern.test(normalized)) {
     return "";
   }
 
@@ -885,6 +864,7 @@ export function PublishForm({
   const [ownerName, setOwnerName] = useState(initialSubmissionValues.ownerName);
   const [ownerEmail, setOwnerEmail] = useState(initialSubmissionValues.ownerEmail);
   const [ownerHasNoEmail, setOwnerHasNoEmail] = useState(initialSubmissionValues.ownerHasNoEmail);
+  const [ownerStepAttempted, setOwnerStepAttempted] = useState(false);
   const [agreementAccepted, setAgreementAccepted] = useState(false);
   const [ownerInformationConfirmed, setOwnerInformationConfirmed] = useState(false);
   const [signerFullName, setSignerFullName] = useState(initialSubmissionValues.signerFullName);
@@ -976,8 +956,14 @@ export function PublishForm({
     state.fieldErrors?.phone || getLivePhoneValidationMessage(businessPhone, locale);
   const businessWhatsappErrorMessage =
     state.fieldErrors?.whatsapp || getLivePhoneValidationMessage(businessWhatsapp, locale);
+  const ownerStepPhoneError = getOwnerPhoneStepError({
+    locale,
+    ownerHasNoEmail,
+    ownerPhone: ownerContact,
+    submitterRole: role,
+  });
   const ownerPhoneErrorMessage =
-    state.fieldErrors?.ownerPhone || getLivePhoneValidationMessage(ownerContact, locale, role === "GETTER" && ownerHasNoEmail);
+    state.fieldErrors?.ownerPhone || (ownerContact || ownerStepAttempted ? ownerStepPhoneError : "");
   const ownerEmailErrorMessage =
     state.fieldErrors?.ownerEmail ||
     (ownerHasNoEmail ? "" : getLiveEmailValidationMessage(ownerEmail, locale));
@@ -2402,9 +2388,8 @@ export function PublishForm({
     } else if (wizardStep === "contact" && (!businessPhone || !isPossiblePhoneNumber(businessPhone))) {
       error = locale === "it" ? "Inserisci un numero di telefono valido dell'attività." : "Enter a valid business phone number.";
     } else if (wizardStep === "owner") {
-      if (!ownerName.trim() || !ownerContact || !(role === "GETTER" && ownerHasNoEmail ? isValidPhoneNumber(ownerContact) : isPossiblePhoneNumber(ownerContact)) || (!ownerHasNoEmail && !emailValidationPattern.test(ownerEmail))) {
-        error = locale === "it" ? "Completa i dati privati del titolare, oppure conferma che non ha email." : "Complete the owner's private details, or confirm they do not have an email.";
-      }
+      setOwnerStepAttempted(true);
+      error = getOwnerStepError({ locale, ownerEmail, ownerHasNoEmail, ownerName, ownerPhone: ownerContact, submitterRole: role });
     } else if (wizardStep === "about" && offerItemsCount < 2) {
       error = locale === "it" ? "Aggiungi almeno due punti su cosa offre l'attività." : "Add at least two points about what the business offers.";
     } else if (wizardStep === "hours" && !hours.some((day) => day.closed || Boolean(day.open1 && day.close1))) {
@@ -2719,7 +2704,7 @@ export function PublishForm({
           <div className="grid gap-4 sm:grid-cols-2"><label className="field-label"><FieldLabel title={copy.businessPhone} required={copy.required} /><div className="grid grid-cols-[7.25rem_minmax(0,1fr)] gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]"><PhoneCountrySelector value={businessPhoneParts.country} onChange={(country) => setBusinessPhoneParts({ ...businessPhoneParts, country })} options={phoneCountryOptions} aria-label={copy.phoneCode} aria-invalid={hasBusinessPhoneError} /><input value={businessPhoneParts.number} onChange={(event) => setBusinessPhoneParts({ ...businessPhoneParts, number: normalizeEditablePhoneNumberInput(event.target.value) })} inputMode="tel" className="input-field" /></div><FieldError message={businessPhoneErrorMessage} /></label><label className="field-label"><FieldLabel title={copy.whatsapp} optional={copy.optional} /><div className="grid grid-cols-[7.25rem_minmax(0,1fr)] gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]"><PhoneCountrySelector value={businessWhatsappParts.country} onChange={(country) => setBusinessWhatsappParts({ ...businessWhatsappParts, country })} options={phoneCountryOptions} aria-label={copy.phoneCode} aria-invalid={hasBusinessWhatsappError} /><input value={businessWhatsappParts.number} onChange={(event) => setBusinessWhatsappParts({ ...businessWhatsappParts, number: normalizeEditablePhoneNumberInput(event.target.value) })} inputMode="tel" className="input-field" /></div></label><label className="field-label"><FieldLabel title={copy.businessEmail} optional={copy.optional} /><input type="email" value={businessEmail} onChange={(event) => setBusinessEmail(event.target.value)} className="input-field" /></label><label className="field-label"><FieldLabel title="Website" optional={copy.optional} /><input value={website} onChange={(event) => setWebsite(event.target.value)} className="input-field" placeholder="https://" /></label><label className="field-label"><FieldLabel title="Instagram" optional={copy.optional} /><SocialHandleInput hasError={hasFieldError("instagram")} value={instagram} onChange={setInstagram} /></label><label className="field-label"><FieldLabel title="Facebook" optional={copy.optional} /><SocialHandleInput hasError={hasFieldError("facebook")} value={facebook} onChange={setFacebook} /></label></div>
         </div> : null}
 
-        {wizardStep === "owner" ? <div className="grid gap-5"><div><p className="section-kicker">3. {locale === "it" ? "Titolare" : "Owner"}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? "Con chi stai parlando?" : "Who are you speaking with?"}</h1><p className="mt-3 rounded-2xl border border-[rgba(42,98,87,0.16)] bg-[rgba(247,244,239,0.7)] p-4 text-sm leading-6 text-[var(--foreground)]"><strong>{locale === "it" ? "Informazioni private." : "Private information."}</strong> {locale === "it" ? "Servono per approvazione e comunicazioni: non compariranno nella scheda pubblica." : "These are used for approval and communication and will not appear on the public listing."}</p></div><div className="grid gap-4 sm:grid-cols-2"><label className="field-label self-start"><FieldLabel title={copy.ownerName} required={copy.required} /><input value={ownerName} onChange={(event) => setOwnerName(event.target.value)} className="input-field" /></label><label className="field-label"><FieldLabel title={copy.ownerWhatsapp} required={copy.required} /><div className="grid grid-cols-[7.25rem_minmax(0,1fr)] gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]"><PhoneCountrySelector value={ownerContactParts.country} onChange={(country) => { setOwnerMatchesBusinessWhatsapp(false); setOwnerContactParts({ ...ownerContactParts, country }); }} options={phoneCountryOptions} aria-label={copy.phoneCode} aria-invalid={hasOwnerPhoneError} /><input value={ownerContactParts.number} onChange={(event) => { setOwnerMatchesBusinessWhatsapp(false); setOwnerContactParts({ ...ownerContactParts, number: normalizeEditablePhoneNumberInput(event.target.value) }); }} inputMode="tel" className="input-field" /></div><CopyToggle checked={ownerMatchesBusinessWhatsapp} onChange={(checked) => { setOwnerMatchesBusinessWhatsapp(checked); if (checked) setOwnerContactParts(businessPhoneParts); }} label={copy.sameAsBusinessPhone} /></label><label className="field-label sm:col-span-2"><FieldLabel title={copy.ownerEmail} required={ownerHasNoEmail ? undefined : copy.required} /><input type="email" value={ownerEmail} disabled={ownerHasNoEmail} onChange={(event) => setOwnerEmail(event.target.value)} className="input-field disabled:opacity-60" /><CopyToggle checked={ownerHasNoEmail} onChange={(checked) => { setOwnerHasNoEmail(checked); if (checked) { setOwnerEmail(""); if (role === "GETTER") setRenewalPreference("MANUAL"); } }} label={copy.noEmail} /></label></div></div> : null}
+        {wizardStep === "owner" ? <div className="grid gap-5"><div><p className="section-kicker">3. {locale === "it" ? "Titolare" : "Owner"}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? "Con chi stai parlando?" : "Who are you speaking with?"}</h1><p className="mt-3 rounded-2xl border border-[rgba(42,98,87,0.16)] bg-[rgba(247,244,239,0.7)] p-4 text-sm leading-6 text-[var(--foreground)]"><strong>{locale === "it" ? "Informazioni private." : "Private information."}</strong> {locale === "it" ? "Servono per approvazione e comunicazioni: non compariranno nella scheda pubblica." : "These are used for approval and communication and will not appear on the public listing."}</p></div><div className="grid gap-4 sm:grid-cols-2"><label className="field-label self-start"><FieldLabel title={copy.ownerName} required={copy.required} /><input value={ownerName} onChange={(event) => setOwnerName(event.target.value)} className="input-field" /></label><label className="field-label"><FieldLabel title={copy.ownerWhatsapp} required={copy.required} /><div className="grid grid-cols-[7.25rem_minmax(0,1fr)] gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]"><PhoneCountrySelector value={ownerContactParts.country} onChange={(country) => { setOwnerMatchesBusinessWhatsapp(false); setOwnerContactParts({ ...ownerContactParts, country }); }} options={phoneCountryOptions} aria-label={copy.phoneCode} aria-invalid={hasOwnerPhoneError} /><input value={ownerContactParts.number} onChange={(event) => { setOwnerMatchesBusinessWhatsapp(false); setOwnerContactParts({ ...ownerContactParts, number: normalizeEditablePhoneNumberInput(event.target.value) }); }} inputMode="tel" className="input-field" aria-invalid={hasOwnerPhoneError} /></div><FieldError message={ownerPhoneErrorMessage} /><CopyToggle checked={ownerMatchesBusinessWhatsapp} onChange={(checked) => { setOwnerMatchesBusinessWhatsapp(checked); if (checked) setOwnerContactParts(businessPhoneParts); }} label={copy.sameAsBusinessPhone} /></label><label className="field-label sm:col-span-2"><FieldLabel title={copy.ownerEmail} required={ownerHasNoEmail ? undefined : copy.required} /><input type="email" value={ownerEmail} disabled={ownerHasNoEmail} onChange={(event) => setOwnerEmail(event.target.value)} className="input-field disabled:opacity-60" /><CopyToggle checked={ownerHasNoEmail} onChange={(checked) => { setOwnerHasNoEmail(checked); if (checked) { setOwnerEmail(""); if (role === "GETTER") setRenewalPreference("MANUAL"); } }} label={copy.noEmail} /></label></div></div> : null}
 
         {wizardStep === "about" ? <div className="grid gap-5"><div><p className="section-kicker">4. {locale === "it" ? "Descrizione" : "About"}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? "Raccontaci dell'attività" : "Tell us about the business"}</h1>{firstSubmission ? <p className="mt-3 rounded-2xl bg-[rgba(42,98,87,0.08)] p-4 text-sm">{locale === "it" ? "Chiedi: Cosa vorresti che chi visita il Salento sapesse della tua attività?" : "Ask: What would you like people visiting Salento to know about your business?"}</p> : null}</div><div className="grid gap-3"><FieldLabel title={copy.sellOrOffer} description={locale === "it" ? "Aggiungi almeno due punti." : "Add at least two points."} required={copy.required} />{offerItems.map((item, index) => <div key={index} className="flex gap-2"><input ref={(node) => { offerInputRefs.current[index] = node; }} value={item} onChange={(event) => updateOfferItem(index, event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addOfferItem(index); } }} className="input-field" placeholder={copy.sellOrOfferPlaceholder} /><button type="button" onClick={() => removeOfferItem(index)} className="btn-secondary px-3" aria-label={copy.removeBullet}><IconTrash size={18} /></button></div>)}<button type="button" onClick={() => addOfferItem()} className="btn-secondary w-fit"><IconPlus size={18} /> {locale === "it" ? "Aggiungi un altro" : "Add another"}</button></div><label className="field-label"><FieldLabel title={copy.businessSummary} optional={copy.optional} /><textarea value={businessSummary} onChange={(event) => setBusinessSummary(event.target.value)} className="input-field min-h-28" placeholder={copy.businessSummaryPlaceholder} /></label></div> : null}
 
