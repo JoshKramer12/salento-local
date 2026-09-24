@@ -45,6 +45,15 @@ export function isStripeSandboxMode() {
   return secretKey.startsWith("sk_test_");
 }
 
+export function getPaymentElementPublishableKey() {
+  const secret = normalizeEnvValue(process.env.STRIPE_SECRET_KEY);
+  if (!secret.startsWith("sk_test_") && !secret.startsWith("sk_live_")) return null;
+  const key = normalizeEnvValue(process.env.STRIPE_PUBLISHABLE_KEY) ||
+    normalizeEnvValue(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);
+  const expectedPrefix = isStripeSandboxMode() ? "pk_test_" : "pk_live_";
+  return key.startsWith(expectedPrefix) ? key : null;
+}
+
 export function canUseStripeBankTransferTestSimulation() {
   return isStripeSandboxMode() && process.env.NODE_ENV !== "production";
 }

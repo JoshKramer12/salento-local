@@ -1006,7 +1006,6 @@ export async function sendPurchaseConfirmationForSubmission(params: {
   if (
     !receipt ||
     receipt.submission.purchaseConfirmationSentAt ||
-    receipt.submission.ownerHasNoEmail ||
     !receipt.submission.ownerEmail.trim()
   ) {
     return false;

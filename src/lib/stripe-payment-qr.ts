@@ -18,6 +18,26 @@ export const STRIPE_PAYMENT_QR_OPTIONS = {
   width: 240,
 };
 
+function getPublicQrOrigin(appUrl: string, runtimeEnvironment: string | undefined = process.env.NODE_ENV) {
+  const url = new URL(appUrl);
+  const hostname = url.hostname.toLowerCase();
+  const local = hostname === "localhost" || hostname === "127.0.0.1";
+  if (hostname.endsWith(".railway.internal") || hostname.includes("stripe-audit-web") ||
+    (runtimeEnvironment === "production" && local) ||
+    (url.protocol !== "https:" && !(runtimeEnvironment !== "production" && local))) {
+    throw new Error("invalid_public_app_url");
+  }
+  return url.origin;
+}
+
+export function buildNoEmailPaymentQrPayload(params: { appUrl: string; token: string; runtimeEnvironment?: string }) {
+  if (!params.token || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(params.token)) {
+    throw new Error("invalid_no_email_payment_token");
+  }
+  const origin = getPublicQrOrigin(params.appUrl, params.runtimeEnvironment);
+  return `${origin}/pay/element/${encodeURIComponent(params.token)}`;
+}
+
 export function getValidatedStripeCheckoutUrl(value: string | null | undefined) {
   const candidate = value?.trim();
   if (!candidate) return null;
@@ -54,23 +74,7 @@ export function buildStripePaymentQrPayload(params: {
     throw new Error("invalid_stripe_checkout_url");
   }
 
-  const appUrl = new URL(params.appUrl);
-  const hostname = appUrl.hostname.toLowerCase();
-  const isLocalHostname = hostname === "localhost" || hostname === "127.0.0.1";
-  const isPrivateRailwayHostname = hostname.endsWith(".railway.internal");
-  const isAuditHostname = hostname.includes("stripe-audit-web");
-  const runtimeEnvironment = params.runtimeEnvironment ?? process.env.NODE_ENV;
-
-  if (
-    isPrivateRailwayHostname ||
-    isAuditHostname ||
-    (runtimeEnvironment === "production" && isLocalHostname) ||
-    (appUrl.protocol !== "https:" && !(runtimeEnvironment !== "production" && isLocalHostname))
-  ) {
-    throw new Error("invalid_public_app_url");
-  }
-
-  const appOrigin = appUrl.origin;
+  const appOrigin = getPublicQrOrigin(params.appUrl, params.runtimeEnvironment);
   const qrUrl = new URL(
     `/pay/stripe/${encodeURIComponent(params.checkoutSessionId)}`,
     appOrigin,

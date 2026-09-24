@@ -12,6 +12,7 @@ import { getOriginFromHeaders } from "@/lib/request-origin";
 import { syncStripePaymentForSubmission } from "@/lib/stripe-payment-sync";
 import { canUseStripeBankTransferTestSimulation, getStripe } from "@/lib/stripe";
 import { getStringValue } from "@/lib/validation";
+import { getInitialOnlinePaymentInterface } from "@/lib/no-email-payment";
 
 export async function startStripeCheckoutAction(formData: FormData) {
   const viewer = await requireCompletedViewer();
@@ -52,6 +53,11 @@ export async function startStripeCheckoutAction(formData: FormData) {
   }
 
   if (submission.paymentMethod !== "ONLINE" || submission.paymentStatus === "PAID") {
+    redirect(`/publish/payment?submission=${encodeURIComponent(submission.id)}`);
+  }
+
+  // A no-email owner must never enter hosted Checkout through the fallback action.
+  if (getInitialOnlinePaymentInterface({ ownerEmail: submission.ownerEmail, submitterRole: viewer.role }) === "ELEMENT") {
     redirect(`/publish/payment?submission=${encodeURIComponent(submission.id)}`);
   }
 

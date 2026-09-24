@@ -31,16 +31,18 @@ import {
 } from "@/lib/business-owner-access";
 import { getCurrentLocale } from "@/lib/locale";
 import { getPendingPaymentCopy } from "@/lib/payment";
+import { createNoEmailPaymentToken, ensureNoEmailPaymentIntent, getInitialOnlinePaymentInterface, isNoEmailElementEligible } from "@/lib/no-email-payment";
 import { prisma } from "@/lib/prisma";
 import { getReceiptData } from "@/lib/receipts";
 import { getOriginFromHeaders } from "@/lib/request-origin";
 import { getSingleParam } from "@/lib/site";
-import { canUseStripeBankTransferTestSimulation } from "@/lib/stripe";
+import { canUseStripeBankTransferTestSimulation, getPaymentElementPublishableKey } from "@/lib/stripe";
 import {
   ensureStripeBankTransferIntent,
   ensureStripeCheckoutSession,
 } from "@/lib/stripe-checkout";
 import {
+  buildNoEmailPaymentQrPayload,
   buildStripePaymentQrPayload,
   generateStripePaymentQrDataUrl,
 } from "@/lib/stripe-payment-qr";
@@ -84,10 +86,12 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
     select: {
       amountPaidCents: true,
       amountOwedCents: true,
+      agreementSignature: true,
       automaticRenewalAtAcceptance: true,
       bankTransferReference: true,
       businessName: true,
       businessPriceCents: true,
+      businessTermsAcceptedAt: true,
       email: true,
       id: true,
       ownerEmail: true,
@@ -96,6 +100,7 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
       ownerPhone: true,
       paymentMethod: true,
       paymentStatus: true,
+      signedAt: true,
       status: true,
       userId: true,
     },
@@ -134,6 +139,7 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
       };
 
   let qrCodeDataUrl: string | null = null;
+  let noEmailPaymentUrl: string | null = null;
   let bankTransferInstructionsUrl: string | null = null;
   let bankTransferQrDataUrl: string | null = null;
   let bankTransferAccountHolderName: string | null = null;
@@ -142,26 +148,48 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
   let bankTransferAmountRemainingCents: number | null = null;
   let bankTransferReference = submission.bankTransferReference;
 
-  const receipt = submission.paymentStatus === "PAID"
-    ? await getReceiptData({ appUrl, submissionId: submission.id, viewerId: viewer.id })
+  const noEmailPaidPayment = submission.paymentStatus === "PAID" && !submission.ownerEmail.trim()
+    ? await prisma.payment.findUnique({
+        where: { id: `initial-element:${submission.id}` },
+        select: { id: true, status: true },
+      })
     : null;
-  const receiptQrDataUrl = receipt?.receiptUrl
-    ? await QRCode.toDataURL(receipt.receiptUrl, { margin: 1, width: 320 })
+  const exactNoEmailPaymentId = noEmailPaidPayment?.status === "PAID" ? noEmailPaidPayment.id : null;
+  const receipt = submission.paymentStatus === "PAID"
+    ? await getReceiptData({ appUrl, paymentId: exactNoEmailPaymentId, submissionId: submission.id, viewerId: viewer.id })
+    : null;
+  const receiptUrl = receipt?.receiptUrl && exactNoEmailPaymentId
+    ? `${receipt.receiptUrl}?payment_token=${encodeURIComponent(createNoEmailPaymentToken(exactNoEmailPaymentId))}`
+    : receipt?.receiptUrl;
+  const receiptQrDataUrl = receiptUrl
+    ? await QRCode.toDataURL(receiptUrl, { margin: 1, width: 320 })
     : null;
 
   if (submission.paymentMethod === "ONLINE" && submission.paymentStatus !== "PAID") {
-    const checkoutSession = await ensureStripeCheckoutSession({
-      appUrl,
-      submission: { amountOwedCents: submission.amountOwedCents, automaticRenewalAtAcceptance: submission.automaticRenewalAtAcceptance, businessName: submission.businessName, email: submission.email, id: submission.id, ownerEmail: submission.ownerEmail, userId: submission.userId },
-      viewer: { email: viewer.email, id: viewer.id, role: viewer.role },
-    });
-    if (checkoutSession.url) {
-      const paymentQr = buildStripePaymentQrPayload({
+    const paymentInterface = getInitialOnlinePaymentInterface({ ownerEmail: submission.ownerEmail, submitterRole: viewer.role });
+    if (paymentInterface === "ELEMENT" && isNoEmailElementEligible({ ...submission, submittingUserRole: viewer.role }) && getPaymentElementPublishableKey()) {
+      const payment = await ensureNoEmailPaymentIntent(submission.id);
+      if (payment) {
+        noEmailPaymentUrl = buildNoEmailPaymentQrPayload({
+          appUrl,
+          token: createNoEmailPaymentToken(payment.id),
+        });
+        qrCodeDataUrl = await generateStripePaymentQrDataUrl(noEmailPaymentUrl);
+      }
+    } else if (paymentInterface === "CHECKOUT") {
+      const checkoutSession = await ensureStripeCheckoutSession({
         appUrl,
-        checkoutSessionId: checkoutSession.id,
-        checkoutUrl: checkoutSession.url,
+        submission: { amountOwedCents: submission.amountOwedCents, automaticRenewalAtAcceptance: submission.automaticRenewalAtAcceptance, businessName: submission.businessName, email: submission.email, id: submission.id, ownerEmail: submission.ownerEmail, userId: submission.userId },
+        viewer: { email: viewer.email, id: viewer.id, role: viewer.role },
       });
-      qrCodeDataUrl = await generateStripePaymentQrDataUrl(paymentQr.qrValue);
+      if (checkoutSession.url) {
+        const paymentQr = buildStripePaymentQrPayload({
+          appUrl,
+          checkoutSessionId: checkoutSession.id,
+          checkoutUrl: checkoutSession.url,
+        });
+        qrCodeDataUrl = await generateStripePaymentQrDataUrl(paymentQr.qrValue);
+      }
     }
   }
 
@@ -232,7 +260,7 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
               <SummaryRow label={copy.date}>{paymentDate ?? "—"}</SummaryRow>
               <SummaryRow label={copy.status} last><span className="pill-success inline-flex items-center gap-1.5"><IconCircleCheck size={16} /> {copy.statusConfirmed}</span></SummaryRow>
             </div>
-            <div className="mt-6 rounded-[1.4rem] border border-[rgba(191,91,42,0.15)] bg-[linear-gradient(135deg,rgba(255,248,243,0.96),rgba(255,255,255,0.98))] p-5 sm:p-6"><div className="grid items-center gap-5 sm:grid-cols-[1fr_auto]"><div><div className="flex items-center gap-3 text-[var(--accent)]"><span className="flex h-11 w-11 items-center justify-center rounded-full bg-[rgba(191,91,42,0.09)]"><IconReceipt2 size={23} /></span><h2 className="text-xl font-bold text-[var(--foreground)]">{copy.receipt}</h2></div><p className="mt-4 max-w-md leading-7 text-[var(--foreground)]">{copy.receiptHint}</p>{receipt?.submission.purchaseConfirmationSentAt && receipt.recipientEmail ? <p className="mt-4 text-sm font-medium text-[var(--primary)]">{copy.emailSent} · {copy.emailSentHint}</p> : null}{receipt?.receiptUrl ? <a href={receipt.receiptUrl} download className="btn-secondary mt-5 inline-flex border-[rgba(191,91,42,0.4)] text-[var(--accent)]"><IconDownload size={18} /> {locale === "it" ? "Scarica ricevuta PDF" : "Download PDF receipt"}</a> : <p className="mt-4 text-sm text-[var(--muted)]">{copy.receiptUnavailable}</p>}</div>{receiptQrDataUrl ? <div className="mx-auto rounded-[1.25rem] border border-[var(--border)] bg-white p-3 shadow-sm"><img src={receiptQrDataUrl} alt={locale === "it" ? "QR della ricevuta" : "Receipt QR code"} className="h-44 w-44 rounded-xl sm:h-40 sm:w-40" /></div> : null}</div></div>
+            <div className="mt-6 rounded-[1.4rem] border border-[rgba(191,91,42,0.15)] bg-[linear-gradient(135deg,rgba(255,248,243,0.96),rgba(255,255,255,0.98))] p-5 sm:p-6"><div className="grid items-center gap-5 sm:grid-cols-[1fr_auto]"><div><div className="flex items-center gap-3 text-[var(--accent)]"><span className="flex h-11 w-11 items-center justify-center rounded-full bg-[rgba(191,91,42,0.09)]"><IconReceipt2 size={23} /></span><h2 className="text-xl font-bold text-[var(--foreground)]">{copy.receipt}</h2></div><p className="mt-4 max-w-md leading-7 text-[var(--foreground)]">{copy.receiptHint}</p>{receipt?.submission.purchaseConfirmationSentAt && receipt.recipientEmail ? <p className="mt-4 text-sm font-medium text-[var(--primary)]">{copy.emailSent} · {copy.emailSentHint}</p> : null}{receipt?.receiptUrl ? <a href={receiptUrl} download className="btn-secondary mt-5 inline-flex border-[rgba(191,91,42,0.4)] text-[var(--accent)]"><IconDownload size={18} /> {locale === "it" ? "Scarica ricevuta PDF" : "Download PDF receipt"}</a> : <p className="mt-4 text-sm text-[var(--muted)]">{copy.receiptUnavailable}</p>}</div>{receiptQrDataUrl ? <div className="mx-auto rounded-[1.25rem] border border-[var(--border)] bg-white p-3 shadow-sm"><img src={receiptQrDataUrl} alt={locale === "it" ? "QR della ricevuta" : "Receipt QR code"} className="h-44 w-44 rounded-xl sm:h-40 sm:w-40" /></div> : null}</div></div>
             {ownerWhatsAppHandoff ? <section className="mt-6 rounded-[1.4rem] border border-[rgba(37,211,102,0.24)] bg-[linear-gradient(135deg,rgba(238,251,242,0.96),rgba(255,255,255,0.98))] p-5 sm:p-6"><div className="flex items-start gap-4"><span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[rgba(37,211,102,0.12)] text-[#168846]"><IconBrandWhatsapp size={25} /></span><div className="min-w-0"><h2 className="text-xl font-bold text-[var(--foreground)]">{copy.handoffTitle}</h2><p className="mt-2 leading-7 text-[var(--foreground)]">{copy.handoffBody}</p><a href={ownerWhatsAppHandoff.href} className="btn-primary mt-5 flex w-full py-4 text-base sm:w-auto" target="_blank" rel="noreferrer"><IconBrandWhatsapp size={22} /> {copy.handoffCta}</a><p className="mt-3 text-sm leading-6 text-[var(--muted)]">{copy.handoffHint}</p></div></div></section> : null}
             {shouldContinueHandoffPolling ? <CheckoutStatusWatcher copy={{ paid: copy.handoffPreparing, pending: copy.handoffPreparing }} submissionId={submission.id} /> : null}
             <Link href="/dashboard" className="btn-primary mt-8 flex w-full py-4 text-base">{copy.returnDashboard}</Link>
@@ -250,7 +278,7 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
                 </div>
               ) : (
                 <div><div className="rounded-[1.35rem] border border-[rgba(42,98,87,0.13)] bg-[linear-gradient(135deg,rgba(243,248,242,0.98),rgba(247,244,239,0.92))] p-5 sm:rounded-none sm:border-x-0 sm:border-t-0 sm:border-dashed sm:border-[var(--border)] sm:bg-transparent sm:px-0 sm:pb-6"><p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--primary)]">{copy.amountDue}</p><div className="mt-2 flex items-end justify-between gap-4"><p className="font-serif text-5xl leading-none text-[var(--foreground)] sm:text-6xl">{amountDue}</p><p className="mb-0.5 inline-flex shrink-0 items-center gap-2 text-sm font-semibold text-[var(--primary)]"><IconLock size={19} /> <span className="max-w-20 leading-5 sm:max-w-none">{copy.secure}</span></p></div></div>
-                  {qrCodeDataUrl ? <div className="mt-4 rounded-[1.4rem] border border-[var(--border)] bg-white p-4 text-center sm:mt-6 sm:p-6"><h2 className="text-xl font-bold leading-7 text-[var(--foreground)] sm:text-2xl">{copy.cardQrTitle}</h2><p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--muted)] sm:text-base sm:leading-7">{copy.cardQrHint} <strong className="font-semibold text-[var(--foreground)]">{amountDue}</strong></p><div className="mx-auto mt-4 w-full max-w-[16.5rem] rounded-[1.25rem] border border-[var(--border)] bg-white p-3 shadow-sm sm:mt-5 sm:p-4"><img src={qrCodeDataUrl} alt={locale === "it" ? "QR del pagamento Stripe" : "QR code for Stripe payment"} className="aspect-square h-auto w-full" /></div><div className="mt-4 rounded-[1.15rem] bg-[rgba(42,98,87,0.06)] px-4 py-4 text-left sm:mt-5 sm:flex sm:items-start sm:gap-4"><IconDeviceMobile size={25} className="mb-2 shrink-0 text-[var(--primary)] sm:mb-0" /><div><h3 className="font-bold text-[var(--foreground)]">{copy.useBankingApp}</h3><p className="mt-1 text-sm leading-6 text-[var(--muted)]">{copy.cardQrHint} <strong className="font-semibold text-[var(--primary)]">{amountDue}</strong></p></div></div><div className="mt-4 border-t border-[var(--border)] pt-4 text-left sm:mt-5 sm:pt-5"><div className="flex items-start gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[rgba(191,91,42,0.1)] text-[var(--accent)]"><IconClock size={20} /></span><div><h3 className="font-bold text-[var(--foreground)]">{copy.next}</h3><p className="mt-1 text-sm leading-6 text-[var(--muted)]">{copy.nextPending}</p><p className="mt-2 text-sm font-medium text-[var(--foreground)]">{copy.cardWaiting}</p></div></div></div></div> : <form action={startStripeCheckoutAction} className="mt-6"><input type="hidden" name="submissionId" value={submission.id} /><FormSubmitButton className="btn-primary flex w-full py-4 text-base">{copy.cardFallback}</FormSubmitButton></form>}
+                  {qrCodeDataUrl ? <div className="mt-4 rounded-[1.4rem] border border-[var(--border)] bg-white p-4 text-center sm:mt-6 sm:p-6"><h2 className="text-xl font-bold leading-7 text-[var(--foreground)] sm:text-2xl">{copy.cardQrTitle}</h2><p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--muted)] sm:text-base sm:leading-7">{copy.cardQrHint} <strong className="font-semibold text-[var(--foreground)]">{amountDue}</strong></p><div className="mx-auto mt-4 w-full max-w-[16.5rem] rounded-[1.25rem] border border-[var(--border)] bg-white p-3 shadow-sm sm:mt-5 sm:p-4"><img src={qrCodeDataUrl} alt={locale === "it" ? "QR del pagamento Stripe" : "QR code for Stripe payment"} className="aspect-square h-auto w-full" /></div><div className="mt-4 rounded-[1.15rem] bg-[rgba(42,98,87,0.06)] px-4 py-4 text-left sm:mt-5 sm:flex sm:items-start sm:gap-4"><IconDeviceMobile size={25} className="mb-2 shrink-0 text-[var(--primary)] sm:mb-0" /><div><h3 className="font-bold text-[var(--foreground)]">{copy.useBankingApp}</h3><p className="mt-1 text-sm leading-6 text-[var(--muted)]">{copy.cardQrHint} <strong className="font-semibold text-[var(--primary)]">{amountDue}</strong></p></div></div><div className="mt-4 border-t border-[var(--border)] pt-4 text-left sm:mt-5 sm:pt-5"><div className="flex items-start gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[rgba(191,91,42,0.1)] text-[var(--accent)]"><IconClock size={20} /></span><div><h3 className="font-bold text-[var(--foreground)]">{copy.next}</h3><p className="mt-1 text-sm leading-6 text-[var(--muted)]">{copy.nextPending}</p><p className="mt-2 text-sm font-medium text-[var(--foreground)]">{copy.cardWaiting}</p></div></div></div>{noEmailPaymentUrl ? <Link href={noEmailPaymentUrl} className="btn-secondary mt-4 flex min-h-12 w-full">{locale === "it" ? "Apri pagamento" : "Open payment"}</Link> : null}</div> : getInitialOnlinePaymentInterface({ ownerEmail: submission.ownerEmail, submitterRole: viewer.role }) === "CHECKOUT" ? <form action={startStripeCheckoutAction} className="mt-6"><input type="hidden" name="submissionId" value={submission.id} /><FormSubmitButton className="btn-primary flex w-full py-4 text-base">{copy.cardFallback}</FormSubmitButton></form> : <p className="mt-6 text-sm text-[var(--accent)]">{locale === "it" ? "Pagamento non disponibile. Verifica il numero del titolare e la scelta del rinnovo manuale." : "Payment unavailable. Check the owner's phone and manual renewal selection."}</p>}
                 </div>
               )}
               {isFailed ? <p className="mt-6 rounded-[1.2rem] bg-[rgba(191,91,42,0.08)] px-4 py-3 text-sm leading-6 text-[var(--foreground)]">{copy.failed}</p> : null}

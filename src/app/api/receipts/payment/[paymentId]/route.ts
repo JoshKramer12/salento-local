@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getRequestOrigin } from "@/lib/request-origin";
 import { buildReceiptPdf, getReceiptData } from "@/lib/receipts";
+import { findNoEmailTokenPayment } from "@/lib/no-email-payment";
 
 type RouteContext = { params: Promise<{ paymentId: string }> };
 
@@ -13,12 +14,15 @@ type RouteContext = { params: Promise<{ paymentId: string }> };
  * authorization enforced by getReceiptData.
  */
 export async function GET(request: Request, context: RouteContext) {
-  const { paymentId } = await context.params;
+  const { paymentId: encodedPaymentId } = await context.params;
+  const paymentId = encodedPaymentId.replace(/%3a/gi, ":");
   const { searchParams } = new URL(request.url);
   const checkoutSessionId = searchParams.get("session")?.trim() || null;
-  const viewer = checkoutSessionId ? null : (await auth())?.user;
+  const paymentToken = searchParams.get("payment_token")?.trim() || null;
+  const tokenPayment = paymentToken ? await findNoEmailTokenPayment(paymentToken, { paid: true, paymentId }) : null;
+  const viewer = checkoutSessionId || tokenPayment ? null : (await auth())?.user;
   const receipt = await getReceiptData({
-    allowInternal: Boolean(checkoutSessionId),
+    allowInternal: Boolean(checkoutSessionId || tokenPayment),
     appUrl: getRequestOrigin(request),
     checkoutSessionId,
     paymentId,

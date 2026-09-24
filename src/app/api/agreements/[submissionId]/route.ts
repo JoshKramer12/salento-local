@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { auth } from "@/lib/auth";
 import { buildSignedAgreementPdf, getSignedAgreementData } from "@/lib/receipts";
+import { findNoEmailTokenPayment } from "@/lib/no-email-payment";
 
 type RouteContext = { params: Promise<{ submissionId: string }> };
 
@@ -9,9 +10,11 @@ export async function GET(request: Request, context: RouteContext) {
   const { submissionId } = await context.params;
   const { searchParams } = new URL(request.url);
   const checkoutSessionId = searchParams.get("session")?.trim() || null;
-  const viewer = checkoutSessionId ? null : (await auth())?.user;
+  const paymentToken = searchParams.get("payment_token")?.trim() || null;
+  const tokenPayment = paymentToken ? await findNoEmailTokenPayment(paymentToken, { paid: true, submissionId }) : null;
+  const viewer = checkoutSessionId || tokenPayment ? null : (await auth())?.user;
   const agreement = await getSignedAgreementData({
-    allowInternal: Boolean(checkoutSessionId),
+    allowInternal: Boolean(checkoutSessionId || tokenPayment),
     checkoutSessionId,
     submissionId,
     viewerId: viewer?.id ?? null,

@@ -10,6 +10,7 @@ import { getStripe } from "@/lib/stripe";
 import { publishSubmissionAfterPayment } from "@/lib/submission-publication";
 import { ensureOwnerAccessForPublishedSubmission } from "@/lib/business-owner-access";
 import { ensureInitialBusinessMembership } from "@/lib/business-membership";
+import { getVerifiedNoEmailPaymentIntent } from "@/lib/no-email-payment";
 
 type SyncResult = {
   paymentReceived: boolean;
@@ -333,6 +334,7 @@ export async function syncStripePaymentForSubmission(params: {
           createdAt: "desc",
         },
         select: {
+          id: true,
           stripeCheckoutSessionId: true,
           stripePaymentIntentId: true,
         },
@@ -418,6 +420,31 @@ export async function syncStripePaymentForSubmission(params: {
       ...synced,
       status: "paid" as const,
     };
+  }
+
+  const elementPayment = submission.payments[0];
+  if (elementPayment?.id.startsWith("initial-element:") && elementPayment.stripePaymentIntentId &&
+    !elementPayment.stripeCheckoutSessionId) {
+    let intent: Stripe.PaymentIntent;
+    try {
+      intent = await getStripe().paymentIntents.retrieve(elementPayment.stripePaymentIntentId);
+    } catch {
+      return { paymentReceived: false, publishedBusinessSlug: "", publishedTownSlug: "", status: "pending" as const };
+    }
+    const verified = await getVerifiedNoEmailPaymentIntent(intent);
+    if (!verified || verified.id !== elementPayment.id || intent.status !== "succeeded" ||
+      intent.amount_received !== verified.amountCents) {
+      return { paymentReceived: false, publishedBusinessSlug: "", publishedTownSlug: "", status: "pending" as const };
+    }
+    const synced = await finalizeStripeManagedPayment({
+      amountPaidCents: verified.amountCents,
+      businessSubmissionId: submission.id,
+      currency: intent.currency,
+      method: "STRIPE_CHECKOUT",
+      paymentIntentId: intent.id,
+      revalidatePaths: params.revalidatePaths,
+    });
+    return { ...synced, status: "paid" as const };
   }
 
   const sessionId = submission.payments[0]?.stripeCheckoutSessionId?.trim();

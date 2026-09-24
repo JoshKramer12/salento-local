@@ -169,7 +169,7 @@ export async function ensureOwnerAccessForPublishedSubmission(params: {
     return null;
   }
 
-  const noEmailOwner = submission.ownerHasNoEmail || !submission.ownerEmail.trim();
+  const noEmailOwner = !submission.ownerEmail.trim();
   const email = noEmailOwner ? null : normalizeEmail(submission.ownerEmail);
   const phone = noEmailOwner ? normalizePhoneNumber(submission.ownerPhone) : null;
   if (!email && !phone) return null;

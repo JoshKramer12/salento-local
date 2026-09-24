@@ -11,6 +11,7 @@ import {
   completeStripeWebhookProcessing,
 } from "@/lib/stripe-webhook-log";
 import { normalizeEnvValue } from "@/lib/env";
+import { getVerifiedNoEmailPaymentIntent, NO_EMAIL_PAYMENT_FLOW } from "@/lib/no-email-payment";
 
 export async function POST(request: Request) {
   const signature = request.headers.get("stripe-signature");
@@ -175,6 +176,29 @@ export async function POST(request: Request) {
       const paymentIntent = event.data.object;
       const businessSubmissionId = paymentIntent.metadata?.businessSubmissionId?.trim();
       const paymentFlow = paymentIntent.metadata?.paymentFlow?.trim();
+
+      if (paymentFlow === NO_EMAIL_PAYMENT_FLOW) {
+        const payment = await getVerifiedNoEmailPaymentIntent(paymentIntent);
+        if (!payment || paymentIntent.amount_received !== payment.amountCents) {
+          await completeStripeWebhookProcessing({
+            errorMessage: "invalid_no_email_payment_intent",
+            id: webhookLog.id,
+            status: "FAILED",
+          });
+          return NextResponse.json({ error: "invalid_no_email_payment_intent" }, { status: 400 });
+        }
+        await processPaidSubmissionWebhook({
+          amountPaidCents: payment.amountCents,
+          businessSubmissionId: payment.businessSubmissionId,
+          currency: paymentIntent.currency,
+          eventType: event.type,
+          method: "STRIPE_CHECKOUT",
+          paymentIntentId: paymentIntent.id,
+          stripeEventId: event.id,
+        });
+        await completeStripeWebhookProcessing({ id: webhookLog.id, status: "PROCESSED" });
+        return NextResponse.json({ received: true });
+      }
 
       if (businessSubmissionId && paymentFlow === "MEMBERSHIP_RENEWAL_BANK_TRANSFER") {
         const result = await prisma.$transaction((tx) => finalizeMembershipRenewalPayment({

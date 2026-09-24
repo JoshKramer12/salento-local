@@ -14,7 +14,8 @@ const webhook = readFileSync("src/app/api/stripe/webhook/route.ts", "utf8");
 test("the initial membership payment step defaults to visibly selected automatic renewal", () => {
   assert.match(publishForm, /useState<"AUTO" \| "MANUAL">\("AUTO"\)/);
   assert.match(publishForm, /Automatic renewal — Recommended/);
-  assert.match(publishForm, /checked=\{renewalPreference === "AUTO"\}/);
+  assert.match(publishForm, /checked=\{renewalPreference === "AUTO" && \(role !== "GETTER" \|\| Boolean\(ownerEmail\.trim\(\)\)\)\} disabled=\{role === "GETTER" && !ownerEmail\.trim\(\)\}/);
+  assert.match(publishForm, /checked=\{renewalPreference === "MANUAL" \|\| \(role === "GETTER" && !ownerEmail\.trim\(\)\)\}/);
   assert.match(publishForm, /onChange=\{\(\) => setRenewalPreference\("AUTO"\)\}/);
   assert.match(publishForm, /onChange=\{\(\) => setRenewalPreference\("MANUAL"\)\}/);
   assert.ok(publishForm.indexOf("Automatic renewal — Recommended") < publishForm.indexOf('<PaymentChoiceButton method="ONLINE"'));
@@ -41,10 +42,11 @@ test("renewal controls are localized, stacked tap cards before the payment metho
 });
 
 test("card and bank-transfer choices pass the existing renewal mode into the current QR action", () => {
-  assert.match(publishForm, /const selectedRenewalPreference = method === "BANK_TRANSFER" \? "MANUAL" : renewalPreference/);
+  assert.match(publishForm, /const selectedRenewalPreference = method === "BANK_TRANSFER" \|\| \(role === "GETTER" && !ownerEmail\.trim\(\)\) \? "MANUAL" : renewalPreference/);
   assert.match(publishForm, /formData\.set\("renewalPreference", selectedRenewalPreference\)/);
-  assert.match(publishForm, /if \(method === "BANK_TRANSFER"\) \{\s*setRenewalPreference\("MANUAL"\)/);
-  assert.match(submissionActions, /paymentMethod === "ONLINE" && getStringValue\(formData\.get\("renewalPreference"\)\) === "AUTO"/);
+  assert.match(publishForm, /if \(method === "BANK_TRANSFER" \|\| \(role === "GETTER" && !ownerEmail\.trim\(\)\)\) \{\s*setRenewalPreference\("MANUAL"\)/);
+  assert.match(submissionActions, /\(viewer\.role !== "GETTER" \|\| Boolean\(parsed\.data\.ownerEmail\?\.trim\(\)\)\) && getStringValue\(formData\.get\("renewalPreference"\)\) === "AUTO"/);
+  assert.match(submissionActions, /Choose manual renewal for an owner without email/);
   assert.match(submissionActions, /Choose automatic or manual renewal before continuing/);
   assert.match(submissionActions, /Scegli prima il rinnovo automatico o manuale/);
   assert.match(stripeCheckout, /mode: automaticRenewal \? "subscription" : "payment"/);
@@ -52,7 +54,7 @@ test("card and bank-transfer choices pass the existing renewal mode into the cur
 
 test("the initial QR preparation preserves automatic renewal for the Checkout helper", () => {
   const initialOnlinePreparation = submissionActions.slice(
-    submissionActions.indexOf("prepareOnline: () =>"),
+    submissionActions.indexOf("prepareOnline: async () =>"),
     submissionActions.indexOf("submissionId: id,"),
   );
 
@@ -62,6 +64,9 @@ test("the initial QR preparation preserves automatic renewal for the Checkout he
     initialOnlinePreparation,
     /automaticRenewalAtAcceptance:\s*baseSubmissionData\.automaticRenewalAtAcceptance/,
   );
+  assert.match(initialOnlinePreparation, /getInitialOnlinePaymentInterface/);
+  assert.match(initialOnlinePreparation, /ensureNoEmailPaymentIntent\(id\)/);
+  assert.ok(initialOnlinePreparation.indexOf("ensureNoEmailPaymentIntent(id)") < initialOnlinePreparation.indexOf("ensureStripeCheckoutSession"));
 
   // true creates the existing annual subscription Checkout; false stays a
   // one-time Checkout without a recurring price configuration.

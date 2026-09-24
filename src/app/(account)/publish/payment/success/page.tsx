@@ -25,6 +25,8 @@ import {
   syncStripePaymentFromReceiptAccess,
 } from "@/lib/stripe-payment-sync";
 import { getSingleParam } from "@/lib/site";
+import { findNoEmailTokenPayment } from "@/lib/no-email-payment";
+import { NoEmailSuccessWatcher } from "@/components/account/no-email-success-watcher";
 
 type PublishPaymentSuccessPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -96,10 +98,12 @@ export default async function PublishPaymentSuccessPage({
   const requestHeaders = await headers();
   const viewer = await getViewer();
   const resolvedSearchParams = await searchParams;
-  const submissionId = getSingleParam(resolvedSearchParams.submission);
+  const paymentToken = getSingleParam(resolvedSearchParams.payment_token);
+  const tokenPayment = paymentToken ? await findNoEmailTokenPayment(paymentToken) : null;
+  const submissionId = tokenPayment?.businessSubmissionId || getSingleParam(resolvedSearchParams.submission);
   const checkoutSessionId = getSingleParam(resolvedSearchParams.session);
   const ownerCheckoutLocale = getSingleParam(resolvedSearchParams.locale);
-  const locale = checkoutSessionId
+  const locale = checkoutSessionId || tokenPayment
     ? ownerCheckoutLocale === "en"
       ? "en"
       : "it"
@@ -113,7 +117,7 @@ export default async function PublishPaymentSuccessPage({
   let syncResult = null;
 
   try {
-    syncResult = checkoutSessionId
+    syncResult = tokenPayment ? null : checkoutSessionId
       ? await syncStripePaymentFromReceiptAccess({
           checkoutSessionId,
           revalidatePaths: false,
@@ -129,18 +133,19 @@ export default async function PublishPaymentSuccessPage({
   } catch {
     verificationUnavailable = true;
   }
-  const paymentReceived = syncResult?.paymentReceived ?? false;
+  const paymentReceived = tokenPayment?.status === "PAID" || (syncResult?.paymentReceived ?? false);
   const [receipt, agreement, submission] = paymentReceived
     ? await Promise.all([
         getReceiptData({
-          allowInternal: Boolean(checkoutSessionId),
+          allowInternal: Boolean(checkoutSessionId || tokenPayment),
           appUrl: getOriginFromHeaders(requestHeaders),
           checkoutSessionId,
+          paymentId: tokenPayment?.id,
           submissionId,
           viewerId: viewer?.id ?? null,
         }),
         getSignedAgreementData({
-          allowInternal: Boolean(checkoutSessionId),
+          allowInternal: Boolean(checkoutSessionId || tokenPayment),
           checkoutSessionId,
           submissionId,
           viewerId: viewer?.id ?? null,
@@ -231,6 +236,7 @@ export default async function PublishPaymentSuccessPage({
           <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[rgba(42,98,87,0.08)] text-[var(--primary)]"><IconInfoCircle size={32} /></span>
           <h1 className="mt-5 font-serif text-3xl text-[var(--foreground)]">{copy.pendingTitle}</h1>
           <p className="mt-3 leading-7 text-[var(--muted)]">{verificationUnavailable ? copy.verificationUnavailable : copy.pendingBody}</p>
+          {tokenPayment ? <NoEmailSuccessWatcher /> : null}
           {checkoutSessionId ? (
             <Link
               href={`/publish/payment/success?submission=${encodeURIComponent(submissionId)}&session=${encodeURIComponent(checkoutSessionId)}&locale=${locale}`}
@@ -259,8 +265,9 @@ export default async function PublishPaymentSuccessPage({
     receipt.payment.amountCents || receipt.submission.amountPaidCents,
     locale,
   );
-  const receiptViewUrl = buildPaymentReceiptPageUrl(receipt.payment.id, checkoutSessionId);
-  const agreementViewUrl = buildAgreementPageUrl(submissionId, checkoutSessionId);
+  const tokenQuery = tokenPayment && paymentToken ? `?payment_token=${encodeURIComponent(paymentToken)}` : "";
+  const receiptViewUrl = buildPaymentReceiptPageUrl(receipt.payment.id, checkoutSessionId) + tokenQuery;
+  const agreementViewUrl = buildAgreementPageUrl(submissionId, checkoutSessionId) + tokenQuery;
   return (
     <main className="shell px-4 py-7 sm:px-6 sm:py-12">
       <section className="card mx-auto max-w-4xl overflow-hidden p-5 sm:p-8">
