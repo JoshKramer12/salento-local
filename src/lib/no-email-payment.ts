@@ -7,10 +7,12 @@ import { getStripe } from "@/lib/stripe";
 import { normalizePhoneNumber } from "@/lib/validation";
 
 export const NO_EMAIL_PAYMENT_FLOW = "NO_EMAIL_PAYMENT_ELEMENT";
+export const EMAIL_MANUAL_PAYMENT_FLOW = "EMAIL_MANUAL_PAYMENT_ELEMENT";
 const TOKEN_LIFETIME_SECONDS = 7 * 24 * 60 * 60;
 
-export function getInitialOnlinePaymentInterface(params: { ownerEmail?: string | null; submitterRole: string }) {
-  return params.submitterRole === "GETTER" && !params.ownerEmail?.trim() ? "ELEMENT" as const : "CHECKOUT" as const;
+export function getInitialOnlinePaymentInterface(params: { ownerEmail?: string | null; submitterRole: string }): "ELEMENT" {
+  void params;
+  return "ELEMENT" as const;
 }
 
 export function hasValidNoEmailOwnerPhone(ownerPhone: string | null | undefined) {
@@ -24,8 +26,7 @@ export function getNoEmailPaymentPhoneError(params: {
   paymentMethod?: string | null;
   submitterRole: string;
 }) {
-  if (params.paymentMethod !== "ONLINE" ||
-    getInitialOnlinePaymentInterface({ ownerEmail: params.ownerEmail, submitterRole: params.submitterRole }) !== "ELEMENT" ||
+  if (params.paymentMethod !== "ONLINE" || params.submitterRole !== "GETTER" || params.ownerEmail?.trim() ||
     hasValidNoEmailOwnerPhone(params.ownerPhone)) return null;
 
   const message = params.locale === "it"
@@ -60,6 +61,15 @@ export function isNoEmailElementEligible(submission: EligibleSubmission) {
     submission.amountOwedCents > 0;
 }
 
+export function isInitialElementEligible(submission: EligibleSubmission) {
+  return submission.ownerEmail.trim()
+    ? submission.paymentMethod === "ONLINE" && submission.paymentStatus === "PENDING_PAYMENT" &&
+      submission.status === "AWAITING_PAYMENT" &&
+      Boolean(submission.agreementSignature && submission.signedAt && submission.businessTermsAcceptedAt) &&
+      submission.amountOwedCents > 0
+    : isNoEmailElementEligible(submission);
+}
+
 function tokenSecret() {
   const secret = process.env.OWNER_ACCESS_TOKEN_SECRET?.trim() ||
     process.env.AUTH_SECRET?.trim() || process.env.NEXTAUTH_SECRET?.trim();
@@ -92,6 +102,11 @@ export function parseNoEmailPaymentToken(token: string, now = Date.now()): strin
 }
 
 export async function findNoEmailTokenPayment(token: string, required?: { paymentId?: string; submissionId?: string; paid?: boolean }, dependencies: { db?: typeof prisma } = {}) {
+  const payment = await findInitialElementTokenPayment(token, required, dependencies);
+  return payment && !payment.businessSubmission.ownerEmail.trim() && payment.partnerUserId === payment.businessSubmission.userId ? payment : null;
+}
+
+export async function findInitialElementTokenPayment(token: string, required?: { paymentId?: string; submissionId?: string; paid?: boolean }, dependencies: { db?: typeof prisma } = {}) {
   const id = parseNoEmailPaymentToken(token);
   if (!id || (required?.paymentId && id !== required.paymentId)) return null;
   const payment = await (dependencies.db ?? prisma).payment.findUnique({
@@ -99,11 +114,11 @@ export async function findNoEmailTokenPayment(token: string, required?: { paymen
     include: { businessSubmission: true },
   });
   if (!payment || payment.method !== "STRIPE_CHECKOUT" || payment.stripeCheckoutSessionId ||
-    !payment.partnerUserId || payment.partnerUserId !== payment.businessSubmission.userId ||
+    (payment.partnerUserId && payment.partnerUserId !== payment.businessSubmission.userId) ||
+    (!payment.businessSubmission.ownerEmail.trim() && !payment.partnerUserId) ||
     payment.userId !== payment.businessSubmission.userId ||
     !payment.stripePaymentIntentId || payment.purpose !== "INITIAL_MEMBERSHIP" ||
-    payment.businessSubmission.ownerEmail.trim() ||
-    !hasValidNoEmailOwnerPhone(payment.businessSubmission.ownerPhone) ||
+    (!payment.businessSubmission.ownerEmail.trim() && !hasValidNoEmailOwnerPhone(payment.businessSubmission.ownerPhone)) ||
     (required?.submissionId && payment.businessSubmissionId !== required.submissionId) ||
     (required?.paid && payment.status !== "PAID")) return null;
   return payment;
@@ -118,9 +133,13 @@ export function matchesNoEmailPaymentIntent(paymentIntent: Stripe.PaymentIntent,
   stripePaymentIntentId: string | null;
   userId: string;
 }) {
+  return matchesManualElementPaymentIntent(paymentIntent, payment, NO_EMAIL_PAYMENT_FLOW);
+}
+
+export function matchesManualElementPaymentIntent(paymentIntent: Stripe.PaymentIntent, payment: Parameters<typeof matchesNoEmailPaymentIntent>[1], flow: string) {
   return !payment.stripeCheckoutSessionId &&
     payment.stripePaymentIntentId === paymentIntent.id &&
-    paymentIntent.metadata?.paymentFlow === NO_EMAIL_PAYMENT_FLOW &&
+    paymentIntent.metadata?.paymentFlow === flow &&
     paymentIntent.metadata?.paymentId === payment.id &&
     paymentIntent.metadata?.businessSubmissionId === payment.businessSubmissionId &&
     paymentIntent.metadata?.userId === payment.userId &&
@@ -131,19 +150,27 @@ export function matchesNoEmailPaymentIntent(paymentIntent: Stripe.PaymentIntent,
 }
 
 export async function getVerifiedNoEmailPaymentIntent(paymentIntent: Stripe.PaymentIntent, dependencies: { db?: typeof prisma } = {}) {
-  if (paymentIntent.metadata?.paymentFlow !== NO_EMAIL_PAYMENT_FLOW) return null;
+  const payment = await getVerifiedManualElementPaymentIntent(paymentIntent, dependencies);
+  return payment && !payment.businessSubmission.ownerEmail.trim() && payment.partnerUserId === payment.businessSubmission.userId ? payment : null;
+}
+
+export async function getVerifiedManualElementPaymentIntent(paymentIntent: Stripe.PaymentIntent, dependencies: { db?: typeof prisma } = {}) {
+  const flow = paymentIntent.metadata?.paymentFlow;
+  if (flow !== NO_EMAIL_PAYMENT_FLOW && flow !== EMAIL_MANUAL_PAYMENT_FLOW) return null;
   const paymentId = paymentIntent.metadata.paymentId;
   if (!paymentId?.startsWith("initial-element:")) return null;
   const payment = await (dependencies.db ?? prisma).payment.findUnique({
     where: { id: paymentId },
     include: { businessSubmission: true },
   });
-  if (!payment || !matchesNoEmailPaymentIntent(paymentIntent, payment) ||
-    !payment.partnerUserId || payment.partnerUserId !== payment.businessSubmission.userId ||
+  if (!payment || !matchesManualElementPaymentIntent(paymentIntent, payment, flow) ||
+    (payment.partnerUserId && payment.partnerUserId !== payment.businessSubmission.userId) ||
+    (!payment.businessSubmission.ownerEmail.trim() && !payment.partnerUserId) ||
     payment.userId !== payment.businessSubmission.userId ||
     payment.method !== "STRIPE_CHECKOUT" || payment.purpose !== "INITIAL_MEMBERSHIP" ||
-    payment.businessSubmission.ownerEmail.trim() ||
-    !hasValidNoEmailOwnerPhone(payment.businessSubmission.ownerPhone) ||
+    payment.stripeSubscriptionId || payment.stripeInvoiceId ||
+    (flow === NO_EMAIL_PAYMENT_FLOW) !== !payment.businessSubmission.ownerEmail.trim() ||
+    (!payment.businessSubmission.ownerEmail.trim() && !hasValidNoEmailOwnerPhone(payment.businessSubmission.ownerPhone)) ||
     payment.businessSubmission.paymentMethod !== "ONLINE" ||
     ((payment.businessSubmission.paymentStatus === "PAID" || payment.businessSubmission.status === "PUBLISHED") && payment.status !== "PAID") ||
     payment.businessSubmission.automaticRenewalAtAcceptance ||
@@ -154,12 +181,17 @@ export async function getVerifiedNoEmailPaymentIntent(paymentIntent: Stripe.Paym
 }
 
 export async function ensureNoEmailPaymentIntent(submissionId: string, dependencies: { db?: typeof prisma; stripe?: Stripe } = {}) {
+  return ensureManualElementPaymentIntent(submissionId, dependencies);
+}
+
+export async function ensureManualElementPaymentIntent(submissionId: string, dependencies: { db?: typeof prisma; stripe?: Stripe } = {}) {
   const db = dependencies.db ?? prisma;
   const submission = await db.businessSubmission.findUnique({
     where: { id: submissionId },
     include: { user: { select: { role: true } } },
   });
-  if (!submission || !isNoEmailElementEligible({ ...submission, submittingUserRole: submission.user.role })) return null;
+  if (!submission || submission.automaticRenewalAtAcceptance ||
+    !isInitialElementEligible({ ...submission, submittingUserRole: submission.user.role })) return null;
   const stripe = dependencies.stripe ?? getStripe();
   const paidInitialPayment = await db.payment.findFirst({
     where: { businessSubmissionId: submission.id, purpose: "INITIAL_MEMBERSHIP", status: "PAID" },
@@ -198,13 +230,17 @@ export async function ensureNoEmailPaymentIntent(submissionId: string, dependenc
     update: {},
   });
   if (payment.status === "PAID") return null;
+  if (payment.stripeSubscriptionId || payment.stripeInvoiceId || payment.stripeCustomerId) {
+    throw new Error("manual_payment_conflicting_subscription");
+  }
   if (payment.amountCents !== submission.amountOwedCents || payment.currency !== DEFAULT_CURRENCY ||
     payment.partnerUserId !== partnerUserId || payment.userId !== submission.userId) throw new Error("no_email_payment_record_mismatch");
   let existingIntent: Stripe.PaymentIntent | null = null;
   if (payment.stripePaymentIntentId) {
     existingIntent = await stripe.paymentIntents.retrieve(payment.stripePaymentIntentId);
     if (existingIntent.status !== "canceled") {
-      if (!matchesNoEmailPaymentIntent(existingIntent, payment)) throw new Error("no_email_payment_intent_mismatch");
+      if (!matchesManualElementPaymentIntent(existingIntent, payment,
+        submission.ownerEmail.trim() ? EMAIL_MANUAL_PAYMENT_FLOW : NO_EMAIL_PAYMENT_FLOW)) throw new Error("manual_payment_intent_mismatch");
       return payment;
     }
   }
@@ -212,10 +248,11 @@ export async function ensureNoEmailPaymentIntent(submissionId: string, dependenc
     amount: payment.amountCents,
     currency: DEFAULT_CURRENCY,
     description: `Salento Local listing: ${submission.businessName}`,
+    ...(submission.ownerEmail.trim() ? { receipt_email: submission.ownerEmail.trim() } : {}),
     metadata: {
       businessSubmissionId: submission.id,
       partnerId: partnerUserId || "",
-      paymentFlow: NO_EMAIL_PAYMENT_FLOW,
+      paymentFlow: submission.ownerEmail.trim() ? EMAIL_MANUAL_PAYMENT_FLOW : NO_EMAIL_PAYMENT_FLOW,
       paymentId: payment.id,
       userId: submission.userId,
     },

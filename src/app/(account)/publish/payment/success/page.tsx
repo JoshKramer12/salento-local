@@ -25,7 +25,7 @@ import {
   syncStripePaymentFromReceiptAccess,
 } from "@/lib/stripe-payment-sync";
 import { getSingleParam } from "@/lib/site";
-import { findNoEmailTokenPayment } from "@/lib/no-email-payment";
+import { findInitialElementTokenPayment } from "@/lib/no-email-payment";
 import { NoEmailSuccessWatcher } from "@/components/account/no-email-success-watcher";
 
 type PublishPaymentSuccessPageProps = {
@@ -99,7 +99,7 @@ export default async function PublishPaymentSuccessPage({
   const viewer = await getViewer();
   const resolvedSearchParams = await searchParams;
   const paymentToken = getSingleParam(resolvedSearchParams.payment_token);
-  const tokenPayment = paymentToken ? await findNoEmailTokenPayment(paymentToken) : null;
+  const tokenPayment = paymentToken ? await findInitialElementTokenPayment(paymentToken) : null;
   const submissionId = tokenPayment?.businessSubmissionId || getSingleParam(resolvedSearchParams.submission);
   const checkoutSessionId = getSingleParam(resolvedSearchParams.session);
   const ownerCheckoutLocale = getSingleParam(resolvedSearchParams.locale);
@@ -236,7 +236,7 @@ export default async function PublishPaymentSuccessPage({
           <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[rgba(42,98,87,0.08)] text-[var(--primary)]"><IconInfoCircle size={32} /></span>
           <h1 className="mt-5 font-serif text-3xl text-[var(--foreground)]">{copy.pendingTitle}</h1>
           <p className="mt-3 leading-7 text-[var(--muted)]">{verificationUnavailable ? copy.verificationUnavailable : copy.pendingBody}</p>
-          {tokenPayment ? <NoEmailSuccessWatcher /> : null}
+          {tokenPayment ? <NoEmailSuccessWatcher locale={locale} /> : null}
           {checkoutSessionId ? (
             <Link
               href={`/publish/payment/success?submission=${encodeURIComponent(submissionId)}&session=${encodeURIComponent(checkoutSessionId)}&locale=${locale}`}
@@ -245,7 +245,7 @@ export default async function PublishPaymentSuccessPage({
               {copy.retry}
             </Link>
           ) : null}
-          {viewer?.profileCompleted ? (
+          {viewer?.profileCompleted && !tokenPayment ? (
             <Link href={`/publish/payment?submission=${encodeURIComponent(submissionId)}`} className="btn-primary mt-6">
               {locale === "it" ? "Torna al pagamento" : "Back to payment"}
             </Link>

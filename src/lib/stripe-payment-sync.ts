@@ -10,7 +10,7 @@ import { getStripe } from "@/lib/stripe";
 import { publishSubmissionAfterPayment } from "@/lib/submission-publication";
 import { ensureOwnerAccessForPublishedSubmission } from "@/lib/business-owner-access";
 import { ensureInitialBusinessMembership } from "@/lib/business-membership";
-import { getVerifiedNoEmailPaymentIntent } from "@/lib/no-email-payment";
+import { getVerifiedManualElementPaymentIntent } from "@/lib/no-email-payment";
 
 type SyncResult = {
   paymentReceived: boolean;
@@ -337,6 +337,7 @@ export async function syncStripePaymentForSubmission(params: {
           id: true,
           stripeCheckoutSessionId: true,
           stripePaymentIntentId: true,
+          stripeSubscriptionId: true,
         },
         take: 1,
       },
@@ -424,6 +425,7 @@ export async function syncStripePaymentForSubmission(params: {
 
   const elementPayment = submission.payments[0];
   if (elementPayment?.id.startsWith("initial-element:") && elementPayment.stripePaymentIntentId &&
+    !elementPayment.stripeSubscriptionId &&
     !elementPayment.stripeCheckoutSessionId) {
     let intent: Stripe.PaymentIntent;
     try {
@@ -431,7 +433,7 @@ export async function syncStripePaymentForSubmission(params: {
     } catch {
       return { paymentReceived: false, publishedBusinessSlug: "", publishedTownSlug: "", status: "pending" as const };
     }
-    const verified = await getVerifiedNoEmailPaymentIntent(intent);
+    const verified = await getVerifiedManualElementPaymentIntent(intent);
     if (!verified || verified.id !== elementPayment.id || intent.status !== "succeeded" ||
       intent.amount_received !== verified.amountCents) {
       return { paymentReceived: false, publishedBusinessSlug: "", publishedTownSlug: "", status: "pending" as const };

@@ -649,6 +649,12 @@ model Payment {
   stripeCheckoutSessionId String?            @unique
   stripePaymentIntentId  String?
   stripeInvoiceId        String?             @unique
+  stripeProductId        String?
+  stripeCustomerId       String?
+  stripeSubscriptionId   String?             @unique
+  stripeSetupOperation   String?
+  stripeSetupStartedAt   DateTime?
+  stripeSetupGeneration  Int                 @default(0)
   stripeLastEventId      String?             @unique
   bankTransferReference  String?
   paidAt                 DateTime?

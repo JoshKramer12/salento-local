@@ -75,7 +75,8 @@ import {
   normalizeIban,
 } from "@/lib/partner-payout-methods";
 import { LISTING_OFFER, resolveContractualEmail } from "@/lib/listing-offer";
-import { ensureNoEmailPaymentIntent, getInitialOnlinePaymentInterface, getNoEmailPaymentPhoneError } from "@/lib/no-email-payment";
+import { ensureManualElementPaymentIntent, getNoEmailPaymentPhoneError } from "@/lib/no-email-payment";
+import { ensureEmbeddedSubscription } from "@/lib/embedded-subscription";
 import {
   DEFAULT_COMMISSION_CENTS,
   DEFAULT_LISTING_PRICE_CENTS,
@@ -100,7 +101,6 @@ import {
 } from "@/lib/security-rate-limit";
 import {
   ensureStripeBankTransferIntent,
-  ensureStripeCheckoutSession,
 } from "@/lib/stripe-checkout";
 import { getPaymentElementPublishableKey } from "@/lib/stripe";
 import { publishSubmissionAfterPayment } from "@/lib/submission-publication";
@@ -1510,7 +1510,7 @@ async function saveBusinessSubmission(
   }) : null;
   if (noEmailPhoneError) return { ...noEmailPhoneError, submission: rawSubmission };
 
-  if (wantsPaymentStep && viewer.role === "GETTER" &&
+  if (wantsPaymentStep &&
     parsed.data.paymentMethod === "ONLINE" && !parsed.data.ownerEmail?.trim() &&
     getStringValue(formData.get("renewalPreference")) !== "MANUAL") {
     return {
@@ -2027,7 +2027,7 @@ async function saveBusinessSubmission(
     agreementSignature: parsed.data.agreementSignature,
     // Bank transfer is always manual. Online automatic renewal requires the
     // explicit, visible selection sent by the payment step.
-    automaticRenewalAtAcceptance: wantsPaymentStep && parsed.data.paymentMethod === "ONLINE" && (viewer.role !== "GETTER" || Boolean(parsed.data.ownerEmail?.trim())) && getStringValue(formData.get("renewalPreference")) === "AUTO",
+    automaticRenewalAtAcceptance: wantsPaymentStep && parsed.data.paymentMethod === "ONLINE" && Boolean(parsed.data.ownerEmail?.trim()) && getStringValue(formData.get("renewalPreference")) === "AUTO",
     businessTermsAcceptedAt: wantsPaymentStep && rawSubmission.agreementAccepted ? new Date() : null,
     businessTermsVersion: wantsPaymentStep ? LISTING_OFFER.businessTermsVersion : null,
     businessName: parsed.data.businessName,
@@ -2091,25 +2091,12 @@ async function saveBusinessSubmission(
           viewer: { email: viewer.email, id: viewer.id, role: viewer.role },
         }),
       prepareOnline: async () => {
-        if (getInitialOnlinePaymentInterface({ ownerEmail: paymentSubmission.ownerEmail, submitterRole: viewer.role }) === "ELEMENT") {
-          if (!getPaymentElementPublishableKey() || !await ensureNoEmailPaymentIntent(id)) {
-            throw new Error("no_email_payment_unavailable");
-          }
-          return;
+        const setup = baseSubmissionData.automaticRenewalAtAcceptance
+          ? await ensureEmbeddedSubscription(id)
+          : await ensureManualElementPaymentIntent(id);
+        if (!getPaymentElementPublishableKey() || !setup) {
+          throw new Error("embedded_payment_unavailable");
         }
-        await ensureStripeCheckoutSession({
-          submission: {
-            amountOwedCents,
-            automaticRenewalAtAcceptance:
-              baseSubmissionData.automaticRenewalAtAcceptance,
-            businessName: paymentSubmission.businessName,
-            email: publicEmail,
-            id,
-            ownerEmail: paymentSubmission.ownerEmail,
-            userId: viewer.id,
-          },
-          viewer: { email: viewer.email, id: viewer.id, role: viewer.role },
-        });
       },
       submissionId: id,
     });

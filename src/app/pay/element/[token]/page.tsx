@@ -6,7 +6,7 @@ import { IconLock, IconShieldCheck } from "@tabler/icons-react";
 import { NoEmailPaymentForm } from "@/components/account/no-email-payment-form";
 import { formatCurrencyFromCents } from "@/lib/account";
 import { getCurrentLocale } from "@/lib/locale";
-import { findNoEmailTokenPayment, matchesNoEmailPaymentIntent } from "@/lib/no-email-payment";
+import { EMAIL_MANUAL_PAYMENT_FLOW, findInitialElementTokenPayment, matchesManualElementPaymentIntent, NO_EMAIL_PAYMENT_FLOW } from "@/lib/no-email-payment";
 import { getOriginFromHeaders } from "@/lib/request-origin";
 import { getPaymentElementPublishableKey, getStripe } from "@/lib/stripe";
 
@@ -18,7 +18,7 @@ type Props = { params: Promise<{ token: string }> };
 export default async function NoEmailPaymentPage({ params }: Props) {
   const { token } = await params;
   const locale = await getCurrentLocale();
-  const payment = await findNoEmailTokenPayment(token);
+  const payment = await findInitialElementTokenPayment(token);
   const returnPath = `/publish/payment/success?payment_token=${encodeURIComponent(token)}&locale=${locale}`;
   const returnUrl = `${getOriginFromHeaders(await headers())}${returnPath}`;
   if (!payment) return <PaymentUnavailable locale={locale} />;
@@ -37,7 +37,24 @@ export default async function NoEmailPaymentPage({ params }: Props) {
   } catch {
     return <PaymentUnavailable locale={locale} />;
   }
-  if (!matchesNoEmailPaymentIntent(intent, payment)) return <PaymentUnavailable locale={locale} />;
+  if (payment.stripeSubscriptionId) {
+    let subscription;
+    try {
+      subscription = await getStripe().subscriptions.retrieve(payment.stripeSubscriptionId, {
+        expand: ["latest_invoice.confirmation_secret"],
+      });
+    } catch { return <PaymentUnavailable locale={locale} />; }
+    const invoice = typeof subscription.latest_invoice === "string" ? null : subscription.latest_invoice;
+    if (subscription.customer !== payment.stripeCustomerId || invoice?.id !== payment.stripeInvoiceId ||
+      invoice?.confirmation_secret?.client_secret !== intent.client_secret ||
+      intent.id !== payment.stripePaymentIntentId || intent.amount !== payment.amountCents ||
+      intent.currency !== payment.currency || subscription.status === "incomplete_expired") {
+      return <PaymentUnavailable locale={locale} />;
+    }
+  } else if (!matchesManualElementPaymentIntent(intent, payment,
+    payment.businessSubmission.ownerEmail.trim() ? EMAIL_MANUAL_PAYMENT_FLOW : NO_EMAIL_PAYMENT_FLOW)) {
+    return <PaymentUnavailable locale={locale} />;
+  }
   if (intent.status === "succeeded" || intent.status === "processing") {
     redirect(returnPath);
   }
@@ -56,7 +73,7 @@ export default async function NoEmailPaymentPage({ params }: Props) {
         <strong className="shrink-0 text-xl text-[var(--primary)]">{amount}</strong>
       </div>
       <div className="mt-6 flex items-center gap-2 text-sm font-semibold text-[var(--primary)]"><IconLock size={19} />{locale === "it" ? "Pagamento sicuro" : "Secure payment"}</div>
-      <NoEmailPaymentForm amount={amount} clientSecret={intent.client_secret} locale={locale} publishableKey={publishableKey} returnUrl={returnUrl} />
+      <NoEmailPaymentForm amount={amount} clientSecret={intent.client_secret} locale={locale} ownerEmail={payment.businessSubmission.ownerEmail.trim()} publishableKey={publishableKey} returnUrl={returnUrl} />
       <p className="mt-5 flex items-center justify-center gap-2 text-center text-xs leading-5 text-[var(--muted)]"><IconShieldCheck size={18} />{locale === "it" ? "Pagamenti elaborati in modo sicuro da Stripe." : "Payments are securely processed by Stripe."}</p>
     </section>
   </main>;

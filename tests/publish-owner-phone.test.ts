@@ -60,5 +60,5 @@ test("email owners keep the existing phone and email behavior", () => {
     ownerHasNoEmail: false,
     ownerPhone: assembled,
   }), "");
-  assert.equal(getInitialOnlinePaymentInterface({ ownerEmail: "owner@example.com", submitterRole: "GETTER" }), "CHECKOUT");
+  assert.equal(getInitialOnlinePaymentInterface({ ownerEmail: "owner@example.com", submitterRole: "GETTER" }), "ELEMENT");
 });

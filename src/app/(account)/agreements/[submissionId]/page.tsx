@@ -5,7 +5,7 @@ import { IconInfoCircle } from "@tabler/icons-react";
 import { auth } from "@/lib/auth";
 import { getCurrentLocale } from "@/lib/locale";
 import { getSignedAgreementData } from "@/lib/receipts";
-import { findNoEmailTokenPayment } from "@/lib/no-email-payment";
+import { findInitialElementTokenPayment } from "@/lib/no-email-payment";
 
 type PageProps = { params: Promise<{ submissionId: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> };
 function one(value: string | string[] | undefined) { return typeof value === "string" ? value : null; }
@@ -14,7 +14,7 @@ export default async function SignedAgreementPage({ params, searchParams }: Page
   const [{ submissionId }, query, locale] = await Promise.all([params, searchParams, getCurrentLocale()]);
   const checkoutSessionId = one(query.session);
   const paymentToken = one(query.payment_token);
-  const tokenPayment = paymentToken ? await findNoEmailTokenPayment(paymentToken, { paid: true, submissionId }) : null;
+  const tokenPayment = paymentToken ? await findInitialElementTokenPayment(paymentToken, { paid: true, submissionId }) : null;
   const viewer = checkoutSessionId || tokenPayment ? null : (await auth())?.user;
   const agreement = await getSignedAgreementData({
     allowInternal: Boolean(checkoutSessionId || tokenPayment), checkoutSessionId, submissionId,

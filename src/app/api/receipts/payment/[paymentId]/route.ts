@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getRequestOrigin } from "@/lib/request-origin";
 import { buildReceiptPdf, getReceiptData } from "@/lib/receipts";
-import { findNoEmailTokenPayment } from "@/lib/no-email-payment";
+import { findInitialElementTokenPayment } from "@/lib/no-email-payment";
 
 type RouteContext = { params: Promise<{ paymentId: string }> };
 
@@ -19,7 +19,7 @@ export async function GET(request: Request, context: RouteContext) {
   const { searchParams } = new URL(request.url);
   const checkoutSessionId = searchParams.get("session")?.trim() || null;
   const paymentToken = searchParams.get("payment_token")?.trim() || null;
-  const tokenPayment = paymentToken ? await findNoEmailTokenPayment(paymentToken, { paid: true, paymentId }) : null;
+  const tokenPayment = paymentToken ? await findInitialElementTokenPayment(paymentToken, { paid: true, paymentId }) : null;
   const viewer = checkoutSessionId || tokenPayment ? null : (await auth())?.user;
   const receipt = await getReceiptData({
     allowInternal: Boolean(checkoutSessionId || tokenPayment),

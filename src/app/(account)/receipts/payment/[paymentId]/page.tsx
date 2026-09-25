@@ -6,7 +6,7 @@ import { auth } from "@/lib/auth";
 import { getCurrentLocale } from "@/lib/locale";
 import { getReceiptData } from "@/lib/receipts";
 import { getStripeHostedReceiptUrl } from "@/lib/stripe-receipts";
-import { findNoEmailTokenPayment } from "@/lib/no-email-payment";
+import { findInitialElementTokenPayment } from "@/lib/no-email-payment";
 
 type PageProps = { params: Promise<{ paymentId: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> };
 
@@ -17,7 +17,7 @@ export default async function PaymentReceiptPage({ params, searchParams }: PageP
   const paymentId = encodedPaymentId.replace(/%3a/gi, ":");
   const checkoutSessionId = one(query.session);
   const paymentToken = one(query.payment_token);
-  const tokenPayment = paymentToken ? await findNoEmailTokenPayment(paymentToken, { paid: true, paymentId }) : null;
+  const tokenPayment = paymentToken ? await findInitialElementTokenPayment(paymentToken, { paid: true, paymentId }) : null;
   const viewer = checkoutSessionId || tokenPayment ? null : (await auth())?.user;
   const receipt = await getReceiptData({
     allowInternal: Boolean(checkoutSessionId || tokenPayment), checkoutSessionId, paymentId,

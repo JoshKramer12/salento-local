@@ -11,7 +11,8 @@ import {
   completeStripeWebhookProcessing,
 } from "@/lib/stripe-webhook-log";
 import { normalizeEnvValue } from "@/lib/env";
-import { getVerifiedNoEmailPaymentIntent, NO_EMAIL_PAYMENT_FLOW } from "@/lib/no-email-payment";
+import { EMAIL_MANUAL_PAYMENT_FLOW, getVerifiedManualElementPaymentIntent, NO_EMAIL_PAYMENT_FLOW } from "@/lib/no-email-payment";
+import { getVerifiedInitialSubscriptionInvoice } from "@/lib/embedded-subscription";
 
 export async function POST(request: Request) {
   const signature = request.headers.get("stripe-signature");
@@ -128,6 +129,35 @@ export async function POST(request: Request) {
       const invoice = event.data.object;
       const rawSubscription = invoice.parent?.subscription_details?.subscription;
       const subscriptionId = typeof rawSubscription === "string" ? rawSubscription : null;
+      if (invoice.billing_reason === "subscription_create" && invoice.status === "paid") {
+        const exactPayment = await prisma.payment.findUnique({
+          where: { stripeInvoiceId: invoice.id },
+          select: { id: true, stripeCheckoutSessionId: true, stripeSubscriptionId: true },
+        });
+        if (exactPayment?.id.startsWith("initial-element:") && exactPayment.stripeSubscriptionId &&
+          !exactPayment.stripeCheckoutSessionId) {
+          const currentInvoice = await stripe.invoices.retrieve(invoice.id, { expand: ["payments"] });
+          const verified = await getVerifiedInitialSubscriptionInvoice(currentInvoice);
+          if (!verified || verified.payment.id !== exactPayment.id) {
+            throw new Error("invalid_embedded_initial_subscription_invoice");
+          }
+          await processPaidSubmissionWebhook({
+            amountPaidCents: verified.payment.amountCents,
+            businessSubmissionId: verified.payment.businessSubmissionId,
+            currency: currentInvoice.currency,
+            eventType: event.type,
+            method: "STRIPE_CHECKOUT",
+            paymentIntentId: verified.payment.stripePaymentIntentId,
+            stripeCustomerId: verified.payment.stripeCustomerId,
+            stripeEventId: event.id,
+            stripeSubscriptionId: verified.subscription.id,
+            stripeSubscriptionStatus: verified.subscription.status,
+            stripeCancelAtPeriodEnd: verified.subscription.cancel_at_period_end,
+          });
+          await completeStripeWebhookProcessing({ id: webhookLog.id, status: "PROCESSED" });
+          return NextResponse.json({ received: true });
+        }
+      }
       // The first invoice belongs to the Checkout purchase that already made
       // the initial 365-day membership. Only cycle invoices buy a new term.
       if (!subscriptionId || invoice.status !== "paid" || invoice.billing_reason === "subscription_create") {
@@ -177,15 +207,15 @@ export async function POST(request: Request) {
       const businessSubmissionId = paymentIntent.metadata?.businessSubmissionId?.trim();
       const paymentFlow = paymentIntent.metadata?.paymentFlow?.trim();
 
-      if (paymentFlow === NO_EMAIL_PAYMENT_FLOW) {
-        const payment = await getVerifiedNoEmailPaymentIntent(paymentIntent);
+      if (paymentFlow === NO_EMAIL_PAYMENT_FLOW || paymentFlow === EMAIL_MANUAL_PAYMENT_FLOW) {
+        const payment = await getVerifiedManualElementPaymentIntent(paymentIntent);
         if (!payment || paymentIntent.amount_received !== payment.amountCents) {
           await completeStripeWebhookProcessing({
-            errorMessage: "invalid_no_email_payment_intent",
+            errorMessage: "invalid_manual_element_payment_intent",
             id: webhookLog.id,
             status: "FAILED",
           });
-          return NextResponse.json({ error: "invalid_no_email_payment_intent" }, { status: 400 });
+          return NextResponse.json({ error: "invalid_manual_element_payment_intent" }, { status: 400 });
         }
         await processPaidSubmissionWebhook({
           amountPaidCents: payment.amountCents,

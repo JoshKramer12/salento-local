@@ -6,11 +6,15 @@ import type Stripe from "stripe";
 
 import {
   createNoEmailPaymentToken,
+  EMAIL_MANUAL_PAYMENT_FLOW,
+  ensureManualElementPaymentIntent,
   ensureNoEmailPaymentIntent,
+  findInitialElementTokenPayment,
   findNoEmailTokenPayment,
   getInitialOnlinePaymentInterface,
   getNoEmailPaymentPhoneError,
   getVerifiedNoEmailPaymentIntent,
+  getVerifiedManualElementPaymentIntent,
   isNoEmailElementEligible,
   matchesNoEmailPaymentIntent,
   NO_EMAIL_PAYMENT_FLOW,
@@ -69,10 +73,10 @@ test("a plausible but invalid no-email owner phone gets a field error before pay
   assert.equal(await ensureNoEmailPaymentIntent(submission.id, { db: db as never, stripe: stripe as never }), null);
 });
 
-test("only a signed Partner submission with no usable owner email and valid phone selects Payment Element", () => {
-  assert.equal(getInitialOnlinePaymentInterface({ ownerEmail: "owner@example.com", submitterRole: "GETTER" }), "CHECKOUT");
-  assert.equal(getInitialOnlinePaymentInterface({ ownerEmail: "owner@example.com", submitterRole: "BUSINESS_OWNER" }), "CHECKOUT");
-  assert.equal(getInitialOnlinePaymentInterface({ ownerEmail: "", submitterRole: "BUSINESS_OWNER" }), "CHECKOUT");
+test("new card payments select Payment Element while no-email eligibility retains its phone and Partner rules", () => {
+  assert.equal(getInitialOnlinePaymentInterface({ ownerEmail: "owner@example.com", submitterRole: "GETTER" }), "ELEMENT");
+  assert.equal(getInitialOnlinePaymentInterface({ ownerEmail: "owner@example.com", submitterRole: "BUSINESS_OWNER" }), "ELEMENT");
+  assert.equal(getInitialOnlinePaymentInterface({ ownerEmail: "", submitterRole: "BUSINESS_OWNER" }), "ELEMENT");
   assert.equal(getInitialOnlinePaymentInterface({ ownerEmail: "  ", submitterRole: "GETTER" }), "ELEMENT");
   assert.equal(isNoEmailElementEligible({ ...submission, submittingUserRole: "GETTER" }), true);
   assert.equal(isNoEmailElementEligible({ ...submission, ownerEmail: "   ", ownerHasNoEmail: false, submittingUserRole: "GETTER" }), true);
@@ -180,6 +184,61 @@ test("refresh reuses one server-priced PaymentIntent and its exact Payment recor
     assert.equal(parseNoEmailPaymentToken(token), first!.id);
     assert.ok(url.startsWith("https://web-production-6f26e.up.railway.app/pay/element/"));
     assert.match(await generateStripePaymentQrDataUrl(url), /^data:image\/png;base64,/);
+  } finally {
+    if (previous === undefined) delete process.env.AUTH_SECRET;
+    else process.env.AUTH_SECRET = previous;
+  }
+});
+
+test("email manual reuses the embedded PaymentIntent with the real owner email and signed token", async () => {
+  const emailSubmission = { ...submission, ownerEmail: "owner@example.com", ownerHasNoEmail: false };
+  let storedPayment: Record<string, unknown> | null = null;
+  let intent: Stripe.PaymentIntent | null = null;
+  let creates = 0;
+  const db = {
+    businessSubmission: { findUnique: async () => emailSubmission },
+    payment: {
+      findFirst: async () => null, findMany: async () => [],
+      findUnique: async () => storedPayment && { ...storedPayment, businessSubmission: emailSubmission },
+      upsert: async ({ create }: { create: Record<string, unknown> }) => {
+        storedPayment ??= { ...create, purpose: "INITIAL_MEMBERSHIP", stripeCheckoutSessionId: null,
+          stripePaymentIntentId: null, stripeSubscriptionId: null, stripeInvoiceId: null, stripeCustomerId: null };
+        return storedPayment;
+      },
+      updateMany: async ({ data }: { data: Record<string, unknown> }) => {
+        storedPayment = { ...storedPayment, ...data };
+        return { count: 1 };
+      },
+    },
+  };
+  const stripe = {
+    paymentIntents: {
+      create: async (params: { amount: number; currency: string; metadata: Record<string, string>; receipt_email?: string }) => {
+        creates++;
+        assert.equal(params.receipt_email, "owner@example.com");
+        assert.equal(params.metadata.paymentFlow, EMAIL_MANUAL_PAYMENT_FLOW);
+        intent = { id: "pi_email", amount: params.amount, amount_received: 0, currency: params.currency,
+          metadata: params.metadata, status: "requires_payment_method", client_secret: "pi_email_secret_test" } as Stripe.PaymentIntent;
+        return intent;
+      },
+      retrieve: async () => intent,
+    },
+    checkout: { sessions: { retrieve: async () => { throw Error("unexpected Checkout"); } } },
+  };
+  const dependencies = { db: db as never, stripe: stripe as never };
+  const first = await ensureManualElementPaymentIntent(submission.id, dependencies);
+  const second = await ensureManualElementPaymentIntent(submission.id, dependencies);
+  assert.equal(first?.stripePaymentIntentId, "pi_email");
+  assert.equal(second?.stripePaymentIntentId, "pi_email");
+  assert.equal(creates, 1);
+  assert.equal((await getVerifiedManualElementPaymentIntent(intent!, { db: db as never }))?.businessSubmission.ownerEmail, "owner@example.com");
+  assert.equal(await getVerifiedNoEmailPaymentIntent(intent!, { db: db as never }), null);
+  const previous = process.env.AUTH_SECRET;
+  process.env.AUTH_SECRET = "test-only-secret";
+  try {
+    const token = createNoEmailPaymentToken(first!.id);
+    assert.equal((await findInitialElementTokenPayment(token, undefined, { db: db as never }))?.id, first!.id);
+    assert.equal(await findNoEmailTokenPayment(token, undefined, { db: db as never }), null);
   } finally {
     if (previous === undefined) delete process.env.AUTH_SECRET;
     else process.env.AUTH_SECRET = previous;

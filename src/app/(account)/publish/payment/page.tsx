@@ -17,10 +17,7 @@ import {
 } from "@tabler/icons-react";
 import QRCode from "qrcode";
 
-import {
-  simulateStripeBankTransferAction,
-  startStripeCheckoutAction,
-} from "@/app/(account)/payment-actions";
+import { simulateStripeBankTransferAction } from "@/app/(account)/payment-actions";
 import { CheckoutStatusWatcher } from "@/components/account/checkout-status-watcher";
 import { FormSubmitButton } from "@/components/form-submit-button";
 import { formatCurrencyFromCents } from "@/lib/account";
@@ -31,19 +28,16 @@ import {
 } from "@/lib/business-owner-access";
 import { getCurrentLocale } from "@/lib/locale";
 import { getPendingPaymentCopy } from "@/lib/payment";
-import { createNoEmailPaymentToken, ensureNoEmailPaymentIntent, getInitialOnlinePaymentInterface, isNoEmailElementEligible } from "@/lib/no-email-payment";
+import { createNoEmailPaymentToken, ensureManualElementPaymentIntent, isInitialElementEligible } from "@/lib/no-email-payment";
+import { ensureEmbeddedSubscription } from "@/lib/embedded-subscription";
 import { prisma } from "@/lib/prisma";
 import { getReceiptData } from "@/lib/receipts";
 import { getOriginFromHeaders } from "@/lib/request-origin";
 import { getSingleParam } from "@/lib/site";
 import { canUseStripeBankTransferTestSimulation, getPaymentElementPublishableKey } from "@/lib/stripe";
-import {
-  ensureStripeBankTransferIntent,
-  ensureStripeCheckoutSession,
-} from "@/lib/stripe-checkout";
+import { ensureStripeBankTransferIntent } from "@/lib/stripe-checkout";
 import {
   buildNoEmailPaymentQrPayload,
-  buildStripePaymentQrPayload,
   generateStripePaymentQrDataUrl,
 } from "@/lib/stripe-payment-qr";
 
@@ -139,7 +133,7 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
       };
 
   let qrCodeDataUrl: string | null = null;
-  let noEmailPaymentUrl: string | null = null;
+  let elementPaymentUrl: string | null = null;
   let bankTransferInstructionsUrl: string | null = null;
   let bankTransferQrDataUrl: string | null = null;
   let bankTransferAccountHolderName: string | null = null;
@@ -148,47 +142,34 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
   let bankTransferAmountRemainingCents: number | null = null;
   let bankTransferReference = submission.bankTransferReference;
 
-  const noEmailPaidPayment = submission.paymentStatus === "PAID" && !submission.ownerEmail.trim()
+  const elementPaidPayment = submission.paymentStatus === "PAID"
     ? await prisma.payment.findUnique({
         where: { id: `initial-element:${submission.id}` },
         select: { id: true, status: true },
       })
     : null;
-  const exactNoEmailPaymentId = noEmailPaidPayment?.status === "PAID" ? noEmailPaidPayment.id : null;
+  const exactElementPaymentId = elementPaidPayment?.status === "PAID" ? elementPaidPayment.id : null;
   const receipt = submission.paymentStatus === "PAID"
-    ? await getReceiptData({ appUrl, paymentId: exactNoEmailPaymentId, submissionId: submission.id, viewerId: viewer.id })
+    ? await getReceiptData({ appUrl, paymentId: exactElementPaymentId, submissionId: submission.id, viewerId: viewer.id })
     : null;
-  const receiptUrl = receipt?.receiptUrl && exactNoEmailPaymentId
-    ? `${receipt.receiptUrl}?payment_token=${encodeURIComponent(createNoEmailPaymentToken(exactNoEmailPaymentId))}`
+  const receiptUrl = receipt?.receiptUrl && exactElementPaymentId
+    ? `${receipt.receiptUrl}?payment_token=${encodeURIComponent(createNoEmailPaymentToken(exactElementPaymentId))}`
     : receipt?.receiptUrl;
   const receiptQrDataUrl = receiptUrl
     ? await QRCode.toDataURL(receiptUrl, { margin: 1, width: 320 })
     : null;
 
   if (submission.paymentMethod === "ONLINE" && submission.paymentStatus !== "PAID") {
-    const paymentInterface = getInitialOnlinePaymentInterface({ ownerEmail: submission.ownerEmail, submitterRole: viewer.role });
-    if (paymentInterface === "ELEMENT" && isNoEmailElementEligible({ ...submission, submittingUserRole: viewer.role }) && getPaymentElementPublishableKey()) {
-      const payment = await ensureNoEmailPaymentIntent(submission.id);
+    if (isInitialElementEligible({ ...submission, submittingUserRole: viewer.role }) && getPaymentElementPublishableKey()) {
+      const payment = submission.automaticRenewalAtAcceptance
+        ? await ensureEmbeddedSubscription(submission.id)
+        : await ensureManualElementPaymentIntent(submission.id);
       if (payment) {
-        noEmailPaymentUrl = buildNoEmailPaymentQrPayload({
+        elementPaymentUrl = buildNoEmailPaymentQrPayload({
           appUrl,
           token: createNoEmailPaymentToken(payment.id),
         });
-        qrCodeDataUrl = await generateStripePaymentQrDataUrl(noEmailPaymentUrl);
-      }
-    } else if (paymentInterface === "CHECKOUT") {
-      const checkoutSession = await ensureStripeCheckoutSession({
-        appUrl,
-        submission: { amountOwedCents: submission.amountOwedCents, automaticRenewalAtAcceptance: submission.automaticRenewalAtAcceptance, businessName: submission.businessName, email: submission.email, id: submission.id, ownerEmail: submission.ownerEmail, userId: submission.userId },
-        viewer: { email: viewer.email, id: viewer.id, role: viewer.role },
-      });
-      if (checkoutSession.url) {
-        const paymentQr = buildStripePaymentQrPayload({
-          appUrl,
-          checkoutSessionId: checkoutSession.id,
-          checkoutUrl: checkoutSession.url,
-        });
-        qrCodeDataUrl = await generateStripePaymentQrDataUrl(paymentQr.qrValue);
+        qrCodeDataUrl = await generateStripePaymentQrDataUrl(elementPaymentUrl);
       }
     }
   }
@@ -278,7 +259,7 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
                 </div>
               ) : (
                 <div><div className="rounded-[1.35rem] border border-[rgba(42,98,87,0.13)] bg-[linear-gradient(135deg,rgba(243,248,242,0.98),rgba(247,244,239,0.92))] p-5 sm:rounded-none sm:border-x-0 sm:border-t-0 sm:border-dashed sm:border-[var(--border)] sm:bg-transparent sm:px-0 sm:pb-6"><p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--primary)]">{copy.amountDue}</p><div className="mt-2 flex items-end justify-between gap-4"><p className="font-serif text-5xl leading-none text-[var(--foreground)] sm:text-6xl">{amountDue}</p><p className="mb-0.5 inline-flex shrink-0 items-center gap-2 text-sm font-semibold text-[var(--primary)]"><IconLock size={19} /> <span className="max-w-20 leading-5 sm:max-w-none">{copy.secure}</span></p></div></div>
-                  {qrCodeDataUrl ? <div className="mt-4 rounded-[1.4rem] border border-[var(--border)] bg-white p-4 text-center sm:mt-6 sm:p-6"><h2 className="text-xl font-bold leading-7 text-[var(--foreground)] sm:text-2xl">{copy.cardQrTitle}</h2><p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--muted)] sm:text-base sm:leading-7">{copy.cardQrHint} <strong className="font-semibold text-[var(--foreground)]">{amountDue}</strong></p><div className="mx-auto mt-4 w-full max-w-[16.5rem] rounded-[1.25rem] border border-[var(--border)] bg-white p-3 shadow-sm sm:mt-5 sm:p-4"><img src={qrCodeDataUrl} alt={locale === "it" ? "QR del pagamento Stripe" : "QR code for Stripe payment"} className="aspect-square h-auto w-full" /></div><div className="mt-4 rounded-[1.15rem] bg-[rgba(42,98,87,0.06)] px-4 py-4 text-left sm:mt-5 sm:flex sm:items-start sm:gap-4"><IconDeviceMobile size={25} className="mb-2 shrink-0 text-[var(--primary)] sm:mb-0" /><div><h3 className="font-bold text-[var(--foreground)]">{copy.useBankingApp}</h3><p className="mt-1 text-sm leading-6 text-[var(--muted)]">{copy.cardQrHint} <strong className="font-semibold text-[var(--primary)]">{amountDue}</strong></p></div></div><div className="mt-4 border-t border-[var(--border)] pt-4 text-left sm:mt-5 sm:pt-5"><div className="flex items-start gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[rgba(191,91,42,0.1)] text-[var(--accent)]"><IconClock size={20} /></span><div><h3 className="font-bold text-[var(--foreground)]">{copy.next}</h3><p className="mt-1 text-sm leading-6 text-[var(--muted)]">{copy.nextPending}</p><p className="mt-2 text-sm font-medium text-[var(--foreground)]">{copy.cardWaiting}</p></div></div></div>{noEmailPaymentUrl ? <Link href={noEmailPaymentUrl} className="btn-secondary mt-4 flex min-h-12 w-full">{locale === "it" ? "Apri pagamento" : "Open payment"}</Link> : null}</div> : getInitialOnlinePaymentInterface({ ownerEmail: submission.ownerEmail, submitterRole: viewer.role }) === "CHECKOUT" ? <form action={startStripeCheckoutAction} className="mt-6"><input type="hidden" name="submissionId" value={submission.id} /><FormSubmitButton className="btn-primary flex w-full py-4 text-base">{copy.cardFallback}</FormSubmitButton></form> : <p className="mt-6 text-sm text-[var(--accent)]">{locale === "it" ? "Pagamento non disponibile. Verifica il numero del titolare e la scelta del rinnovo manuale." : "Payment unavailable. Check the owner's phone and manual renewal selection."}</p>}
+                  {qrCodeDataUrl ? <div className="mt-4 rounded-[1.4rem] border border-[var(--border)] bg-white p-4 text-center sm:mt-6 sm:p-6"><h2 className="text-xl font-bold leading-7 text-[var(--foreground)] sm:text-2xl">{copy.cardQrTitle}</h2><p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--muted)] sm:text-base sm:leading-7">{copy.cardQrHint} <strong className="font-semibold text-[var(--foreground)]">{amountDue}</strong></p><div className="mx-auto mt-4 w-full max-w-[16.5rem] rounded-[1.25rem] border border-[var(--border)] bg-white p-3 shadow-sm sm:mt-5 sm:p-4"><img src={qrCodeDataUrl} alt={locale === "it" ? "QR del pagamento Stripe" : "QR code for Stripe payment"} className="aspect-square h-auto w-full" /></div><div className="mt-4 rounded-[1.15rem] bg-[rgba(42,98,87,0.06)] px-4 py-4 text-left sm:mt-5 sm:flex sm:items-start sm:gap-4"><IconDeviceMobile size={25} className="mb-2 shrink-0 text-[var(--primary)] sm:mb-0" /><div><h3 className="font-bold text-[var(--foreground)]">{copy.useBankingApp}</h3><p className="mt-1 text-sm leading-6 text-[var(--muted)]">{copy.cardQrHint} <strong className="font-semibold text-[var(--primary)]">{amountDue}</strong></p></div></div><div className="mt-4 border-t border-[var(--border)] pt-4 text-left sm:mt-5 sm:pt-5"><div className="flex items-start gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[rgba(191,91,42,0.1)] text-[var(--accent)]"><IconClock size={20} /></span><div><h3 className="font-bold text-[var(--foreground)]">{copy.next}</h3><p className="mt-1 text-sm leading-6 text-[var(--muted)]">{copy.nextPending}</p><p className="mt-2 text-sm font-medium text-[var(--foreground)]">{copy.cardWaiting}</p></div></div></div>{elementPaymentUrl ? <Link href={elementPaymentUrl} className="btn-secondary mt-4 flex min-h-12 w-full">{locale === "it" ? "Apri pagamento" : "Open payment"}</Link> : null}</div> : <p className="mt-6 text-sm text-[var(--accent)]">{locale === "it" ? "Pagamento non disponibile. Verifica i dati del titolare e riprova." : "Payment unavailable. Check the owner details and try again."}</p>}
                 </div>
               )}
               {isFailed ? <p className="mt-6 rounded-[1.2rem] bg-[rgba(191,91,42,0.08)] px-4 py-3 text-sm leading-6 text-[var(--foreground)]">{copy.failed}</p> : null}
