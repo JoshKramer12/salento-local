@@ -1,0 +1,1202 @@
+Archived unreachable form JSX from commit 53452d5. Not imported or executable.
+
+  return (
+    <form
+      ref={formRef}
+      action={action}
+      className="grid gap-8"
+      onSubmitCapture={(event) => {
+        const isDraftSubmitter = intentInputRef.current?.value === "draft";
+
+        if (!isDraftSubmitter && validateAddressSelection()) {
+          event.preventDefault();
+        }
+      }}
+    >
+      <input type="hidden" name="adminMode" value={adminMode ? "true" : ""} />
+      <input type="hidden" name="locale" value={locale} />
+      <input ref={intentInputRef} type="hidden" name="intent" defaultValue="submit" />
+      <input type="hidden" name="submissionId" value={currentSubmissionId} />
+      <input type="hidden" name="townId" value={selectedTownId} />
+      <input type="hidden" name="openingHours" value={openingHoursValue} />
+      <input type="hidden" name="photoUrls" value={photoUrlsValue} />
+      <input type="hidden" name="businessSummary" value={businessSummary} />
+      <input type="hidden" name="shortDescription" value={shortDescriptionValue} />
+      <input type="hidden" name="longDescription" value={longDescriptionValue} />
+      <input
+        ref={duplicateDecisionInputRef}
+        type="hidden"
+        name="duplicateDecision"
+        value={duplicateDecision}
+      />
+
+      {duplicateReviewSection}
+
+      <section className="card overflow-hidden border-[color:rgba(42,98,87,0.08)]">
+        <div className="grid gap-6 bg-[linear-gradient(135deg,rgba(255,255,255,0.98),rgba(247,244,239,0.94))] px-5 py-6 sm:px-6 lg:grid-cols-[1.2fr_0.8fr]">
+          <div>
+            <p className="section-kicker mb-3">{copy.progress}</p>
+            <h2 className="font-serif text-3xl text-[var(--foreground)]">
+              {locale === "it" ? "Scheda guidata sul posto" : "Guided on-site listing"}
+            </h2>
+            <p className="mt-3 max-w-2xl text-[var(--muted)]">{copy.helper}</p>
+            <p className="mt-3 text-sm text-[var(--muted)]">{copy.saveHint}</p>
+          </div>
+          <div className="rounded-[1.7rem] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[var(--shadow-card)]">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-medium text-[var(--foreground)]">
+                {completedSections}/5 {copy.progressDone}
+              </p>
+              <span className="pill-success">{adminMode ? copy.adminBadge : "€100"}</span>
+            </div>
+            <div className="mt-4 h-3 overflow-hidden rounded-full bg-[var(--secondary)]">
+              <div
+                className="h-full rounded-full bg-[linear-gradient(90deg,var(--primary),rgba(42,98,87,0.72))] transition-[width] duration-300"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+            {adminMode ? (
+              <p className="mt-4 text-sm text-[var(--muted)]">{copy.adminBody}</p>
+            ) : null}
+          </div>
+        </div>
+      </section>
+
+      {draftNotice ? (
+        <section className="rounded-[1.6rem] border border-[color:rgba(42,98,87,0.14)] bg-[color:rgba(42,98,87,0.06)] px-5 py-5 shadow-[var(--shadow-card)]">
+          <p className="text-sm font-medium text-[var(--foreground)]">{draftNotice}</p>
+        </section>
+      ) : null}
+
+      {state.error ? (
+        <section
+          ref={errorNoticeRef}
+          tabIndex={-1}
+          className="rounded-[1.6rem] border border-[rgba(191,91,42,0.18)] bg-[rgba(255,248,243,0.96)] px-5 py-5 shadow-[var(--shadow-card)]"
+        >
+          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[var(--accent)]">
+            {locale === "it" ? "Controlla questi campi" : "Check these fields"}
+          </p>
+          <p className="mt-2 text-sm text-[var(--accent)]">{state.error}</p>
+          {errorSummary.length ? (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {errorSummary.map((entry) => (
+                <button
+                  key={entry.field}
+                  type="button"
+                  onClick={() =>
+                    document
+                      .getElementById(entry.sectionId)
+                      ?.scrollIntoView({ behavior: "smooth", block: "start" })
+                  }
+                  className="rounded-full border border-[rgba(191,91,42,0.24)] bg-white px-4 py-2 text-sm text-[var(--accent)] transition-colors hover:bg-[rgba(255,248,243,0.96)]"
+                >
+                  {entry.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      <SectionCard
+        id="business-identity"
+        index={1}
+        title={copy.identity}
+        description={copy.identityBody}
+        hasError={
+          hasFieldError("businessName") ||
+          hasFieldError("categoryId") ||
+          hasFieldError("townId") ||
+          hasAddressFieldError ||
+          hasBusinessPhoneError ||
+          hasBusinessWhatsappError
+        }
+        inProgressLabel={copy.sectionInProgress}
+        ready={isSectionReady([
+          businessName,
+          categoryId,
+          selectedTownId,
+          isValidSelectedAddress(selectedAddress) ? address : "",
+          businessPhone,
+        ])}
+        readyLabel={copy.sectionReady}
+        icon={<IconBuildingStore size={22} />}
+        body={
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="field-label">
+              <FieldLabel title={copy.businessName} required={copy.required} />
+              <input
+                name="businessName"
+                value={businessName}
+                onChange={(event) => setBusinessName(event.target.value)}
+                className={getFieldInputClass(hasFieldError("businessName"), "text-base")}
+              />
+              <FieldError message={state.fieldErrors?.businessName} />
+            </label>
+
+            <label className="field-label">
+              <FieldLabel
+                title={copy.category}
+                required={copy.required}
+              />
+              <select
+                name="categoryId"
+                value={categoryId}
+                onChange={(event) => setCategoryId(event.target.value)}
+                className={getFieldInputClass(hasFieldError("categoryId"), "text-base")}
+              >
+                <option value="">{locale === "it" ? "Seleziona" : "Select"}</option>
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {getCategoryLabel(category.slug, category.name, locale)}
+                  </option>
+                ))}
+              </select>
+              <FieldError message={state.fieldErrors?.categoryId} />
+            </label>
+
+            <div className="field-label sm:col-span-2">
+              <FieldLabel
+                title={copy.address}
+                description={copy.addressHelp}
+                required={copy.required}
+              />
+              <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                <div className="field-label sm:col-span-2">
+                  <AddressAutocomplete
+                    initialGooglePlacesApiKey={googlePlacesApiKey}
+                    locale={locale}
+                    query={address}
+                    selectedAddress={selectedAddress}
+                    onQueryChange={setAddress}
+                    onSelectedAddressChange={setSelectedAddress}
+                    clientError={addressSelectionError}
+                    emphasizeError={addressSelectionError === copy.addressUnsupportedTown}
+                    onClientErrorChange={setAddressSelectionError}
+                    serverError={state.fieldErrors?.address}
+                  />
+                </div>
+
+                <label className="field-label">
+                  <FieldLabel title={copy.postalCode} required={copy.required} />
+                  <input
+                    value={selectedAddressPostalCode}
+                    readOnly
+                    placeholder={copy.postalCode}
+                    className={getFieldInputClass(hasAddressFieldError, "text-base")}
+                  />
+                </label>
+
+                <label className="field-label">
+                  <FieldLabel title={copy.town} required={copy.required} />
+                  <input
+                    value={selectedAddressTown}
+                    readOnly
+                    placeholder={copy.town}
+                    className={getFieldInputClass(hasFieldError("townId") || hasAddressFieldError, "text-base")}
+                  />
+                  <FieldError message={state.fieldErrors?.townId} />
+                </label>
+
+                <label className="field-label">
+                  <FieldLabel title={copy.province} required={copy.required} />
+                  <input
+                    value={selectedAddressProvince}
+                    readOnly
+                    placeholder={copy.province}
+                    className={getFieldInputClass(hasAddressFieldError, "text-base")}
+                  />
+                </label>
+
+                <label className="field-label">
+                  <FieldLabel title={copy.country} required={copy.required} />
+                  <select value="Italy" disabled className={getFieldInputClass(false, "text-base")}>
+                    <option value="Italy">Italy</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            <label className="field-label">
+              <FieldLabel title={copy.businessPhone} required={copy.required} />
+              <input type="hidden" name="phone" value={businessPhone} />
+              <div className="grid grid-cols-[7.25rem_minmax(0,1fr)] gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]">
+                <PhoneCountrySelector
+                  value={businessPhoneParts.country}
+                  onChange={(country) => {
+                    const nextParts = {
+                      ...businessPhoneParts,
+                      country,
+                    };
+                    const nextPhone = buildPhoneValue(nextParts);
+
+                    setBusinessPhoneParts(nextParts);
+
+                    if (sameAsPhone) {
+                      setBusinessWhatsappParts(nextParts);
+                    }
+
+                    if (ownerMatchesBusinessWhatsapp) {
+                      setOwnerContactParts(
+                        sameAsPhone
+                          ? nextParts
+                          : splitPhoneValue(businessWhatsapp || nextPhone, businessWhatsappParts.country),
+                      );
+                    }
+                  }}
+                  options={phoneCountryOptions}
+                  aria-label={copy.phoneCode}
+                  aria-invalid={hasBusinessPhoneError}
+                />
+                <input
+                  value={businessPhoneParts.number}
+                  onChange={(event) => {
+                    const nextParts = {
+                      ...businessPhoneParts,
+                      number: normalizeEditablePhoneNumberInput(event.target.value),
+                    };
+                    const nextPhone = buildPhoneValue(nextParts);
+
+                    setBusinessPhoneParts(nextParts);
+
+                    if (sameAsPhone) {
+                      setBusinessWhatsappParts(nextParts);
+                    }
+
+                    if (ownerMatchesBusinessWhatsapp) {
+                      setOwnerContactParts(
+                        sameAsPhone
+                          ? nextParts
+                          : splitPhoneValue(businessWhatsapp || nextPhone, businessWhatsappParts.country),
+                      );
+                    }
+                  }}
+                  inputMode="tel"
+                  autoComplete="tel-national"
+                  maxLength={phoneNumberInputMaxLength}
+                  className={getFieldInputClass(hasBusinessPhoneError, "text-base")}
+                  placeholder={locale === "it" ? "Numero di telefono" : "Phone number"}
+                  aria-label={copy.phoneNumber}
+                  aria-invalid={hasBusinessPhoneError}
+                />
+              </div>
+              <FieldError message={businessPhoneErrorMessage} />
+            </label>
+
+            <label className="field-label">
+              <FieldLabel title={copy.whatsapp} optional={copy.optional} />
+              <input type="hidden" name="whatsapp" value={businessWhatsapp} />
+              <div className="grid grid-cols-[7.25rem_minmax(0,1fr)] gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]">
+                <PhoneCountrySelector
+                  value={businessWhatsappParts.country}
+                  onChange={(country) => {
+                    const nextParts = {
+                      ...businessWhatsappParts,
+                      country,
+                    };
+
+                    setSameAsPhone(false);
+                    setBusinessWhatsappParts(nextParts);
+
+                    if (ownerMatchesBusinessWhatsapp) {
+                      setOwnerContactParts(
+                        nextParts.number
+                          ? nextParts
+                          : splitPhoneValue(businessPhone, businessPhoneParts.country),
+                      );
+                    }
+                  }}
+                  options={phoneCountryOptions}
+                  aria-label={copy.phoneCode}
+                  aria-invalid={hasBusinessWhatsappError}
+                />
+                <input
+                  value={businessWhatsappParts.number}
+                  onChange={(event) => {
+                    const nextParts = {
+                      ...businessWhatsappParts,
+                      number: normalizeEditablePhoneNumberInput(event.target.value),
+                    };
+
+                    setSameAsPhone(false);
+                    setBusinessWhatsappParts(nextParts);
+
+                    if (ownerMatchesBusinessWhatsapp) {
+                      setOwnerContactParts(
+                        nextParts.number
+                          ? nextParts
+                          : splitPhoneValue(businessPhone, businessPhoneParts.country),
+                      );
+                    }
+                  }}
+                  inputMode="tel"
+                  autoComplete="tel-national"
+                  maxLength={phoneNumberInputMaxLength}
+                  className={getFieldInputClass(hasBusinessWhatsappError, "text-base")}
+                  placeholder={locale === "it" ? "Numero WhatsApp" : "WhatsApp number"}
+                  aria-label={copy.phoneNumber}
+                  aria-invalid={hasBusinessWhatsappError}
+                />
+              </div>
+              <CopyToggle
+                checked={sameAsPhone}
+                onChange={(checked) => {
+                  setSameAsPhone(checked);
+                  if (checked) {
+                    setBusinessWhatsappParts(businessPhoneParts);
+
+                    if (ownerMatchesBusinessWhatsapp) {
+                      setOwnerContactParts(businessPhoneParts);
+                    }
+                  }
+                }}
+                label={copy.sameAsBusinessPhone}
+              />
+              <FieldError message={businessWhatsappErrorMessage} />
+            </label>
+          </div>
+        }
+      />
+
+      <SectionCard
+        id="private-contact"
+        index={2}
+        title={copy.contactPerson}
+        description={copy.contactBody}
+        hasError={
+          hasFieldError("ownerName") ||
+          hasOwnerPhoneError ||
+          hasOwnerEmailError ||
+          hasBusinessEmailError
+        }
+        inProgressLabel={copy.sectionInProgress}
+        ready={isSectionReady([
+          ownerName,
+          ownerContact || businessWhatsapp || businessPhone,
+          ownerHasNoEmail ? "no-email" : ownerEmail,
+        ])}
+        readyLabel={copy.sectionReady}
+        icon={<IconUser size={22} />}
+        body={
+          <>
+            <div className="rounded-2xl border border-[var(--border)] bg-[color:rgba(247,244,239,0.68)] px-4 py-3 text-sm text-[var(--muted)]">
+              {copy.contactBody}
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="field-label">
+                <FieldLabel title={copy.ownerName} required={copy.required} />
+                <input
+                  name="ownerName"
+                  value={ownerName}
+                  onChange={(event) => setOwnerName(event.target.value)}
+                  className={getFieldInputClass(hasFieldError("ownerName"), "text-base")}
+                />
+                <FieldError message={state.fieldErrors?.ownerName} />
+              </label>
+
+              <label className="field-label">
+                <FieldLabel title={copy.ownerWhatsapp} required={copy.required} />
+                <input type="hidden" name="ownerPhone" value={ownerContact} />
+                <div className="grid grid-cols-[7.25rem_minmax(0,1fr)] gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]">
+                  <PhoneCountrySelector
+                    value={ownerContactParts.country}
+                    onChange={(country) => {
+                      setOwnerMatchesBusinessWhatsapp(false);
+                      setOwnerContactParts({
+                        ...ownerContactParts,
+                        country,
+                      });
+                    }}
+                    options={phoneCountryOptions}
+                    aria-label={copy.phoneCode}
+                    aria-invalid={hasOwnerPhoneError}
+                  />
+                  <input
+                    value={ownerContactParts.number}
+                    onChange={(event) => {
+                      setOwnerMatchesBusinessWhatsapp(false);
+                      setOwnerContactParts({
+                        ...ownerContactParts,
+                        number: normalizeEditablePhoneNumberInput(event.target.value),
+                      });
+                    }}
+                    inputMode="tel"
+                    autoComplete="tel-national"
+                    maxLength={phoneNumberInputMaxLength}
+                    className={getFieldInputClass(hasOwnerPhoneError, "text-base")}
+                    placeholder={locale === "it" ? "Numero WhatsApp privato" : "Private WhatsApp number"}
+                    aria-label={copy.phoneNumber}
+                    aria-invalid={hasOwnerPhoneError}
+                  />
+                </div>
+                <CopyToggle
+                  checked={ownerMatchesBusinessWhatsapp}
+                  onChange={(checked) => {
+                    setOwnerMatchesBusinessWhatsapp(checked);
+                    if (checked) {
+                      setOwnerContactParts(
+                        businessWhatsappParts.number ? businessWhatsappParts : businessPhoneParts,
+                      );
+                    }
+                }}
+                label={copy.sameAsBusinessWhatsapp}
+              />
+                <FieldError message={ownerPhoneErrorMessage} />
+              </label>
+
+              <label className="field-label">
+                <FieldLabel title={copy.ownerEmail} required={ownerHasNoEmail ? undefined : copy.required} />
+                <input
+                  name="ownerEmail"
+                  type="email"
+                  value={ownerEmail}
+                  onChange={(event) => setOwnerEmail(event.target.value)}
+                  disabled={ownerHasNoEmail}
+                  className={getFieldInputClass(
+                    hasOwnerEmailError,
+                    "text-base disabled:cursor-not-allowed disabled:opacity-60",
+                  )}
+                  aria-invalid={hasOwnerEmailError}
+                />
+                <CopyToggle
+                  name="ownerHasNoEmail"
+                  checked={ownerHasNoEmail}
+                  onChange={(checked) => {
+                    setOwnerHasNoEmail(checked);
+                    if (checked) {
+                      setOwnerEmail("");
+                      setRenewalPreference("MANUAL");
+                    }
+                  }}
+                  label={copy.noEmail}
+                />
+                <FieldError message={ownerEmailErrorMessage} />
+              </label>
+
+              <label className="field-label">
+                <FieldLabel
+                  title={copy.businessEmail}
+                  description={copy.businessEmailHelp}
+                  optional={copy.optional}
+                />
+                <input
+                  name="email"
+                  type="email"
+                  value={businessEmail}
+                  onChange={(event) => setBusinessEmail(event.target.value)}
+                  className={getFieldInputClass(hasBusinessEmailError, "text-base")}
+                  aria-invalid={hasBusinessEmailError}
+                />
+                <FieldError message={businessEmailErrorMessage} />
+              </label>
+            </div>
+          </>
+        }
+      />
+
+      <SectionCard
+        id="business-hours"
+        index={3}
+        title={copy.hoursTitle}
+        description={copy.hoursBody}
+        hasError={hasFieldError("openingHours")}
+        inProgressLabel={copy.sectionInProgress}
+        ready={hours.some((day) => day.closed || Boolean(day.open1 && day.close1))}
+        readyLabel={copy.sectionReady}
+        icon={<IconClock size={22} />}
+        body={
+          <>
+            <div className="grid gap-4">
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={applyMondayToAll}
+                  className="btn-secondary"
+                >
+                  {copy.copyMonday}
+                </button>
+              </div>
+
+              <div className="grid gap-3">
+                {hours.map((day) => (
+                  <div
+                    key={day.day}
+                    className={getPanelClass(
+                      "rounded-[1.3rem] border border-[var(--border)] bg-[color:rgba(247,244,239,0.58)] p-4",
+                      hasFieldError("openingHours"),
+                    )}
+                  >
+                    <div className="grid gap-3 lg:grid-cols-[1.1fr_1fr_1fr]">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="font-medium text-[var(--foreground)]">
+                          {locale === "it"
+                            ? days.find((entry) => entry.key === day.day)?.it
+                            : days.find((entry) => entry.key === day.day)?.en}
+                        </p>
+                        <CopyToggle
+                          checked={day.closed}
+                          onChange={(checked) => setHourValue(day.day, "closed", checked)}
+                          label={copy.dayClosed}
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <input
+                          type="time"
+                          aria-label={`${locale === "it" ? days.find((entry) => entry.key === day.day)?.it : days.find((entry) => entry.key === day.day)?.en}: ${locale === "it" ? "apertura" : "opening"}`}
+                          value={day.open1}
+                          onChange={(event) => setHourValue(day.day, "open1", event.target.value)}
+                          disabled={day.closed}
+                          className="input-field"
+                        />
+                        <input
+                          type="time"
+                          aria-label={`${locale === "it" ? days.find((entry) => entry.key === day.day)?.it : days.find((entry) => entry.key === day.day)?.en}: ${locale === "it" ? "chiusura" : "closing"}`}
+                          value={day.close1}
+                          onChange={(event) => setHourValue(day.day, "close1", event.target.value)}
+                          disabled={day.closed}
+                          className="input-field"
+                        />
+                      </div>
+
+                      <div className="grid gap-3">
+                        <CopyToggle
+                          checked={day.split}
+                          onChange={(checked) => setHourValue(day.day, "split", checked)}
+                          label={copy.splitHours}
+                        />
+                        {day.split && !day.closed ? (
+                          <div className="grid grid-cols-2 gap-3">
+                            <input
+                              type="time"
+                              aria-label={`${locale === "it" ? days.find((entry) => entry.key === day.day)?.it : days.find((entry) => entry.key === day.day)?.en}: ${locale === "it" ? "apertura serale" : "evening opening"}`}
+                              value={day.open2}
+                              onChange={(event) => setHourValue(day.day, "open2", event.target.value)}
+                              className="input-field"
+                            />
+                            <input
+                              type="time"
+                              aria-label={`${locale === "it" ? days.find((entry) => entry.key === day.day)?.it : days.find((entry) => entry.key === day.day)?.en}: ${locale === "it" ? "chiusura serale" : "evening closing"}`}
+                              value={day.close2}
+                              onChange={(event) => setHourValue(day.day, "close2", event.target.value)}
+                              className="input-field"
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <FieldError message={state.fieldErrors?.openingHours} />
+            </div>
+          </>
+        }
+      />
+
+      <SectionCard
+        id="business-details"
+        index={4}
+        title={copy.details}
+        description={copy.detailsBody}
+        hasError={
+          hasFieldError("businessSummary") ||
+          hasFieldError("shortDescription") ||
+          hasFieldError("longDescription") ||
+          hasFieldError("photoUrls")
+        }
+        inProgressLabel={copy.sectionInProgress}
+        ready={offerItemsCount >= 2 && Boolean(photos.exterior && photos.interior)}
+        readyLabel={copy.sectionReady}
+        icon={<IconBuildingStore size={22} />}
+        body={
+          <>
+            <div className="grid gap-3">
+              <label className="field-label">
+                <FieldLabel
+                  title={copy.businessSummary}
+                  description={copy.businessSummaryHelp}
+                  optional={copy.optional}
+                />
+                <textarea
+                  value={businessSummary}
+                  onChange={(event) => setBusinessSummary(event.target.value)}
+                  rows={4}
+                  className={getFieldInputClass(hasFieldError("businessSummary"), "resize-y text-base")}
+                  placeholder={copy.businessSummaryPlaceholder}
+                />
+                <FieldError message={state.fieldErrors?.businessSummary} />
+              </label>
+
+              <FieldLabel title={copy.sellOrOffer} required={copy.required} />
+              {offerItems.map((item, index) => (
+                <div key={index} className="flex items-center gap-3">
+                  <span className="text-lg text-[var(--accent)]">•</span>
+                  <input
+                    ref={(node) => {
+                      offerInputRefs.current[index] = node;
+                    }}
+                    value={item}
+                    onChange={(event) => updateOfferItem(index, event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        addOfferItem(index);
+                      }
+
+                      if (event.key === "Backspace" && !item.trim() && offerItems.length > 1) {
+                        event.preventDefault();
+                        removeOfferItem(index);
+                      }
+                    }}
+                    className={getFieldInputClass(
+                      hasFieldError("shortDescription") || hasFieldError("longDescription"),
+                      "flex-1",
+                    )}
+                    placeholder={copy.sellOrOfferPlaceholder}
+                  />
+                  {offerItems.length > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => removeOfferItem(index)}
+                      className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-[var(--border)] bg-[var(--card)] text-[var(--muted)]"
+                      aria-label={copy.removeBullet}
+                    >
+                      <IconTrash size={18} />
+                    </button>
+                  ) : null}
+                </div>
+              ))}
+              <button type="button" onClick={() => addOfferItem()} className="btn-secondary w-full sm:w-auto">
+                <IconPlus size={16} />
+                {copy.addBullet}
+              </button>
+              <FieldError
+                message={state.fieldErrors?.longDescription ?? state.fieldErrors?.shortDescription}
+              />
+            </div>
+
+            <div
+              className={getPanelClass(
+                "rounded-[1.5rem] border border-[var(--border)] bg-[color:rgba(247,244,239,0.55)] p-5",
+                hasFieldError("photoUrls"),
+              )}
+            >
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--card)] text-[var(--primary)] shadow-[var(--shadow-card)]">
+                  <IconPhoto size={20} />
+                </div>
+                <div>
+                  <p className="font-medium text-[var(--foreground)]">{copy.photos}</p>
+                  <p className="text-sm text-[var(--muted)]">{copy.photosBody}</p>
+                </div>
+              </div>
+              <p className="mt-4 text-sm text-[var(--muted)]">{copy.photoHint}</p>
+
+              <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {([
+                  ["exterior", copy.exteriorPhoto, true],
+                  ["interior", copy.interiorPhoto, true],
+                  ...optionalPhotoSlots
+                    .slice(0, visibleExtraPhotoCount)
+                    .map((slot, index) => [slot, `${copy.photoOptional} ${index + 1}`, false] as const),
+                ] as const).map(([slot, label, required]) => {
+                  const preview = previewUrls[slot] ?? photos[slot];
+
+                  return (
+                    <label
+                      key={slot}
+                      className="rounded-[1.4rem] border border-[var(--border)] bg-[var(--card)] p-4 shadow-[var(--shadow-card)]"
+                    >
+                      <FieldLabel
+                        title={label}
+                        required={required ? copy.required : undefined}
+                        optional={required ? undefined : copy.optional}
+                      />
+                      <div className="mt-3 overflow-hidden rounded-2xl border border-dashed border-[var(--border)] bg-[color:rgba(247,244,239,0.56)]">
+                        {preview ? (
+                          <div className={`relative h-40 w-full ${uploadingSlots[slot] ? "opacity-80" : ""}`}>
+                            <img
+                              src={preview}
+                              alt={label}
+                              className="h-full w-full object-cover"
+                            />
+                          </div>
+                        ) : (
+                          <div className="flex h-40 items-center justify-center text-sm text-[var(--muted)]">
+                            <IconCamera size={18} className="mr-2" />
+                            {label}
+                          </div>
+                        )}
+                      </div>
+                      <div className="mt-3">
+                        <span
+                          className={`btn-secondary w-full ${uploadingSlots[slot] ? "cursor-wait opacity-70" : ""}`}
+                          aria-busy={uploadingSlots[slot] ? "true" : undefined}
+                        >
+                          {copy.uploadPhoto}
+                        </span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="sr-only"
+                          disabled={Boolean(uploadingSlots[slot])}
+                          onChange={(event) => {
+                            void handlePhotoChange(slot, event.target.files?.[0]);
+                            event.currentTarget.value = "";
+                          }}
+                        />
+                      </div>
+                    </label>
+                  );
+                })}
+                {visibleExtraPhotoCount < optionalPhotoSlots.length ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setVisibleExtraPhotoCount((current) =>
+                        Math.min(current + 1, optionalPhotoSlots.length),
+                      )
+                    }
+                    className="flex min-h-[18.5rem] flex-col items-center justify-center gap-3 rounded-[1.4rem] border border-dashed border-[var(--border)] bg-[var(--card)] p-4 text-center text-[var(--muted)] shadow-[var(--shadow-card)] transition-colors hover:bg-[color:rgba(247,244,239,0.56)] hover:text-[var(--foreground)]"
+                  >
+                    <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--secondary)] text-[var(--primary)]">
+                      <IconPlus size={20} />
+                    </span>
+                    <span className="text-sm font-medium">{copy.photoAdd}</span>
+                  </button>
+                ) : null}
+              </div>
+              <FieldError message={uploadError || state.fieldErrors?.photoUrls} />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-3">
+              <label className="field-label">
+                <FieldLabel title="Website" optional={copy.optional} />
+                <input
+                  name="website"
+                  value={website}
+                  onChange={(event) => setWebsite(event.target.value)}
+                  className={getFieldInputClass(hasFieldError("website"))}
+                />
+                <FieldError message={state.fieldErrors?.website} />
+              </label>
+              <label className="field-label">
+                <FieldLabel title="Instagram" optional={copy.optional} />
+                <SocialHandleInput
+                  hasError={hasFieldError("instagram")}
+                  name="instagram"
+                  value={instagram}
+                  onChange={setInstagram}
+                />
+                <FieldError message={state.fieldErrors?.instagram} />
+              </label>
+              <label className="field-label">
+                <FieldLabel title="Facebook" optional={copy.optional} />
+                <SocialHandleInput
+                  hasError={hasFieldError("facebook")}
+                  name="facebook"
+                  value={facebook}
+                  onChange={setFacebook}
+                />
+                <FieldError message={state.fieldErrors?.facebook} />
+              </label>
+            </div>
+          </>
+        }
+      />
+
+      <SectionCard
+        id="payment"
+        index={5}
+        title={adminMode ? copy.adminTitle : copy.listingConfirmation}
+        description={adminMode ? copy.adminBody : copy.listingConfirmationBody}
+        hasError={
+          hasFieldError("paymentMethod") ||
+          hasFieldError("signerFullName") ||
+          hasFieldError("signerRole") ||
+          hasFieldError("signerRoleOther") ||
+          hasFieldError("agreementSignature") ||
+          hasFieldError("agreement")
+        }
+        inProgressLabel={copy.sectionInProgress}
+        ready={confirmationReady}
+        readyLabel={copy.sectionReady}
+        icon={<IconCashBanknote size={22} />}
+        body={
+          <>
+            {!adminMode ? (
+              <>
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <label
+                    className={getPanelClass(
+                      "rounded-[1.5rem] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[var(--shadow-card)]",
+                      hasFieldError("paymentMethod") && paymentMethod !== "ONLINE",
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="radio"
+                          name="paymentMethod"
+                          value="ONLINE"
+                          checked={paymentMethod === "ONLINE"}
+                          onChange={() => setPaymentMethod("ONLINE")}
+                          className="mt-1 h-4 w-4 accent-[var(--primary)]"
+                        />
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-[var(--foreground)]">{copy.qrCard}</span>
+                            <span className="pill-success">{copy.cardHint}</span>
+                          </div>
+                          <p className="mt-2 text-sm text-[var(--muted)]">{copy.qrCardBody}</p>
+                        </div>
+                      </div>
+                      <IconCreditCard size={20} className="text-[var(--primary)]" />
+                    </div>
+                    <div className="mt-4 rounded-2xl border border-dashed border-[var(--border)] bg-[color:rgba(247,244,239,0.58)] px-4 py-3 text-sm text-[var(--muted)]">
+                      {copy.paymentPlaceholder}
+                    </div>
+                  </label>
+
+                  <label
+                    className={getPanelClass(
+                      "rounded-[1.5rem] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[var(--shadow-card)]",
+                      hasFieldError("paymentMethod") && paymentMethod !== "BANK_TRANSFER",
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="radio"
+                          name="paymentMethod"
+                          value="BANK_TRANSFER"
+                          checked={paymentMethod === "BANK_TRANSFER"}
+                          onChange={() => setPaymentMethod("BANK_TRANSFER")}
+                          className="mt-1 h-4 w-4 accent-[var(--primary)]"
+                        />
+                        <div>
+                          <span className="font-medium text-[var(--foreground)]">{copy.bankTransfer}</span>
+                          <p className="mt-2 text-sm text-[var(--muted)]">{copy.bankTransferBody}</p>
+                        </div>
+                      </div>
+                      <IconCashBanknote size={20} className="text-[var(--primary)]" />
+                    </div>
+                    <div className="mt-4 rounded-2xl border border-dashed border-[var(--border)] bg-[color:rgba(247,244,239,0.58)] px-4 py-3 text-sm text-[var(--muted)]">
+                      {copy.paymentReference}:{" "}
+                      {currentSubmissionId
+                        ? `SD-${currentSubmissionId.slice(-8).toUpperCase()}`
+                        : locale === "it"
+                          ? "verra creato al primo salvataggio"
+                          : "created on first save"}
+                    </div>
+                  </label>
+                </div>
+                <FieldError message={state.fieldErrors?.paymentMethod} />
+                {paymentMethod === "ONLINE" ? <div className="mt-5 rounded-[1.5rem] border border-[rgba(42,98,87,0.28)] bg-[rgba(237,248,242,0.52)] p-5"><p className="text-xs font-bold tracking-[0.14em] text-[var(--primary)]">{locale === "it" ? "MEMBERSHIP ANNUALE" : "ANNUAL BUSINESS MEMBERSHIP"}</p><h3 className="mt-2 font-serif text-2xl text-[var(--foreground)]">€100 {locale === "it" ? "/ anno" : "/ year"}</h3><p className="mt-4 text-sm font-bold text-[var(--foreground)]">{locale === "it" ? "RINNOVO" : "RENEWAL"}</p><div className="mt-3 grid gap-3">{ownerEmail.trim() ? <label className="rounded-xl border border-[var(--border)] bg-white p-4"><span className="flex gap-3"><input type="radio" checked={renewalPreference === "AUTO"} onChange={() => setRenewalPreference("AUTO")} /><span><b>{locale === "it" ? "Rinnovo annuale automatico" : "Automatic annual renewal"}</b><span className="mt-1 block text-sm text-[var(--muted)]">{locale === "it" ? "La Pagina Attività si rinnoverà a €100 ogni anno. Ti invieremo email 30 e 7 giorni prima; puoi disattivarlo dalla dashboard." : "Your Business Page renews for €100 every year. We’ll email you 30 and 7 days before; you can turn it off from your dashboard."}</span></span></span></label> : null}<label className="rounded-xl border border-[var(--border)] bg-white p-4"><span className="flex gap-3"><input type="radio" checked={effectiveRenewalPreference === "MANUAL"} onChange={() => setRenewalPreference("MANUAL")} /><span><b>{locale === "it" ? "Rinnova manualmente" : "Renew manually"}</b><span className="mt-1 block text-sm text-[var(--muted)]">{locale === "it" ? "Ti ricorderemo prima della scadenza. Per mantenere online la Pagina Attività, effettua un nuovo pagamento di €100 ogni anno." : "We’ll remind you before it ends. Make a new €100 payment each year to keep your Business Page active."}</span></span></span></label></div></div> : null}
+              </>
+            ) : null}
+
+            <div
+              className={getPanelClass(
+                "rounded-[1.6rem] border border-[color:rgba(191,91,42,0.16)] bg-[linear-gradient(135deg,rgba(255,248,243,0.96),rgba(255,255,255,0.94))] p-5",
+                hasFieldError("agreementSignature") || hasFieldError("agreement"),
+              )}
+            >
+              <div className="grid gap-5 sm:gap-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+                  <div className="mt-1 text-[var(--accent)]">
+                    <IconSignature size={20} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--accent)]">
+                      {copy.listingConfirmation}
+                    </p>
+                    <p className="mt-3 text-base leading-7 text-[var(--foreground)]">
+                      {copy.listingConfirmationBody}
+                    </p>
+                    <p className="mt-3 rounded-2xl border border-[rgba(42,98,87,0.14)] bg-white px-4 py-3 text-sm font-medium leading-6 text-[var(--foreground)]">
+                      {copy.handDevice}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-[1.8rem] border border-[rgba(42,98,87,0.16)] bg-white p-4 shadow-[var(--shadow-card)] sm:p-5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--accent)]">
+                    {copy.yourListing}
+                  </p>
+                  <div className="mt-4 grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(22rem,1fr)] xl:items-start">
+                    <div className="max-w-3xl">
+                      <p className="text-sm text-[var(--muted)]">{copy.listingFor}</p>
+                      <p className="mt-1 font-serif text-2xl text-[var(--foreground)] sm:text-3xl">
+                        {businessName.trim() || (locale === "it" ? "La tua attivita" : "Your business")}
+                      </p>
+                      <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--muted)]">
+                        {copy.listingIncludes}
+                      </p>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                      <div className="min-w-0 rounded-[1.4rem] border border-[rgba(42,98,87,0.12)] bg-[linear-gradient(160deg,rgba(247,244,239,0.78),rgba(255,255,255,0.96))] px-4 py-4 sm:px-5 md:col-span-2 xl:col-span-1">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
+                          {copy.firstYear}
+                        </p>
+                        <p className="mt-3 whitespace-nowrap text-[clamp(2rem,2.5vw,3rem)] font-semibold leading-none tracking-[-0.04em] text-[var(--foreground)]">
+                          {annualPriceLabel}
+                        </p>
+                      </div>
+                      <div className="min-w-0 rounded-[1.4rem] border border-[rgba(42,98,87,0.12)] bg-[rgba(247,244,239,0.55)] px-4 py-4 sm:px-5">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
+                          {copy.afterFirstYear}
+                        </p>
+                        <p className="mt-3 text-lg font-medium leading-8 text-[var(--foreground)]">
+                          {renewalPriceLabel}
+                          {locale === "it"
+                            ? "/anno per questa attivita."
+                            : "/year for this business."}
+                        </p>
+                      </div>
+                      <div className="min-w-0 rounded-[1.4rem] border border-[rgba(42,98,87,0.12)] bg-[rgba(42,98,87,0.08)] px-4 py-4 sm:px-5">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
+                          {locale === "it" ? "Rinnovo" : "Renewal"}
+                        </p>
+                        <p className="mt-3 text-lg font-semibold leading-8 text-[var(--foreground)]">
+                          {copy.renewalNotAutomatic}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-[1.6rem] border border-[rgba(42,98,87,0.12)] bg-[rgba(255,255,255,0.88)] p-4 sm:p-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h3 className="font-serif text-2xl text-[var(--foreground)]">{copy.beforeYouSign}</h3>
+                      <p className="mt-2 text-sm text-[var(--muted)]">{copy.beforeYouSignIntro}</p>
+                    </div>
+                  </div>
+                  <div className="mt-5 grid gap-3">
+                    {[copy.summaryAuthorized, copy.summaryPublish, copy.summaryPrice, copy.summaryRenewal].map((item) => (
+                      <div
+                        key={item}
+                        className="flex items-start gap-3 rounded-[1.2rem] border border-[rgba(42,98,87,0.1)] bg-[rgba(247,244,239,0.45)] px-4 py-3"
+                      >
+                        <span className="mt-0.5 text-[var(--primary)]">
+                          <IconCircleCheckFilled size={18} />
+                        </span>
+                        <p className="text-sm leading-6 text-[var(--foreground)]">{item}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-[1.6rem] border border-[rgba(42,98,87,0.12)] bg-white p-4 sm:p-5">
+                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--accent)]">
+                    {copy.legalLinksTitle}
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <Link
+                      href={termsLink.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="btn-secondary"
+                    >
+                      {termsLink.label}
+                    </Link>
+                    <Link
+                      href={privacyLink.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="btn-secondary"
+                    >
+                      {privacyLink.label}
+                    </Link>
+                  </div>
+                </div>
+
+                <div className="grid gap-5 lg:grid-cols-2">
+                  <label className="field-label">
+                    <FieldLabel
+                      title={copy.signerName}
+                      required={copy.required}
+                    />
+                    <input
+                      name="signerFullName"
+                      value={signerFullName}
+                      onChange={(event) => setSignerFullName(event.target.value)}
+                      placeholder={copy.signerNamePlaceholder}
+                      className={getFieldInputClass(hasFieldError("signerFullName"))}
+                    />
+                    <FieldError message={state.fieldErrors?.signerFullName} />
+                  </label>
+                  <label className="field-label">
+                    <FieldLabel
+                      title={copy.signerRole}
+                      required={copy.required}
+                    />
+                    <select
+                      name="signerRole"
+                      value={signerRole}
+                      onChange={(event) => setSignerRole(event.target.value)}
+                      className={getFieldInputClass(hasFieldError("signerRole"))}
+                    >
+                      <option value="">{copy.signerRolePlaceholder}</option>
+                      {signerRoleOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <FieldError message={state.fieldErrors?.signerRole} />
+                  </label>
+                </div>
+
+                {signerRoleRequiresOther ? (
+                  <label className="field-label">
+                    <FieldLabel
+                      title={copy.signerRoleOther}
+                      required={copy.required}
+                    />
+                    <input
+                      name="signerRoleOther"
+                      value={signerRoleOther}
+                      onChange={(event) => setSignerRoleOther(event.target.value)}
+                      placeholder={copy.signerRoleOtherPlaceholder}
+                      className={getFieldInputClass(hasFieldError("signerRoleOther"))}
+                    />
+                    <FieldError message={state.fieldErrors?.signerRoleOther} />
+                  </label>
+                ) : (
+                  <input type="hidden" name="signerRoleOther" value="" />
+                )}
+
+                <div className="field-label">
+                  <FieldLabel
+                    title={copy.signatureTitle}
+                    description={copy.signatureIntro}
+                    required={copy.required}
+                  />
+                  <input type="hidden" name="agreementSignature" value={signature} />
+                  <div className="rounded-[1.6rem] border border-[rgba(42,98,87,0.16)] bg-white p-3 sm:p-4 shadow-[var(--shadow-card)]">
+                    <SignaturePad
+                      clearLabel={copy.clearSignature}
+                      drawHint={copy.signatureDrawHint}
+                      hasError={hasFieldError("agreementSignature")}
+                      legacyValueNotice={copy.signatureLegacyNotice}
+                      value={signature}
+                      onChange={setSignature}
+                    />
+                  </div>
+                  <FieldError message={state.fieldErrors?.agreementSignature} />
+                </div>
+
+                <div className="rounded-[1.6rem] border border-[rgba(42,98,87,0.12)] bg-white p-4 sm:p-5">
+                  <label className="inline-flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      name="agreement"
+                      checked={agreementAccepted}
+                      onChange={(event) => setAgreementAccepted(event.target.checked)}
+                      className="mt-1 h-4 w-4 rounded border border-[var(--border)] accent-[var(--primary)]"
+                    />
+                    <span className="text-sm leading-6 text-[var(--foreground)]">
+                      {copy.termsAcceptancePrefix}{" "}
+                      <Link
+                        href={termsLink.href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-semibold text-[var(--primary)] underline decoration-[rgba(42,98,87,0.3)] underline-offset-4"
+                      >
+                        {termsLink.label}
+                      </Link>
+                      {copy.termsAcceptanceSuffix}
+                    </span>
+                  </label>
+                  <FieldError message={state.fieldErrors?.agreement} />
+                </div>
+              </div>
+            </div>
+          </>
+        }
+      />
+
+      <div className="sticky bottom-3 z-30 mt-4 flex justify-end">
+        <div className="card flex w-full flex-col gap-2 border-[color:rgba(42,98,87,0.08)] bg-[color:rgba(255,255,255,0.82)] px-3 py-2 shadow-[var(--shadow-soft)] backdrop-blur-md sm:px-4 lg:w-auto lg:min-w-[24rem] lg:max-w-[46rem] lg:flex-row lg:items-center lg:gap-4">
+          {footerStatusMessage ? (
+            <p className="text-xs leading-5 text-[var(--muted)] lg:max-w-lg">
+              {footerStatusMessage}
+            </p>
+          ) : null}
+          <div className={`flex flex-col gap-2 ${footerStatusMessage ? "lg:items-end" : "lg:ml-auto lg:items-end"}`}>
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+              <FormSubmitButton
+                className="btn-secondary w-full sm:w-auto"
+                onClick={() => requestDraftSave("manual")}
+                pendingLabel={copy.draftPending}
+                type="button"
+              >
+                {copy.draft}
+              </FormSubmitButton>
+              {activeDuplicateMatches.length ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (duplicateDecisionInputRef.current) {
+                        duplicateDecisionInputRef.current.value = "";
+                      }
+                      setDuplicateDecision("");
+                      setDuplicateRejected(true);
+                      duplicateNoticeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      duplicateNoticeRef.current?.focus();
+                    }}
+                    className="btn-secondary w-full sm:w-auto"
+                  >
+                    {copy.duplicateSameBusiness}
+                  </button>
+                  <FormSubmitButton
+                    className="btn-primary w-full sm:w-auto"
+                    onClick={() => {
+                      if (intentInputRef.current) {
+                        intentInputRef.current.value = "submit";
+                      }
+                      if (duplicateDecisionInputRef.current) {
+                        duplicateDecisionInputRef.current.value = "new";
+                      }
+                      setDuplicateDecision("new");
+                    }}
+                    pendingLabel={copy.publishPending}
+                  >
+                    {copy.duplicateNewBusiness}
+                  </FormSubmitButton>
+                </>
+              ) : (
+                <FormSubmitButton
+                  className="btn-primary w-full sm:w-auto"
+                  onClick={() => {
+                    if (intentInputRef.current) {
+                      intentInputRef.current.value = "submit";
+                    }
+                    if (duplicateDecisionInputRef.current) {
+                      duplicateDecisionInputRef.current.value = "";
+                    }
+                    setDuplicateDecision("");
+                  }}
+                  pendingLabel={copy.publishPending}
+                >
+                  {adminMode ? copy.continueToPublish : copy.continueToPayment}
+                </FormSubmitButton>
+              )}
+            </div>
+            {!activeDuplicateMatches.length && showContractualEmail ? (
+              <p className="text-[0.7rem] leading-4 text-[var(--muted)] lg:max-w-[20rem] lg:text-right">
+                {copy.confirmationEmailNote}{" "}
+                <span className="font-semibold text-[var(--foreground)]">{showContractualEmail}</span>
+              </p>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </form>
+  );
+}

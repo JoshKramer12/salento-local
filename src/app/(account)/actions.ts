@@ -54,6 +54,7 @@ import {
   getBusinessNameCandidateSearchTerms,
   getBusinessNameMatchStrength,
   isBusinessNameDuplicateSignal,
+  isBlockingDuplicateBusinessMatch,
   normalizeDuplicateBusinessName,
   normalizeDuplicatePhone,
   normalizedAddressValuesMatch,
@@ -641,6 +642,13 @@ async function findPotentialDuplicateBusinesses(input: {
       } satisfies DuplicateBusinessMatch;
     })
     .filter((business): business is DuplicateBusinessMatch => Boolean(business))
+    .filter((business) =>
+      isBlockingDuplicateBusinessMatch({
+        candidateName: business.name,
+        matchReasons: business.matchReasons,
+        submittedName: input.businessName,
+      }),
+    )
     .sort((left, right) => right.matchReasons.length - left.matchReasons.length);
 }
 
@@ -1345,7 +1353,6 @@ export async function saveBusinessSubmissionAction(
       locale,
       onInvalidResult: (reason) => {
         console.error("[publish:payment-action-contract]", {
-          duplicateDecision: getStringValue(formData.get("duplicateDecision")),
           duplicateMatchCount: result.duplicateMatches?.length ?? 0,
           paymentMethod: requestedPaymentMethod,
           reason,
@@ -1431,7 +1438,6 @@ async function saveBusinessSubmission(
   const intent = requestedIntent === "submit" ? "submit" : "draft";
   const isDuplicateCheck = requestedIntent === "check";
   const exitAfterDraftSave = getStringValue(formData.get("exitAfterDraftSave")) === "true";
-  const duplicateDecision = getStringValue(formData.get("duplicateDecision")).trim();
   const submissionId = getStringValue(formData.get("submissionId")).trim();
   const rawSubmission = {
     address: getStringValue(formData.get("address")),
@@ -1627,8 +1633,8 @@ async function saveBusinessSubmission(
     return {
       duplicateCheckMessage: duplicateMatches.length
         ? locale === "it"
-          ? "Questa attivita potrebbe essere gia presente. Controlla prima di continuare."
-          : "This business may already be listed. Please check before continuing."
+          ? "Abbiamo trovato una scheda simile. Aprila per controllare i dettagli."
+          : "We found a similar listing. Open it to review the details."
         : "",
       duplicateMatches,
       submission: rawSubmission,
@@ -1843,7 +1849,7 @@ async function saveBusinessSubmission(
         })
       : [];
 
-  if (intent === "submit" && duplicateDecision !== "new") {
+  if (intent === "submit") {
     const duplicateMatches = await findPotentialDuplicateBusinesses({
       address: parsed.data.address,
       addressPlaceId: selectedAddressStorage?.addressPlaceId,
@@ -1859,8 +1865,8 @@ async function saveBusinessSubmission(
       return {
         duplicateCheckMessage:
           locale === "it"
-            ? "Questa attivita potrebbe esistere gia. Controlla prima le schede qui sotto."
-            : "This business may already exist. Please review the listings below first.",
+            ? "Abbiamo trovato una scheda simile. Aprila per controllare i dettagli."
+            : "We found a similar listing. Open it to review the details.",
         duplicateMatches,
         submission: rawSubmission,
       };
@@ -2142,8 +2148,8 @@ async function saveBusinessSubmission(
     return {
       duplicateCheckMessage: draftDuplicateMatches.length
         ? locale === "it"
-          ? "Questa attivita potrebbe essere gia presente. Controlla prima di continuare."
-          : "This business may already be listed. Please check before continuing."
+          ? "Abbiamo trovato una scheda simile. Aprila per controllare i dettagli."
+          : "We found a similar listing. Open it to review the details."
         : "",
       duplicateMatches: draftDuplicateMatches,
       notice:
@@ -2198,8 +2204,8 @@ async function saveBusinessSubmission(
     return {
       duplicateCheckMessage: draftDuplicateMatches.length
         ? locale === "it"
-          ? "Questa attivita potrebbe essere gia presente. Controlla prima di continuare."
-          : "This business may already be listed. Please check before continuing."
+          ? "Abbiamo trovato una scheda simile. Aprila per controllare i dettagli."
+          : "We found a similar listing. Open it to review the details."
         : "",
       duplicateMatches: draftDuplicateMatches,
       notice:

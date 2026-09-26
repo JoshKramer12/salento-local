@@ -246,7 +246,7 @@ test("owner controls use cancel-at-period-end and never claim a card-less subscr
   assert.match(renewalActions, /automaticRenewal: true/);
   assert.match(readFileSync("src/components/account/auto-renew-cancel-control.tsx", "utf8"), /Turn off automatic renewal/);
   assert.match(ownerDashboard, /Turn on automatic renewal/);
-  assert.match(publishForm, /Automatic annual renewal/);
-  assert.match(publishForm, /Renew manually/);
+  assert.match(publishForm, /Automatic renewal — Recommended/);
+  assert.match(publishForm, /Manual renewal/);
   assert.match(readFileSync("src/app/(account)/actions.ts", "utf8"), /Choose automatic or manual renewal before continuing/);
 });

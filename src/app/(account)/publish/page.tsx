@@ -35,7 +35,6 @@ export default async function PublishPage({ searchParams }: PublishPageProps) {
   const resolvedSearchParams = await searchParams;
   const adminMode = getSingleParam(resolvedSearchParams.mode) === "admin";
   const submissionId = getSingleParam(resolvedSearchParams.submission);
-  const showPossibleMatches = getSingleParam(resolvedSearchParams.showPossibleMatches) === "1";
   const skipPayoutSetup = getSingleParam(resolvedSearchParams.skipPayoutSetup) === "1";
 
   if (adminMode && !isAdminViewer(viewer)) {
@@ -60,7 +59,6 @@ export default async function PublishPage({ searchParams }: PublishPageProps) {
         const publishParams = new URLSearchParams();
 
         if (submissionId) publishParams.set("submission", submissionId);
-        if (showPossibleMatches) publishParams.set("showPossibleMatches", "1");
         const publishHref = `/publish${publishParams.size ? `?${publishParams.toString()}` : ""}`;
         const returnTo = getPartnerPayoutSetupSkipDestination(publishHref);
 
@@ -143,7 +141,6 @@ export default async function PublishPage({ searchParams }: PublishPageProps) {
         phoneCountryOptions={buildPhoneCountryOptions(locale)}
         previousSuccessfulSubmissionCount={successfulSubmissionCount}
         role={viewer.role}
-        showPossibleMatchesOnLoad={showPossibleMatches}
         submission={{
           address: submission?.address ?? "",
           addressCountry: submission?.addressCountry ?? "",

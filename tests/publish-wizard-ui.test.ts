@@ -52,21 +52,11 @@ test("partner review uses larger, undistorted submitted photo previews and keeps
   assert.match(publishForm, /flex flex-wrap justify-end gap-3[\s\S]*Hand phone to owner/);
 });
 
-test("duplicate decisions are full-width, larger actions before the back and save navigation row", () => {
-  const duplicateFooterStart = publishForm.indexOf("duplicate-wizard-footer__decisions");
-  const duplicateFooter = publishForm.slice(
-    duplicateFooterStart,
-    publishForm.indexOf('wizardStep === "owner-review"', duplicateFooterStart),
-  );
-
-  assert.ok(duplicateFooterStart >= 0);
-  assert.ok(duplicateFooter.indexOf("copy.duplicateNewBusiness") < duplicateFooter.indexOf("copy.duplicateSameBusiness"));
-  assert.match(duplicateFooter, /duplicate-wizard-footer__decisions grid w-full gap-3/);
-  assert.match(duplicateFooter, /btn-primary min-h-12 w-full disabled:opacity-50/);
-  assert.match(duplicateFooter, /btn-secondary min-h-12 w-full disabled:opacity-50/);
-  assert.match(duplicateFooter, /duplicate-wizard-footer__navigation flex w-full flex-nowrap items-center justify-between gap-3/);
-  assert.match(duplicateFooter, /<IconArrowLeft size=\{18\} aria-hidden="true" \/>/);
-  assert.match(duplicateFooter, /<IconDeviceFloppy size=\{18\} aria-hidden="true" \/>/);
+test("a duplicate result stops the guided flow before owner approval and payment", () => {
+  assert.match(publishForm, /wizardStep === "duplicate-blocked"/);
+  assert.match(publishForm, /showWizardFooter = wizardStep !== "duplicate-blocked"/);
+  assert.match(publishForm, /duplicateReviewSection/);
+  assert.doesNotMatch(publishForm, /copy\.duplicateNewBusiness|copy\.duplicateSameBusiness/);
 });
 
 test("add another photo uses the full available width without changing photo input behavior", () => {

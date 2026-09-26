@@ -26,7 +26,6 @@ import { getBusinessHoursStatus, getBusinessHoursStatusDetail, resolveBusinessHo
 import { getCurrentLocale } from "@/lib/locale";
 import { getPublicBusinessMembershipWhere } from "@/lib/business-membership";
 import { prisma } from "@/lib/prisma";
-import { getSafeInternalRedirect } from "@/lib/redirects";
 import {
   buildBusinessImage,
   buildBusinessPhoto,
@@ -36,24 +35,7 @@ import {
 
 type BusinessPageProps = {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
-
-function getDuplicateReviewReturnPath(value: string | string[] | undefined) {
-  const returnTo = getSafeInternalRedirect(typeof value === "string" ? value : null);
-
-  if (!returnTo) {
-    return null;
-  }
-
-  const destination = new URL(returnTo, "https://salentolocal.invalid");
-
-  return destination.pathname === "/publish" &&
-    destination.searchParams.get("showPossibleMatches") === "1" &&
-    destination.searchParams.get("submission")
-    ? returnTo
-    : null;
-}
 
 function isGenericBusinessCopy(value?: string | null) {
   if (!value) {
@@ -256,10 +238,9 @@ export async function generateMetadata({
   };
 }
 
-export default async function BusinessPage({ params, searchParams }: BusinessPageProps) {
+export default async function BusinessPage({ params }: BusinessPageProps) {
   const locale = await getCurrentLocale();
   const { slug } = await params;
-  const returnTo = getDuplicateReviewReturnPath((await searchParams).returnTo);
   const copy =
     locale === "it"
       ? {
@@ -270,7 +251,6 @@ export default async function BusinessPage({ params, searchParams }: BusinessPag
           opensTomorrow: "Apre domani alle",
           about: "Informazioni",
           townExplore: "Esplora questo comune",
-          backToBusinessForm: "Torna al modulo attività",
         }
       : {
           openNow: "Open now",
@@ -280,7 +260,6 @@ export default async function BusinessPage({ params, searchParams }: BusinessPag
           opensTomorrow: "Opens tomorrow at",
           about: "About",
           townExplore: "Explore this town",
-          backToBusinessForm: "Back to business form",
         };
 
   const business = await prisma.business.findFirst({
@@ -430,14 +409,6 @@ export default async function BusinessPage({ params, searchParams }: BusinessPag
 
   return (
     <main className="shell px-2 py-4 sm:px-6 sm:py-8">
-      {returnTo ? (
-        <div className="mb-4 px-2 sm:px-0">
-          <Link href={returnTo} className="btn-secondary min-h-11 px-4">
-            <span aria-hidden="true">←</span>
-            {copy.backToBusinessForm}
-          </Link>
-        </div>
-      ) : null}
       <BusinessHero address={business.address} addressHref={addressSearchUrl} businessName={business.name} callHref={business.phone ? `tel:${business.phone}` : null} categoryLabel={categoryLabel} claimHref={claimHref} description={intro} directionsHref={directionsUrl} highlights={offerings} imageAlt={business.name} images={heroGallery} locale={locale} localityLabel={heroLocalityLabel} openDetail={heroOpenDetail} openLabel={heroOpenLabel} openTone={hoursStatus?.isOpen ? "open" : "closed"} phone={business.phone} townHref={townHref} websiteHref={businessWebsite} websiteLabel={businessWebsiteLabel} />
 
       <div className="mt-4 space-y-4 sm:mt-6 sm:space-y-5">

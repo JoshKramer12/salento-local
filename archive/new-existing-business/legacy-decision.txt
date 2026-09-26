@@ -1,0 +1,82 @@
+Archived from commit 53452d5. Inert reference only; not imported by the application.
+
+=== Client state ===
+  const [duplicateDecision, setDuplicateDecision] = useState<"" | "new">("");
+  const [duplicateRejected, setDuplicateRejected] = useState(false);
+
+
+=== Decision and navigation ===
+  function checkForExistingBusinesses() {
+    if (duplicateDecision === "new") {
+      moveToWizardStep(isPartnerFlow ? "handoff" : "owner-review");
+      return;
+    }
+
+    if (!businessName.trim() || !categoryId || !isValidSelectedAddress(selectedAddress) || !selectedTownId) {
+      setDraftNotice(
+        locale === "it"
+          ? "Completa prima nome, categoria e indirizzo verificato."
+          : "Complete the name, category, and verified address first.",
+      );
+      return;
+    }
+
+    if (!formRef.current || !intentInputRef.current) {
+      return;
+    }
+
+    intentInputRef.current.value = "check";
+    if (exitAfterDraftSaveInputRef.current) {
+      exitAfterDraftSaveInputRef.current.value = "";
+    }
+    setDraftNotice("");
+    setDuplicateDecision("");
+    setDuplicateRejected(false);
+    awaitingDuplicateCheckRef.current = true;
+    formRef.current.requestSubmit();
+  }
+
+
+=== Duplicate review and choice UI ===
+        {wizardStep === "duplicate" ? <div className="grid gap-5"><div><p className="section-kicker">{copy.duplicateExistsTitle}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? "Controlla prima le attività simili" : "Check similar businesses first"}</h1><p className="mt-3 text-[var(--muted)]">{activeDuplicateMatches.length ? (locale === "it" ? "Abbiamo trovato possibili corrispondenze. Apri una scheda per controllare tutti i dettagli." : "We found possible matches. Open a listing to check all of its details.") : (locale === "it" ? "Stiamo controllando le attività esistenti, oppure non abbiamo trovato corrispondenze." : "We’re checking existing businesses, or there are no matches.")}</p></div>{!activeDuplicateMatches.length ? <div className="rounded-2xl border border-[rgba(42,98,87,0.14)] bg-[rgba(247,244,239,0.62)] p-5 text-sm text-[var(--foreground)]">{locale === "it" ? "Se non appare nessuna corrispondenza, puoi continuare: questa sarà trattata come una nuova attività." : "If no match appears, you can continue: this will be treated as a new business."}</div> : null}</div> : null}
+
+        {wizardStep === "duplicate-blocked" ? <div className="mx-auto grid max-w-xl gap-6 text-center"><div className="rounded-[2rem] border border-[rgba(191,91,42,0.2)] bg-[rgba(255,248,243,0.96)] p-7"><p className="section-kicker">{locale === "it" ? "Pubblicazione non disponibile" : "Publication unavailable"}</p><h1 className="mt-3 font-serif text-4xl text-[var(--foreground)]">{locale === "it" ? "Ci dispiace per l'inconveniente" : "Sorry for the inconvenience"}</h1><p className="mt-4 leading-7 text-[var(--muted)]">{locale === "it" ? "Questa attività risulta già presente su Salento Local, quindi non possiamo pubblicare un secondo annuncio per la stessa attività." : "This business is already listed on Salento Local, so we can’t publish a second ad for the same business."}</p></div><HardNavigationLink href="/dashboard/businesses" className="btn-primary mx-auto">{locale === "it" ? "Torna alle mie segnalazioni" : "Back to my submissions"}</HardNavigationLink></div> : null}
+
+
+
+=== Decision buttons ===
+        {duplicateFooterStep ? <>
+          <div className="duplicate-wizard-footer__decisions grid w-full gap-3">
+            <button type="button" disabled={actionPending} onClick={() => { setDuplicateDecision("new"); moveToWizardStep(isPartnerFlow ? "handoff" : "owner-review"); }} className="btn-primary min-h-12 w-full disabled:opacity-50">{actionPending ? (locale === "it" ? "Controllo..." : "Checking...") : copy.duplicateNewBusiness}</button>
+            {activeDuplicateMatches.length ? <button type="button" disabled={actionPending} onClick={() => moveToWizardStep("duplicate-blocked")} className="btn-secondary min-h-12 w-full disabled:opacity-50">{copy.duplicateSameBusiness}</button> : null}
+          </div>
+          <div className="duplicate-wizard-footer__navigation flex w-full flex-nowrap items-center justify-between gap-3">
+            {previousWizardStep ? <button type="button" disabled={draftSavePending || actionPending} onClick={goToPreviousStep} className="btn-secondary min-w-0 disabled:cursor-wait disabled:opacity-50"><IconArrowLeft size={18} aria-hidden="true" />{locale === "it" ? "Indietro" : "Back"}</button> : <span />}
+            <button type="button" disabled={draftSavePending || actionPending} onClick={() => requestDraftSave("manual", true)} className="btn-secondary min-w-0 disabled:cursor-wait disabled:opacity-50"><IconDeviceFloppy size={18} aria-hidden="true" />{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : locale === "it" ? "Salva ed esci" : "Save & exit"}</button>
+          </div>
+
+
+=== Server bypass ===
+  if (intent === "submit" && duplicateDecision !== "new") {
+    const duplicateMatches = await findPotentialDuplicateBusinesses({
+      address: parsed.data.address,
+      addressPlaceId: selectedAddressStorage?.addressPlaceId,
+      businessName: parsed.data.businessName,
+      existingBusinessId: existingSubmission?.createdBusinessId ?? null,
+      phone: parsed.data.phone,
+      route: selectedAddressStorage?.addressRoute,
+      streetNumber: selectedAddressStorage?.addressStreetNumber,
+      townId: parsed.data.townId,
+    });
+
+    if (duplicateMatches.length) {
+      return {
+        duplicateCheckMessage:
+          locale === "it"
+            ? "Questa attivita potrebbe esistere gia. Controlla prima le schede qui sotto."
+            : "This business may already exist. Please review the listings below first.",
+        duplicateMatches,
+        submission: rawSubmission,
+      };
+    }
+  }

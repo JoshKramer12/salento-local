@@ -244,3 +244,17 @@ export function normalizedAddressValuesMatch(
 export function hasCredibleDuplicateMatches(matches: readonly unknown[] | null | undefined) {
   return Boolean(matches?.length);
 }
+
+/** A shared address or phone alone can belong to two distinct businesses. */
+export function isBlockingDuplicateBusinessMatch(input: {
+  candidateName: string;
+  matchReasons: readonly ("address" | "name" | "phone")[];
+  submittedName: string;
+}) {
+  const strength = getBusinessNameMatchStrength(input.submittedName, input.candidateName);
+  const sameAddress = input.matchReasons.includes("address");
+  const samePhone = input.matchReasons.includes("phone");
+
+  return strength === "exact" || (strength === "fuzzy" && (sameAddress || samePhone)) ||
+    (sameAddress && samePhone);
+}
