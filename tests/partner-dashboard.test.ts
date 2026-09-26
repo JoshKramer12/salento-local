@@ -31,7 +31,8 @@ test("recent-business cards keep their image, details, and action in separate re
   assert.match(dashboard, /<div className=\{styles\.cardContent\}>[\s\S]*?<\/div><div className=\{styles\.cardActions\}>/);
   assert.match(dashboardStyles, /\.businessCard\{display:flex;min-width:0;flex-direction:column;overflow:hidden\}/);
   assert.match(dashboardStyles, /\.photo\{position:relative;width:100%;height:7rem;min-height:7rem;max-height:7rem;flex:0 0 7rem;overflow:hidden\}/);
-  assert.match(dashboardStyles, /\.photo img\{display:block;min-width:0;max-width:100%;height:100%;object-fit:cover\}/);
+  assert.match(dashboardStyles, /\.photo img\{position:absolute;inset:0;display:block;width:100%;height:100%;[^}]*object-fit:cover;object-position:center\}/);
+  assert.match(dashboardStyles, /\.cardActions\{display:grid;gap:7px;[^}]*padding:0 11px 11px\}/);
   assert.match(dashboardStyles, /\.businessCards\{grid-template-columns:repeat\(4,minmax\(0,1fr\)\)\}/);
   assert.match(dashboardStyles, /@media\(max-width:767px\)\{[\s\S]*?\.businessCards\{grid-template-columns:1fr\}/);
 });

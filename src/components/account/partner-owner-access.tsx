@@ -8,7 +8,7 @@ import styles from "./partner-owner-access.module.css";
 
 const copy = {
   en: { title: "Owner access", help: "Help the owner access their business.", email: "Send access by email", whatsapp: "Send via WhatsApp", sent: "Access email sent.", noEmail: "Email unavailable", noWhatsapp: "WhatsApp unavailable", error: "Access could not be sent. Please try again.", cooldown: "An access email was recently sent. Please wait a few minutes.", loading: "Checking access options…", sending: "Sending…" },
-  it: { title: "Accesso proprietario", help: "Aiuta il titolare ad accedere alla sua attività.", email: "Invia accesso via email", whatsapp: "Invia tramite WhatsApp", sent: "Email di accesso inviata.", noEmail: "Email non disponibile", noWhatsapp: "WhatsApp non disponibile", error: "Impossibile inviare l'accesso. Riprova.", cooldown: "Un'email di accesso è stata inviata di recente. Attendi qualche minuto.", loading: "Verifica delle opzioni…", sending: "Invio…" },
+  it: { title: "Accesso titolare", help: "Aiuta il titolare ad accedere alla sua attività.", email: "Invia accesso via email", whatsapp: "Invia tramite WhatsApp", sent: "Email di accesso inviata.", noEmail: "Email non disponibile", noWhatsapp: "WhatsApp non disponibile", error: "Impossibile inviare l'accesso. Riprova.", cooldown: "Un'email di accesso è stata inviata di recente. Attendi qualche minuto.", loading: "Verifica delle opzioni…", sending: "Invio…" },
 } as const;
 
 export function PartnerOwnerAccess({ locale, submissionId }: { locale: Locale; submissionId: string }) {
