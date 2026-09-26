@@ -1,6 +1,18 @@
 @import "tailwindcss" source(none);
 @source "../";
 
+@keyframes payment-processing-rotate {
+  to { transform: rotate(360deg); }
+}
+
+.payment-processing-spinner {
+  animation: payment-processing-rotate 800ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .payment-processing-spinner { animation: none; border-style: dashed; }
+}
+
 :root {
   --color-cream: #fff8ef;
   --color-white: #ffffff;

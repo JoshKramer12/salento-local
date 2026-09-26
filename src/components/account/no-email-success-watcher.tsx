@@ -12,7 +12,7 @@ export function NoEmailSuccessWatcher({ locale }: { locale: "en" | "it" }) {
     return () => { window.clearInterval(interval); window.clearInterval(clock); };
   }, [router]);
   return <div role="status" className="mt-6 text-[var(--foreground)]">
-    <span aria-hidden="true" className="mx-auto block h-9 w-9 animate-spin rounded-full border-[3px] border-[rgba(42,98,87,0.2)] border-t-[var(--primary)] motion-reduce:animate-none" />
+    <span aria-hidden="true" className="payment-processing-spinner mx-auto block h-9 w-9 rounded-full border-[3px] border-[rgba(42,98,87,0.2)] border-t-[var(--primary)]" />
     <h2 className="mt-4 font-serif text-xl">{locale === "it" ? "Pagamento in elaborazione" : "Processing your payment"}</h2>
     <p className="mt-2 text-sm leading-6">{elapsed >= 20
       ? locale === "it" ? "La conferma del pagamento sta richiedendo un po' più di tempo. Tieni aperta questa pagina." : "Your payment is taking a little longer to confirm. Please keep this page open."

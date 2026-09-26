@@ -12,6 +12,7 @@ import {
 } from "@tabler/icons-react";
 
 import { DraftDeleteButton } from "@/components/account/draft-delete-button";
+import { PartnerOwnerAccess } from "@/components/account/partner-owner-access";
 import { HardNavigationLink } from "@/components/hard-navigation-link";
 import { formatCurrencyFromCents, getPaymentStatusLabel, getSubmissionStatusLabel } from "@/lib/account";
 import { getBusinessPhotoUrls } from "@/lib/business-photos";
@@ -230,12 +231,12 @@ function DraftCard({ locale, submission }: { locale: Locale; submission: Submiss
 }
 
 function SubmittedCard({ expanded, locale, onToggleDetails, submission }: { expanded: boolean; locale: Locale; onToggleDetails: () => void; submission: Submission }) {
-  const text = copy[locale]; const payment = paymentDisplay(submission, locale); const earnings = commissionDisplay(submission, locale); const published = submission.status === "PUBLISHED" && Boolean(submission.createdBusiness?.slug);
+  const text = copy[locale]; const payment = paymentDisplay(submission, locale); const earnings = commissionDisplay(submission, locale); const published = submission.status === "PUBLISHED" && submission.paymentStatus === "PAID" && Boolean(submission.createdBusiness?.slug);
   return <article className={styles.submissionCard}>
     <SubmissionThumbnail locale={locale} submission={submission} />
     <div className={styles.listingInfo}><span className={`${styles.badge} ${statusTone(submission.status)}`}>{getSubmissionStatusLabel(submission.status, locale)}</span><h3>{submission.businessName}</h3><p><IconMapPin aria-hidden="true" size={15} />{submission.category.name} <span>·</span> {submission.town.name}</p></div>
     <div className={styles.infoGroups}><InfoGroup label={text.submitted}>{formatDate(submission.createdAt, locale)}</InfoGroup><InfoGroup label={text.ownerPayment}><span className={payment.paid ? styles.paid : styles.paymentPending}><i />{payment.label}</span></InfoGroup><InfoGroup label={text.earnings}><span className={earnings.tone}>{earnings.label}</span></InfoGroup></div>
-    <div className={styles.listingActions}>{published ? <HardNavigationLink href={`/businesses/${submission.createdBusiness?.slug}`} className={styles.primary}>{text.viewListing}<IconArrowRight aria-hidden="true" size={18} /></HardNavigationLink> : <button type="button" className={styles.primary} onClick={onToggleDetails}>{text.viewDetails}<IconArrowRight aria-hidden="true" size={18} /></button>}<button type="button" aria-expanded={expanded} className={styles.secondary} onClick={onToggleDetails}><IconFileDescription aria-hidden="true" size={17} />{text.details}</button></div>
+    <div className={styles.listingActions}>{published ? <HardNavigationLink href={`/businesses/${submission.createdBusiness?.slug}`} className={styles.primary}>{text.viewListing}<IconArrowRight aria-hidden="true" size={18} /></HardNavigationLink> : <button type="button" className={styles.primary} onClick={onToggleDetails}>{text.viewDetails}<IconArrowRight aria-hidden="true" size={18} /></button>}<button type="button" aria-expanded={expanded} className={styles.secondary} onClick={onToggleDetails}><IconFileDescription aria-hidden="true" size={17} />{text.details}</button>{published ? <div className={styles.ownerAccess}><PartnerOwnerAccess locale={locale} submissionId={submission.id} /></div> : null}</div>
     {expanded ? <div className={styles.details}><InfoGroup label={text.submitted}>{formatDate(submission.createdAt, locale)}</InfoGroup><InfoGroup label={text.ownerPayment}>{payment.label}</InfoGroup><InfoGroup label={text.initialCommission}>{earnings.label}</InfoGroup><InfoGroup label={text.renewalCommission}>{renewalCommissionDisplay(submission, locale)}</InfoGroup><InfoGroup label={locale === "it" ? "Pubblicazione" : "Publication"}>{getSubmissionStatusLabel(submission.status, locale)}</InfoGroup></div> : null}
   </article>;
 }

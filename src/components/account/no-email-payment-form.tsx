@@ -69,7 +69,7 @@ function PaymentForm({ amount, locale, ownerEmail, returnUrl }: { amount: string
       ...(ownerEmail ? { fields: { billingDetails: { email: "never" as const } } } : {}),
     }} />
     {busy ? <div role="status" className="mt-6 rounded-2xl bg-[rgba(42,98,87,0.07)] px-5 py-6 text-center text-[var(--foreground)]">
-      <span aria-hidden="true" className="mx-auto block h-9 w-9 animate-spin rounded-full border-[3px] border-[rgba(42,98,87,0.2)] border-t-[var(--primary)] motion-reduce:animate-none" />
+      <span aria-hidden="true" className="payment-processing-spinner mx-auto block h-9 w-9 rounded-full border-[3px] border-[rgba(42,98,87,0.2)] border-t-[var(--primary)]" />
       <h2 className="mt-4 font-serif text-2xl">{locale === "it" ? "Pagamento in elaborazione" : "Processing your payment"}</h2>
       <p className="mt-2 text-sm leading-6">{slow
         ? locale === "it" ? "La conferma del pagamento sta richiedendo un po' più di tempo. Tieni aperta questa pagina." : "Your payment is taking a little longer to confirm. Please keep this page open."

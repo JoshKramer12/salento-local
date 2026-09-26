@@ -545,12 +545,16 @@ export function buildOwnerWhatsAppMessage(params: {
 }
 
 export function buildPartnerOwnerWhatsAppMessage(params: {
+  attached?: boolean;
   businessName: string;
   manageUrl: string;
   ownerName: string;
   viewUrl: string;
 }) {
-  return buildOwnerWhatsAppMessage({ ...params, locale: "it" });
+  const message = buildOwnerWhatsAppMessage({ ...params, locale: "it" });
+  return params.attached
+    ? message.replace("Crea il tuo account per gestire e aggiornare la tua attività:", "Accedi al tuo account per gestire e aggiornare la tua attività:")
+    : message;
 }
 
 export function getOwnerWhatsAppDeepLink(params: { message: string; phone: string }) {

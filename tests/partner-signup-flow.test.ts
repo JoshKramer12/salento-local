@@ -45,8 +45,10 @@ test("the Page 1 handoff is encrypted, short-lived, and rejects tampering", () =
   assert.equal(token.includes(entry.password), false);
   assert.equal(token.includes(entry.email), false);
   assert.deepEqual(openPartnerSignupHandoff(token, "test-signup-handoff-secret"), entry);
+  const [iv, tag, payload] = token.split(".");
+  const tamperedTag = `${tag[0] === "A" ? "B" : "A"}${tag.slice(1)}`;
   assert.equal(
-    openPartnerSignupHandoff(`${token.slice(0, -1)}x`, "test-signup-handoff-secret"),
+    openPartnerSignupHandoff(`${iv}.${tamperedTag}.${payload}`, "test-signup-handoff-secret"),
     null,
   );
 });
