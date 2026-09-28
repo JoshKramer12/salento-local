@@ -21,6 +21,7 @@ import {
   isDraftLikeSubmission,
 } from "@/lib/account";
 import { scheduleAccountRouteSync } from "@/lib/account-route-sync";
+import { findInitialRefundForBusiness } from "@/lib/self-service-refunds";
 import {
   getAdminDashboardData,
   type AdminDashboardBreakdownItem,
@@ -310,12 +311,16 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     ]);
     const displayName = viewer.name?.trim() || viewer.username;
     const firstName = displayName.split(/\s+/)[0] || viewer.username;
+    const businessesWithRefund = await Promise.all(businesses.map(async (business) => {
+      const refund = await findInitialRefundForBusiness(business.id);
+      return { ...business, refundState: refund.state, refundDeadline: refund.deadline, refundMethod: refund.payment?.method ?? null };
+    }));
 
     return (
       <>
         <BusinessOwnerWorkspaceNav active="businesses" locale={locale} />
         <BusinessOwnerDashboard
-          businesses={businesses}
+          businesses={businessesWithRefund}
           draftCount={draftCount}
           firstName={firstName}
           locale={locale}
@@ -353,9 +358,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           },
         },
         commissionCents: true,
+        partnerCommissions: { select: { amountCents: true, eligibleAt: true, status: true, type: true, payment: { select: { status: true, refundRequestedAt: true, refundStatus: true } } } },
         createdAt: true,
         createdBusiness: {
           select: {
+            membership: { select: { entitlementRevokedAt: true, graceEndsAt: true } },
             images: {
               orderBy: { sortOrder: "asc" },
               select: { alt: true, url: true },
@@ -411,8 +418,10 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             businessSubmission: { select: { businessName: true } },
             createdAt: true,
             earnedAt: true,
+            eligibleAt: true,
             id: true,
-            payment: { select: { purpose: true } },
+            payment: { select: { purpose: true, refundRequestedAt: true, refundStatus: true } },
+            status: true,
             sourceKey: true,
           },
         })
@@ -615,6 +624,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
     return (
       <PartnerDashboard
+        now={new Date().toISOString()}
         balances={partnerBalances}
         history={partnerHistory}
         locale={locale}

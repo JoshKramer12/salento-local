@@ -20,24 +20,24 @@ export const LEGAL_ROUTES = {
 
 export const LEGAL_DOCUMENTS = {
   businessTerms: {
-    lastUpdated: "2026-09-14",
-    version: "business-terms-2026-09-14",
+    lastUpdated: "2026-09-27",
+    version: "business-terms-2026-09-27",
   },
   cookiePolicy: {
     lastUpdated: "2026-07-14",
     version: "cookie-policy-2026-07-14",
   },
   partnerTerms: {
-    lastUpdated: "2026-07-14",
-    version: "partner-terms-2026-09-14",
+    lastUpdated: "2026-09-27",
+    version: "partner-terms-2026-09-27",
   },
   privacyPolicy: {
     lastUpdated: "2026-07-14",
     version: "privacy-policy-2026-07-14",
   },
   platformTerms: {
-    lastUpdated: "2026-07-14",
-    version: "platform-terms-2026-07-14",
+    lastUpdated: "2026-09-27",
+    version: "platform-terms-2026-09-27",
   },
 } as const;
 
@@ -171,7 +171,7 @@ export function getBusinessTerms(locale: Locale) {
       "La membership viene acquistata separatamente per ogni attivita. Costa EUR100 per ciascuna attivita e per ogni periodo annuale: ogni pagamento riuscito attiva la pagina specifica per 365 giorni. Dopo un periodo non pagato seguono 14 giorni di grazia; successivamente la pagina puo essere rimossa dalla visibilita pubblica mentre i dati restano conservati per una possibile riattivazione. L'accesso dell'account e alla gestione resta disponibile anche dopo la scadenza.",
       "Il rinnovo puo essere automatico o manuale in base alla preferenza di rinnovo scelta dal titolare. Il titolare puo disattivare futuri rinnovi automatici senza interrompere il periodo gia pagato. I dettagli dell'eventuale addebito ricorrente saranno mostrati prima dell'autorizzazione; rimborsi e contestazioni possono incidere sullo stato della membership.",
       "Tutti i pagamenti devono essere effettuati direttamente tramite Salento Local utilizzando i metodi di pagamento approvati. La scheda non sara pubblicata ne attivata fino alla conferma dell'avvenuto pagamento.",
-      "Salvo quanto previsto dalla legge applicabile, le quote di abbonamento non sono rimborsabili dopo l'attivazione della scheda.",
+      "Il titolare idoneo può richiedere dal proprio account il rimborso completo del pagamento iniziale della membership annuale entro 14 giorni dal pagamento riuscito (prima dell'istante esatto pagamento + 14 giorni). I rimborsi su carta vengono elaborati tramite l’account. Per i bonifici, la richiesta si invia dall’account entro 14 giorni e l’assistenza Salento Local aiuta a completare la restituzione. L’idoneità resta valida in base alla data della richiesta, anche se il rimborso termina dopo 14 giorni. Il rimborso usa il metodo appropriato al pagamento originale; per i bonifici possono servire informazioni aggiuntive. La scheda pubblica viene disattivata solo dopo il completamento confermato del rimborso, ma i dati dell'attività e l'accesso restano salvati. Il titolare può acquistare una nuova membership per riattivarla. I registri storici di pagamento, accordo e audit restano conservati quando necessario o appropriato.",
       "Salento Local fornisce una piattaforma online di promozione e directory. Pur impegnandoci a garantire la massima visibilita possibile, non garantiamo richieste di contatto, prenotazioni, vendite, traffico sul sito, posizionamento nei motori di ricerca o risultati economici.",
       "Puoi aggiornare in qualsiasi momento le informazioni della tua attivita tramite il tuo account. Salento Local puo apportare piccole modifiche di formattazione, ortografia, traduzione o impaginazione per mantenere una presentazione coerente e professionale senza alterare il significato dei contenuti.",
       "Sei responsabile della sicurezza del tuo account e delle tue credenziali di accesso. Qualsiasi attivita effettuata tramite il tuo account e sotto la tua responsabilita.",
@@ -190,7 +190,7 @@ export function getBusinessTerms(locale: Locale) {
     "Membership is purchased separately for each business. It costs EUR100 per business for each annual term: each successful payment activates that specific Business Page for 365 days. An unpaid term is followed by a 14-day grace period; after that, the page may be removed from public visibility while its data remains stored for possible reactivation. Account and management access remain available after expiry.",
     "Renewal may ultimately be automatic or manual according to the owner’s selected renewal preference. An owner may disable future automatic renewal without ending an already-paid term. Details of any recurring charge will be shown before recurring billing is authorized; refunds and chargebacks may affect membership status.",
     "All payments must be made directly through Salento Local using approved payment methods. Your listing will not be published or activated until payment has been successfully received.",
-    "Unless otherwise required by applicable law, membership fees are non-refundable once your listing has been activated.",
+    "An eligible owner may request a full refund of the initial annual membership payment from their account within 14 days of successful payment (before the exact instant paidAt + 14 days). Card refunds are processed through the account. Bank-transfer requests are also submitted through the account within 14 days, with Salento Local support helping complete the return. Eligibility is preserved by the request date even if completion takes longer than 14 days. Refunds use the appropriate method for the original payment; bank transfers may require additional information. The public listing is deactivated only after confirmed refund completion, but business information and account access remain saved. The owner may purchase a new membership to reactivate it. Historical payment, agreement, and audit records remain where retention is required or appropriate.",
     "Salento Local provides an online directory and promotional platform. While we work to maximize visibility, we do not guarantee customer enquiries, bookings, sales, website traffic, search rankings, or financial results.",
     "You may update your business information through your account at any time. Salento Local may make minor formatting, spelling, translation, or layout changes to maintain a consistent and professional presentation without changing the meaning of your content.",
     "You are responsible for maintaining the security of your account and login credentials. Any activity carried out using your account is your responsibility.",
@@ -215,6 +215,7 @@ export function getPartnerTerms(locale: Locale) {
       "Ti impegni a rispettare tutte le leggi applicabili durante l'utilizzo della piattaforma.",
       "Puoi ricevere una commissione di 50 EUR per ogni attivita commerciale idonea che origini e che completa con successo il pagamento. Per ogni successivo rinnovo annuale o riattivazione pagata con successo della stessa membership, il Partner originario puo ricevere 15 EUR.",
       "L'invio di un'attivita commerciale non garantisce il diritto alla commissione, ne un reddito futuro. Nessuna commissione di rinnovo e dovuta se l'attivita non paga. Salento Local puo rifiutare, stornare o annullare le commissioni per registrazioni duplicate, fraudolente, rimborsate, contestate, inesatte, violazioni del programma o non idonee.",
+      "La commissione iniziale di 50 EUR è mostrata come in attesa dopo il pagamento idoneo e non è pagabile nei 14 giorni di rimborso. Una richiesta di rimborso tempestiva non risolta mantiene la commissione in sospeso anche dopo 14 giorni. Una richiesta con bonifico non la annulla fino al completamento confermato. Se il pagamento resta valido e non ci sono richieste irrisolte, diventa idonea dopo tale periodo; un rimborso completo idoneo la annulla. Se il titolare acquista una nuova membership dopo quel rimborso, può nascere una nuova commissione iniziale di 50 EUR. La normale scadenza e riattivazione non genera una nuova commissione iniziale; si applicano le regole di rinnovo.",
       "Le commissioni vengono pagate in modo sicuro tramite il tuo account Stripe collegato. E tua responsabilita mantenere aggiornati i dati necessari per ricevere i pagamenti.",
       "Salento Local puo sospendere o chiudere definitivamente gli account Partner che violano i presenti Termini o utilizzano la piattaforma in modo improprio.",
       "Salento Local puo modificare in qualsiasi momento i presenti Termini o il Programma Partner. Continuando a utilizzare il tuo account, accetti automaticamente eventuali aggiornamenti.",
@@ -232,6 +233,7 @@ export function getPartnerTerms(locale: Locale) {
     "You agree to comply with all applicable laws while using the platform.",
     "You may earn EUR50 for each eligible business you originate that successfully completes payment. For each later successful annual renewal or reactivation of that same membership, the originating Partner may earn EUR15.",
     "Submitting a business does not guarantee a commission or future income. No renewal commission is due unless the business pays. Salento Local may administer eligibility and refuse, reverse, or cancel commissions for duplicate, fraudulent, refunded, disputed, inaccurate, program-violating, or otherwise ineligible submissions.",
+    "The initial EUR50 commission is shown as pending after a qualifying payment and is not payable during the 14-day refund hold. A timely unresolved refund request keeps the commission on hold after Day 14. A bank-transfer request does not cancel it until refund completion is confirmed. It becomes eligible after the hold only if the payment remains valid and paid with no unresolved request; a qualifying full refund cancels it. A new initial EUR50 commission may arise if the owner buys a new membership after such a refund. Ordinary expiry and reactivation do not create another initial EUR50 commission; the renewal rules apply.",
     "Commission payments are made securely through your connected Stripe account. You are responsible for keeping your payout information up to date.",
     "Salento Local may suspend or permanently remove Partner accounts that violate these Terms or misuse the platform.",
     "Salento Local may update these Terms or the Partner Program from time to time. Continued use of your account means you accept any updated Terms.",
@@ -316,7 +318,8 @@ export function getTermsDocument(locale: Locale) {
           {
             id: "refunds",
             paragraphs: [
-              "Eventuali rimborsi, annullamenti o diritti di recesso saranno gestiti secondo i termini applicabili al servizio acquistato e alle leggi vigenti.",
+              "Il titolare idoneo può richiedere dal proprio account un rimborso completo del pagamento iniziale della membership annuale prima dell'istante esatto che cade 14 giorni dopo il pagamento riuscito. La richiesta riguarda il pagamento iniziale idoneo, sia con carta sia con bonifico.",
+              "I rimborsi su carta vengono elaborati tramite l’account. Le richieste per bonifici si inviano dall’account entro 14 giorni e possono richiedere l’assistenza Salento Local. La data della richiesta preserva l’idoneità anche se la restituzione termina dopo 14 giorni. Il rimborso usa il metodo appropriato al pagamento originale; per i bonifici possono servire informazioni aggiuntive. Solo il rimborso completo confermato disattiva la scheda pubblica, mentre informazioni dell'attività e accesso all'account restano salvati. Il titolare può acquistare una nuova membership per riattivare la scheda. I registri storici di pagamento, accordo e audit restano conservati ove necessario o appropriato.",
               "Nulla nei presenti Termini esclude rimborsi o diritti di recesso quando richiesti dalla legge applicabile.",
             ],
             title: "9. Rimborsi e cancellazioni",
@@ -508,7 +511,8 @@ export function getTermsDocument(locale: Locale) {
           {
             id: "refunds",
             paragraphs: [
-              "Refunds, cancellations, or withdrawal rights will be handled according to the specific service purchased and applicable law.",
+              "An eligible owner may request a full refund of the initial annual membership payment from their account before the exact instant 14 days after successful payment. This policy applies to the qualifying initial payment, whether paid by card or bank transfer.",
+              "Card refunds are processed through the account. Bank-transfer refund requests are also submitted through the account within 14 days and may need Salento Local support to complete the return. Eligibility is preserved by the request date even if completion takes longer than 14 days. Refunds use the appropriate method for the original payment; bank transfers may require additional information. Only a confirmed full refund deactivates the public listing while business information and account access remain saved. The owner can buy a new membership to reactivate the listing. Historical payment, agreement, and audit records remain where required or appropriate.",
               "Nothing in these terms excludes refunds or withdrawal rights where required by applicable law.",
             ],
             title: "9. Refunds and cancellations",

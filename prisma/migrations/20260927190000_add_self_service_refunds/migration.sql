@@ -1,0 +1,14 @@
+ALTER TABLE "Payment" ADD COLUMN "refundInstructionsEmail" TEXT;
+ALTER TABLE "Payment" ADD COLUMN "refundRequestedAt" DATETIME;
+ALTER TABLE "Payment" ADD COLUMN "stripeRefundId" TEXT;
+ALTER TABLE "Payment" ADD COLUMN "refundStatus" TEXT;
+ALTER TABLE "Payment" ADD COLUMN "refundedAmountCents" INTEGER;
+ALTER TABLE "Payment" ADD COLUMN "refundedAt" DATETIME;
+ALTER TABLE "Payment" ADD COLUMN "selfServiceRefundedAt" DATETIME;
+ALTER TABLE "Payment" ADD COLUMN "ownerRefundEmailSentAt" DATETIME;
+ALTER TABLE "Payment" ADD COLUMN "partnerRefundEmailSentAt" DATETIME;
+ALTER TABLE "Payment" ADD COLUMN "ownerRefundEmailClaimedAt" DATETIME;
+ALTER TABLE "Payment" ADD COLUMN "partnerRefundEmailClaimedAt" DATETIME;
+ALTER TABLE "Payment" ADD COLUMN "ownerRefundEmailError" TEXT;
+ALTER TABLE "Payment" ADD COLUMN "partnerRefundEmailError" TEXT;
+CREATE UNIQUE INDEX "Payment_stripeRefundId_key" ON "Payment"("stripeRefundId");

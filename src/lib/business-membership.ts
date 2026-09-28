@@ -61,6 +61,7 @@ export function getBusinessMembershipStatus(params: {
 
 export function getBusinessMembershipPeriod(params: {
   currentPeriodEnd?: Date | null;
+  entitlementRevokedAt?: Date | null;
   graceEndsAt?: Date | null;
   paidAt: Date;
 }) {
@@ -68,6 +69,7 @@ export function getBusinessMembershipPeriod(params: {
     params.currentPeriodEnd && params.graceEndsAt
       ? getBusinessMembershipStatus({
           currentPeriodEnd: params.currentPeriodEnd,
+          entitlementRevokedAt: params.entitlementRevokedAt,
           graceEndsAt: params.graceEndsAt,
           now: params.paidAt,
         })

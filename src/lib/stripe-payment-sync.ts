@@ -99,6 +99,7 @@ async function finalizeStripeManagedPayment(params: {
   let publishedBusinessSlug = "";
   let publishedTownSlug = "";
   let finalizedPaymentId: string | null = null;
+  let refundReplay = false;
   const finalizedAt = new Date();
 
   await prisma.$transaction(async (tx) => {
@@ -113,11 +114,19 @@ async function finalizeStripeManagedPayment(params: {
       select: {
         businessId: true,
         id: true,
+        paidAt: true,
         status: true,
+        refundRequestedAt: true,
       },
     });
 
     if (existingPayment) {
+      // A delayed checkout/invoice event cannot turn a refunded (or currently
+      // refunding) charge back into a paid membership.
+      if (existingPayment.status === "REFUNDED" || existingPayment.refundRequestedAt) {
+        refundReplay = true;
+        return;
+      }
       if (
         existingPayment.businessId &&
         params.businessId &&
@@ -138,11 +147,12 @@ async function finalizeStripeManagedPayment(params: {
           businessId: params.businessId || undefined,
           currency: params.currency || "eur",
           method: params.method,
-          paidAt: finalizedAt,
+          paidAt: existingPayment.paidAt ?? finalizedAt,
           status: "PAID",
           stripeCheckoutSessionId: params.sessionId ?? undefined,
           stripeLastEventId: params.stripeEventId ?? undefined,
-          stripePaymentIntentId: params.paymentIntentId ?? null,
+          stripePaymentIntentId: params.paymentIntentId ?? undefined,
+          stripeSubscriptionId: params.stripeSubscriptionId ?? undefined,
         },
       });
       finalizedPaymentId = existingPayment.id;
@@ -169,6 +179,7 @@ async function finalizeStripeManagedPayment(params: {
             stripeCheckoutSessionId: params.sessionId ?? null,
             stripeLastEventId: params.stripeEventId ?? null,
             stripePaymentIntentId: params.paymentIntentId ?? null,
+            stripeSubscriptionId: params.stripeSubscriptionId ?? null,
             userId: submissionForPayment.userId,
           },
           select: {
@@ -283,6 +294,10 @@ async function finalizeStripeManagedPayment(params: {
       submissionId: params.businessSubmissionId,
     });
   });
+
+  if (refundReplay) {
+    return { paymentReceived: true, publishedBusinessSlug: "", publishedTownSlug: "" };
+  }
 
   if (params.revalidatePaths !== false) {
     revalidatePath("/dashboard");
@@ -684,6 +699,7 @@ export async function syncStripePaymentFromWebhook(params: {
 }
 
 export async function markStripePaymentRefunded(params: {
+  paymentId?: string;
   revalidatePaths?: boolean;
   revokeMembershipEntitlement?: boolean;
   stripePaymentIntentId: string;
@@ -696,6 +712,7 @@ export async function markStripePaymentRefunded(params: {
     const payment = await tx.payment.findFirst({
       where: {
         stripePaymentIntentId: params.stripePaymentIntentId,
+        ...(params.paymentId ? { id: params.paymentId } : {}),
       },
       orderBy: {
         createdAt: "desc",
@@ -704,6 +721,7 @@ export async function markStripePaymentRefunded(params: {
         businessId: true,
         businessSubmissionId: true,
         id: true,
+        paidAt: true,
         purpose: true,
       },
     });
@@ -711,6 +729,11 @@ export async function markStripePaymentRefunded(params: {
     if (!payment) {
       return;
     }
+
+    const laterPaidTerm = payment.businessId && payment.paidAt ? await tx.payment.findFirst({
+      where: { businessId: payment.businessId, id: { not: payment.id }, status: "PAID", paidAt: { gt: payment.paidAt } },
+      select: { id: true },
+    }) : null;
 
     await tx.payment.update({
       where: {
@@ -724,7 +747,7 @@ export async function markStripePaymentRefunded(params: {
     // A renewal/re-activation is a new membership payment, not a refund of
     // the historical initial submission. Preserve that submission's paid and
     // published audit trail; its own refund is still handled as before.
-    if (payment.purpose === "INITIAL_MEMBERSHIP") {
+    if (payment.purpose === "INITIAL_MEMBERSHIP" && !laterPaidTerm) {
       await tx.businessSubmission.update({
         where: { id: payment.businessSubmissionId },
         data: { paymentStatus: "REFUNDED" },
@@ -735,7 +758,7 @@ export async function markStripePaymentRefunded(params: {
     // full refund of the payment funding this Phase 1 membership revokes only
     // that business's public entitlement; no listing data or owner access is
     // removed.
-    if (params.revokeMembershipEntitlement && payment.businessId) {
+    if (params.revokeMembershipEntitlement && payment.businessId && !laterPaidTerm) {
       await tx.businessMembership.updateMany({
         where: {
           businessId: payment.businessId,

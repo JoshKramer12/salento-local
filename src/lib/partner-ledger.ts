@@ -3,7 +3,9 @@ import type {
   PartnerCommissionStatus,
   PartnerPayout,
   PartnerPayoutStatus,
+  Prisma,
 } from "@prisma/client";
+import { addUtcDays } from "@/lib/business-membership";
 
 import { sendTransactionalEmail } from "@/lib/email";
 import type { Locale } from "@/lib/i18n";
@@ -277,6 +279,24 @@ function buildSubmissionCommissionSourceKey(submissionId: string) {
   return `commission:submission:${submissionId}`;
 }
 
+export const INITIAL_COMMISSION_HOLD_DAYS = 14;
+
+/** This predicate is used again inside the payout reservation transaction.
+ * Old rows with an early eligibleAt remain held by the paidAt condition. */
+export function payableCommissionWhere(now: Date): Prisma.PartnerCommissionWhereInput {
+  return {
+    amountCents: { gt: 0 },
+    eligibleAt: { lte: now },
+    payoutId: null,
+    status: { in: ["PENDING", "AVAILABLE"] },
+    type: "COMMISSION",
+    OR: [
+      { payment: { is: { purpose: "INITIAL_MEMBERSHIP", status: "PAID", OR: [{ refundRequestedAt: null }, { refundStatus: "support_closed" }], paidAt: { lte: addUtcDays(now, -INITIAL_COMMISSION_HOLD_DAYS) } } } },
+      { payment: { is: { purpose: { in: ["ANNUAL_RENEWAL", "REACTIVATION"] }, status: "PAID" } } },
+    ],
+  };
+}
+
 type InitialMembershipPayment = {
   currency: string;
   id: string;
@@ -323,7 +343,7 @@ export async function ensurePartnerRenewalCommissionForPayment(params: {
   paymentId: string;
   sourceEventId?: string | null;
   sourceEventType?: string | null;
-}) {
+}, dependencies: { revalidatePaths?: () => void } = {}) {
   let created = false;
   await prisma.$transaction(async (tx) => {
     const payment = await tx.payment.findUnique({
@@ -359,7 +379,59 @@ export async function ensurePartnerRenewalCommissionForPayment(params: {
     });
     created = true;
   });
-  if (created) revalidatePartnerLedgerPaths();
+  if (created) (dependencies.revalidatePaths ?? revalidatePartnerLedgerPaths)();
+}
+
+/** A refunded acquisition can earn a new €50 only after a new, distinct
+ * INITIAL_MEMBERSHIP payment. The original submission row stays reversed. */
+export async function ensurePartnerRefundRepurchaseCommissionForPayment(params: {
+  paymentId: string;
+  sourceEventId?: string | null;
+  sourceEventType?: string | null;
+}, dependencies: { db?: Pick<typeof prisma, "$transaction">; revalidatePaths?: () => void } = {}) {
+  let created = false;
+  await (dependencies.db ?? prisma).$transaction(async (tx) => {
+    const payment = await tx.payment.findUnique({
+      where: { id: params.paymentId },
+      include: { business: { include: { membership: true } } },
+    });
+    const partnerUserId = payment?.business?.membership?.originatingPartnerUserId;
+    if (!payment || !payment.businessId || !partnerUserId || payment.status !== "PAID" || payment.purpose !== "INITIAL_MEMBERSHIP" || !payment.paidAt) return;
+    const prior = await tx.payment.findMany({
+      where: { businessId: payment.businessId, purpose: "INITIAL_MEMBERSHIP", id: { not: payment.id } },
+      select: { status: true, selfServiceRefundedAt: true },
+    });
+    if (!prior.length || prior.some((entry) => entry.status !== "REFUNDED" || !entry.selfServiceRefundedAt)) return;
+    const retained = await tx.partnerCommission.findFirst({
+      where: { businessSubmissionId: payment.businessSubmissionId, type: "COMMISSION", amountCents: 5000, status: { not: "REVERSED" } },
+      select: { id: true },
+    });
+    if (retained) return;
+    const sourceKey = `commission:refund-repurchase:${payment.id}`;
+    const existing = await tx.partnerCommission.findUnique({ where: { sourceKey }, select: { id: true } });
+    if (existing) return;
+    await tx.partnerCommission.create({
+      data: {
+        amountCents: getPartnerCommissionCents(),
+        businessId: payment.businessId,
+        businessSubmissionId: payment.businessSubmissionId,
+        currency: payment.currency,
+        earnedAt: payment.paidAt,
+        eligibleAt: addUtcDays(payment.paidAt, INITIAL_COMMISSION_HOLD_DAYS),
+        partnerUserId,
+        paymentId: payment.id,
+        sourceEventId: params.sourceEventId ?? null,
+        sourceEventType: params.sourceEventType ?? null,
+        sourceKey,
+        status: "PENDING",
+        stripeCheckoutSessionId: payment.stripeCheckoutSessionId,
+        stripePaymentIntentId: payment.stripePaymentIntentId,
+        type: "COMMISSION",
+      },
+    });
+    created = true;
+  });
+  if (created) (dependencies.revalidatePaths ?? revalidatePartnerLedgerPaths)();
 }
 
 const PARTNER_COMMISSION_SYNC_MIN_INTERVAL_MS = 45 * 1000;
@@ -412,6 +484,8 @@ export async function getPartnerBalanceSummary(userId: string) {
       },
       select: {
         amountCents: true,
+        eligibleAt: true,
+        payment: { select: { paidAt: true, purpose: true, status: true, refundRequestedAt: true, refundStatus: true } },
         status: true,
         type: true,
       },
@@ -431,8 +505,10 @@ export async function getPartnerBalanceSummary(userId: string) {
 
   return commissions.reduce(
     (summary, commission) => {
+      const payable = commission.payment?.status === "PAID" && commission.eligibleAt && commission.eligibleAt <= new Date() &&
+        (commission.payment.purpose !== "INITIAL_MEMBERSHIP" || Boolean((!commission.payment.refundRequestedAt || commission.payment.refundStatus === "support_closed") && commission.payment.paidAt && addUtcDays(commission.payment.paidAt, INITIAL_COMMISSION_HOLD_DAYS) <= new Date()));
       if (commission.type === "COMMISSION" && commission.amountCents > 0) {
-        if (commission.status !== "REVERSED") {
+        if (commission.status !== "REVERSED" && (payable || commission.status === "PAID" || commission.status === "RESERVED")) {
           summary.totalEarned += commission.amountCents;
         }
       }
@@ -441,7 +517,7 @@ export async function getPartnerBalanceSummary(userId: string) {
         summary.pending += commission.amountCents;
       }
 
-      if (shouldCountAsOutstanding(commission.status)) {
+      if (shouldCountAsOutstanding(commission.status) && payable) {
         summary.available += commission.amountCents;
       }
 
@@ -566,7 +642,7 @@ export async function ensurePendingPartnerCommissionForSubmission(params: {
         data: {
           businessId: submission.createdBusinessId,
           currency: attribution.payment.currency,
-          eligibleAt: attribution.payment.paidAt ?? submission.createdAt,
+          eligibleAt: addUtcDays(attribution.payment.paidAt ?? submission.createdAt, INITIAL_COMMISSION_HOLD_DAYS),
           paymentId: attribution.payment.id,
           status:
             existing.status === "PAID" || existing.status === "RESERVED"
@@ -597,7 +673,7 @@ export async function ensurePendingPartnerCommissionForSubmission(params: {
         businessSubmissionId: submission.id,
         currency: initialPayment?.currency || "eur",
         earnedAt: submission.createdAt,
-        eligibleAt: shouldMarkPending ? (initialPayment?.paidAt ?? submission.createdAt) : null,
+        eligibleAt: shouldMarkPending ? addUtcDays(initialPayment?.paidAt ?? submission.createdAt, INITIAL_COMMISSION_HOLD_DAYS) : null,
         partnerUserId: submission.user.id,
         paymentId: initialPayment?.id ?? null,
         sourceEventId: params.sourceEventId,
@@ -831,7 +907,7 @@ export async function ensurePartnerCommissionForSubmission(params: {
         data: {
           businessId: submission.createdBusiness?.id ?? null,
           currency: payment.currency,
-          eligibleAt: payment.paidAt ?? new Date(),
+          eligibleAt: addUtcDays(payment.paidAt ?? new Date(), INITIAL_COMMISSION_HOLD_DAYS),
           paymentId: payment.id,
           status: nextStatus,
           stripeCheckoutSessionId: payment.stripeCheckoutSessionId,
@@ -848,7 +924,7 @@ export async function ensurePartnerCommissionForSubmission(params: {
         businessSubmissionId: submission.id,
         currency: payment.currency,
         earnedAt: payment.paidAt ?? new Date(),
-        eligibleAt: payment.paidAt ?? new Date(),
+        eligibleAt: addUtcDays(payment.paidAt ?? new Date(), INITIAL_COMMISSION_HOLD_DAYS),
         partnerUserId: submission.user.id,
         paymentId: payment.id,
         sourceEventId: params.sourceEventId,
@@ -869,6 +945,7 @@ export async function reversePartnerCommissionForPayment(params: {
   eventType: "charge.dispute.created" | "charge.dispute.closed" | "charge.refunded" | "transfer.reversed";
   reason: string;
   sourceEventId: string;
+  paymentId?: string;
   stripeChargeId?: string | null;
   stripePaymentIntentId?: string | null;
 }, dependencies: {
@@ -881,12 +958,12 @@ export async function reversePartnerCommissionForPayment(params: {
     const original = await tx.partnerCommission.findFirst({
       where: {
         type: "COMMISSION",
-        OR: [
+        ...(params.paymentId ? { paymentId: params.paymentId } : { OR: [
           ...(params.stripePaymentIntentId
             ? [{ stripePaymentIntentId: params.stripePaymentIntentId }]
             : []),
           ...(params.stripeChargeId ? [{ stripeChargeId: params.stripeChargeId }] : []),
-        ],
+        ] }),
       },
       orderBy: {
         createdAt: "desc",
@@ -987,26 +1064,28 @@ async function reserveAvailablePartnerCommissions(params: {
 
     const commissions = await tx.partnerCommission.findMany({
       where: {
+        ...payableCommissionWhere(new Date()),
         partnerUserId: params.partnerUserId,
-        payoutId: null,
-        status: {
-          in: ["PENDING", "AVAILABLE"],
-        },
       },
       orderBy: {
         eligibleAt: "asc",
       },
       select: {
         amountCents: true,
+        businessId: true,
+        businessSubmissionId: true,
         id: true,
+        payment: { select: { businessId: true, businessSubmissionId: true } },
         business: {
           select: {
             name: true,
+            membership: { select: { originatingPartnerUserId: true } },
           },
         },
         businessSubmission: {
           select: {
             businessName: true,
+            userId: true,
             createdBusiness: {
               select: {
                 name: true,
@@ -1016,6 +1095,14 @@ async function reserveAvailablePartnerCommissions(params: {
         },
       },
     });
+
+    if (commissions.some((commission) => !commission.payment || !commission.businessId ||
+      commission.payment.businessId !== commission.businessId ||
+      commission.payment.businessSubmissionId !== commission.businessSubmissionId ||
+      commission.businessSubmission?.userId !== params.partnerUserId ||
+      commission.business?.membership?.originatingPartnerUserId !== params.partnerUserId)) {
+      throw new Error("commission_payment_attribution_conflict");
+    }
 
     const amountCents = commissions.reduce((sum, commission) => sum + commission.amountCents, 0);
 
@@ -1039,17 +1126,16 @@ async function reserveAvailablePartnerCommissions(params: {
       },
     });
 
-    await tx.partnerCommission.updateMany({
+    const reservation = await tx.partnerCommission.updateMany({
       where: {
-        id: {
-          in: commissions.map((commission) => commission.id),
-        },
+        id: { in: commissions.map((commission) => commission.id) },
+        ...payableCommissionWhere(new Date()),
       },
-      data: {
-        payoutId: payout.id,
-        status: "RESERVED",
-      },
+      data: { payoutId: payout.id, status: "RESERVED" },
     });
+    if (reservation.count !== commissions.length) {
+      throw new Error("commission_reservation_changed");
+    }
 
     return {
       businessCount: commissions.length,
@@ -1584,14 +1670,7 @@ export async function runWeeklyPartnerPayouts(params?: {
     where: {
       partnerCommissions: {
         some: {
-          amountCents: {
-            gt: 0,
-          },
-          payoutId: null,
-          status: {
-            in: ["PENDING", "AVAILABLE"],
-          },
-          type: "COMMISSION",
+          ...payableCommissionWhere(new Date()),
         },
       },
       role: "GETTER",
@@ -1624,15 +1703,8 @@ export async function runWeeklyPartnerPayouts(params?: {
   for (const partner of partners) {
     const pendingCommissions = await prisma.partnerCommission.findMany({
       where: {
-        amountCents: {
-          gt: 0,
-        },
+        ...payableCommissionWhere(new Date()),
         partnerUserId: partner.id,
-        payoutId: null,
-        status: {
-          in: ["PENDING", "AVAILABLE"],
-        },
-        type: "COMMISSION",
       },
       select: {
         amountCents: true,

@@ -658,6 +658,34 @@ model Payment {
   stripeLastEventId      String?             @unique
   bankTransferReference  String?
   paidAt                 DateTime?
+  refundInstructionsEmail String?
+  refundRequestedAt      DateTime?
+  refundRequestedByUserId String?
+  refundRequestAmountCents Int?
+  refundRequestLocale    String?
+  bankRefundResolvedAt   DateTime?
+  bankRefundResolvedByUserId String?
+  bankRefundResolutionNote String?
+  supportRefundRequestEmailClaimedAt DateTime?
+  supportRefundRequestEmailSentAt DateTime?
+  supportRefundRequestEmailError String?
+  ownerRefundRequestEmailClaimedAt DateTime?
+  ownerRefundRequestEmailSentAt DateTime?
+  ownerRefundRequestEmailError String?
+  partnerRefundRequestEmailClaimedAt DateTime?
+  partnerRefundRequestEmailSentAt DateTime?
+  partnerRefundRequestEmailError String?
+  stripeRefundId         String?             @unique
+  refundStatus           String?
+  refundedAmountCents    Int?
+  refundedAt             DateTime?
+  selfServiceRefundedAt  DateTime?
+  ownerRefundEmailSentAt DateTime?
+  partnerRefundEmailSentAt DateTime?
+  ownerRefundEmailClaimedAt DateTime?
+  partnerRefundEmailClaimedAt DateTime?
+  ownerRefundEmailError  String?
+  partnerRefundEmailError String?
   business               Business?           @relation(fields: [businessId], references: [id], onDelete: SetNull)
   businessSubmission     BusinessSubmission  @relation(fields: [businessSubmissionId], references: [id], onDelete: Cascade)
   user                   User                @relation("SubmissionPayer", fields: [userId], references: [id], onDelete: Cascade)

@@ -19,6 +19,7 @@ export async function ensureMembershipRenewalCheckout(params: {
   });
   const submission = membership?.business.submissions[0];
   if (!membership || !submission) return null;
+  if (await prisma.payment.findFirst({ where: { businessId: params.businessId, purpose: "INITIAL_MEMBERSHIP", refundRequestedAt: { not: null }, OR: [{ status: "PAID", method: "BANK_TRANSFER", refundRequestedByUserId: { not: null }, refundStatus: { not: "support_closed" } }, { status: "PAID", refundStatus: { notIn: ["failed", "canceled", "support_closed"] } }, { status: "REFUNDED", refundStatus: { not: "succeeded" } }] }, select: { id: true } })) return null;
   const stripe = getStripe();
   const appUrl = params.appUrl?.replace(/\/+$/, "") || getAppUrl();
   const pending = await prisma.payment.findFirst({
@@ -63,6 +64,7 @@ export async function ensureMembershipRenewalBankTransferIntent(params: {
   });
   const submission = membership?.business.submissions[0];
   if (!membership || !submission) return null;
+  if (await prisma.payment.findFirst({ where: { businessId: params.businessId, purpose: "INITIAL_MEMBERSHIP", refundRequestedAt: { not: null }, OR: [{ status: "PAID", method: "BANK_TRANSFER", refundRequestedByUserId: { not: null }, refundStatus: { not: "support_closed" } }, { status: "PAID", refundStatus: { notIn: ["failed", "canceled", "support_closed"] } }, { status: "REFUNDED", refundStatus: { not: "succeeded" } }] }, select: { id: true } })) return null;
   const stripe = getStripe();
   const pending = await prisma.payment.findFirst({
     where: { businessId: params.businessId, method: "BANK_TRANSFER", purpose: { in: ["ANNUAL_RENEWAL", "REACTIVATION"] }, status: "AWAITING_BANK_TRANSFER" },

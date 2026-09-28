@@ -57,6 +57,8 @@ type ReceiptPayment = {
   id: string;
   method: PaymentRecordMethod;
   paidAt: Date | null;
+  refundedAt: Date | null;
+  refundedAmountCents: number | null;
   partnerUserId: string | null;
   purpose: PaymentPurpose;
   stripeCheckoutSessionId: string | null;
@@ -481,6 +483,8 @@ const receiptPaymentSelect = {
   id: true,
   method: true,
   paidAt: true,
+  refundedAt: true,
+  refundedAmountCents: true,
   partnerUserId: true,
   purpose: true,
   status: true,
@@ -575,6 +579,8 @@ export async function getReceiptData(params: {
       id: payment.id,
       method: payment.method,
       paidAt: payment.paidAt,
+      refundedAt: payment.refundedAt,
+      refundedAmountCents: payment.refundedAmountCents,
       partnerUserId: payment.partnerUserId,
       purpose: payment.purpose,
       status: payment.status,
@@ -722,6 +728,11 @@ export async function buildReceiptPdf(params: {
     [locale === "it" ? "Pagato il" : "Paid on", paidDate],
     [locale === "it" ? "Metodo" : "Method", getPaymentMethodReceiptLabel(receipt.payment.method, locale)],
     [locale === "it" ? "Tipo" : "Payment type", getPaymentPurposeReceiptLabel(receipt.payment.purpose, locale)],
+    ...(receipt.payment.status === "REFUNDED" ? [
+      [locale === "it" ? "Stato" : "Status", locale === "it" ? "Rimborsato" : "Refunded"],
+      ...(receipt.payment.refundedAmountCents !== null ? [[locale === "it" ? "Importo rimborsato" : "Refunded amount", formatCurrencyFromCents(receipt.payment.refundedAmountCents, locale)]] : []),
+      ...(receipt.payment.refundedAt ? [[locale === "it" ? "Rimborsato il" : "Refunded on", new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-US", { dateStyle: "medium" }).format(receipt.payment.refundedAt)]] : []),
+    ] : []),
     ...(receipt.payment.bankTransferReference
       ? [[locale === "it" ? "Riferimento bonifico" : "Bank transfer reference", receipt.payment.bankTransferReference] as [string, string]]
       : []),

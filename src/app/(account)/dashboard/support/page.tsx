@@ -1,0 +1,11 @@
+import { requireCompletedViewer } from "@/lib/auth-guards";
+import { getCurrentLocale } from "@/lib/locale";
+import { getSupportContactEmail } from "@/lib/support-contact";
+import { HardNavigationLink } from "@/components/hard-navigation-link";
+
+export default async function SupportPage() {
+  const [viewer, locale] = await Promise.all([requireCompletedViewer(), getCurrentLocale()]);
+  const it = locale === "it";
+  const email = getSupportContactEmail();
+  return <main className="shell px-4 py-10 sm:px-6"><section className="card mx-auto max-w-xl p-6 sm:p-8"><p className="section-kicker">SALENTO LOCAL</p><h1 className="mt-2 font-serif text-3xl">{it ? "Come possiamo aiutarti?" : "How can we help?"}</h1><p className="mt-4 leading-7 text-[var(--muted-strong)]">{viewer.role === "GETTER" ? it ? "Scrivici per commissioni, pagamenti, segnalazioni di attività, problemi del titolare o accesso all'account." : "Contact us about commissions, payouts, business submissions, Owner issues or account access." : it ? "Scrivici per membership, pagamenti, rimborsi, schede attività o accesso all'account." : "Contact us about membership, payments, refunds, listings or account access."}</p><p className="mt-3 text-sm leading-6 text-[var(--muted-strong)]">{it ? "Indica il nome dell'attività e l'eventuale riferimento della richiesta. Non inviare password, dati di carte o dati bancari via email." : "Include the business name and any request reference. Please do not email passwords, card details or bank details."}</p>{email ? <a className="btn-primary mt-6 min-h-12 justify-center" href={`mailto:${email}?subject=${encodeURIComponent(it ? "Assistenza Salento Local" : "Salento Local support")}`}>{it ? "Scrivi all'assistenza" : "Email support"}</a> : <p className="mt-6 text-sm">{it ? "Il contatto di assistenza è temporaneamente non disponibile. Una richiesta di rimborso già inviata resta registrata nel tuo account." : "The support contact is temporarily unavailable. A submitted refund request remains recorded in your account."}</p>}<div className="mt-5"><HardNavigationLink className="btn-secondary" href="/dashboard">{it ? "Torna alla dashboard" : "Back to dashboard"}</HardNavigationLink></div></section></main>;
+}

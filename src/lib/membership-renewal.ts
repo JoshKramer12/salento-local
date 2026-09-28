@@ -7,6 +7,7 @@ type RenewalDb = PrismaClient | Prisma.TransactionClient;
 
 export function getMembershipPaymentPurpose(params: {
   currentPeriodEnd: Date;
+  entitlementRevokedAt?: Date | null;
   graceEndsAt: Date;
   now: Date;
 }): PaymentPurpose {
@@ -34,9 +35,9 @@ export async function finalizeMembershipRenewalPayment(params: {
   stripeCustomerId?: string | null;
 }) {
   const membership = await params.db.businessMembership.findFirst({
-    where: params.subscriptionId
-      ? { stripeSubscriptionId: params.subscriptionId }
-      : params.businessId ? { businessId: params.businessId } : { id: "__missing_membership__" },
+    where: params.businessId
+      ? { businessId: params.businessId }
+      : params.subscriptionId ? { stripeSubscriptionId: params.subscriptionId } : { id: "__missing_membership__" },
     include: {
       business: {
         select: {
@@ -53,21 +54,6 @@ export async function finalizeMembershipRenewalPayment(params: {
 
   if (!membership || !membership.business.submissions[0]) return null;
 
-  let finalizedPaymentId: string | null = null;
-  // Use the authoritative confirmation time, not when a manual bank-transfer
-  // instruction was generated. A transfer settling after grace is a true
-  // reactivation even if its pending record began while the page was active.
-  const period = getBusinessMembershipPeriod({
-    currentPeriodEnd: membership.currentPeriodEnd,
-    graceEndsAt: membership.graceEndsAt,
-    paidAt: params.paidAt,
-  });
-  const purpose = getMembershipPaymentPurpose({
-    currentPeriodEnd: membership.currentPeriodEnd,
-    graceEndsAt: membership.graceEndsAt,
-    now: params.paidAt,
-  });
-
   const existing = await params.db.payment.findFirst({
     where: {
       OR: [
@@ -81,9 +67,49 @@ export async function finalizeMembershipRenewalPayment(params: {
   });
   if (existing) {
     const existingPayment = await params.db.payment.findUnique({
-      where: { id: existing.id }, select: { status: true },
+      where: { id: existing.id }, select: { status: true, purpose: true, refundRequestedAt: true },
     });
-    if (existingPayment?.status === "PAID") return { duplicate: true, membership };
+    if (existingPayment?.status === "PAID") return { duplicate: true, membership, paymentId: existing.id, purpose: existingPayment.purpose };
+    if (existingPayment?.status === "REFUNDED" || existingPayment?.refundRequestedAt) {
+      return { duplicate: true, membership, paymentId: existing.id, purpose: existingPayment.purpose };
+    }
+  }
+
+  // A Checkout URL opened before the owner requested a refund can still be
+  // paid. Defer that term until Stripe resolves the first refund, otherwise
+  // the commission would be classified as €15 or €50 on uncertain history.
+  const unresolvedInitialRefund = await params.db.payment.findFirst({
+    where: { businessId: membership.businessId, purpose: "INITIAL_MEMBERSHIP", refundRequestedAt: { not: null }, OR: [{ status: "PAID", method: "BANK_TRANSFER", refundRequestedByUserId: { not: null }, refundStatus: { not: "support_closed" } }, { status: "PAID", refundStatus: { notIn: ["failed", "canceled", "support_closed"] } }, { status: "REFUNDED", refundStatus: { not: "succeeded" } }] },
+    select: { id: true },
+  });
+  if (unresolvedInitialRefund) throw new Error("renewal_during_initial_refund_processing");
+
+  let finalizedPaymentId: string | null = null;
+  // Use the authoritative confirmation time, not when a manual bank-transfer
+  // instruction was generated. A transfer settling after grace is a true
+  // reactivation even if its pending record began while the page was active.
+  const period = getBusinessMembershipPeriod({
+    currentPeriodEnd: membership.currentPeriodEnd,
+    entitlementRevokedAt: membership.entitlementRevokedAt,
+    graceEndsAt: membership.graceEndsAt,
+    paidAt: params.paidAt,
+  });
+  const ordinaryPurpose = getMembershipPaymentPurpose({
+    currentPeriodEnd: membership.currentPeriodEnd,
+    entitlementRevokedAt: membership.entitlementRevokedAt,
+    graceEndsAt: membership.graceEndsAt,
+    now: params.paidAt,
+  });
+  const priorInitialPayments = await params.db.payment.findMany({
+    where: { businessId: membership.businessId, purpose: "INITIAL_MEMBERSHIP" },
+    select: { id: true, status: true, selfServiceRefundedAt: true },
+  });
+  const refundedRepurchase = ordinaryPurpose === "REACTIVATION" && Boolean(membership.entitlementRevokedAt) &&
+    priorInitialPayments.length > 0 &&
+    priorInitialPayments.every((payment) => payment.status === "REFUNDED" && payment.selfServiceRefundedAt);
+  const purpose: PaymentPurpose = refundedRepurchase ? "INITIAL_MEMBERSHIP" : ordinaryPurpose;
+
+  if (existing) {
     await params.db.payment.update({
       where: { id: existing.id },
       data: {
@@ -94,6 +120,7 @@ export async function finalizeMembershipRenewalPayment(params: {
         stripeInvoiceId: params.invoiceId ?? undefined,
         stripeLastEventId: params.eventId ?? undefined,
         stripePaymentIntentId: params.paymentIntentId ?? undefined,
+        stripeSubscriptionId: refundedRepurchase ? params.subscriptionId ?? undefined : undefined,
       },
     });
     finalizedPaymentId = existing.id;
@@ -114,6 +141,7 @@ export async function finalizeMembershipRenewalPayment(params: {
       stripeInvoiceId: params.invoiceId ?? null,
       stripeLastEventId: params.eventId ?? null,
       stripePaymentIntentId: params.paymentIntentId ?? null,
+      stripeSubscriptionId: refundedRepurchase ? params.subscriptionId ?? null : null,
       userId: membership.business.submissions[0].userId,
       },
     });
@@ -135,6 +163,13 @@ export async function finalizeMembershipRenewalPayment(params: {
       stripeCancelAtPeriodEnd: params.subscriptionId ? false : undefined,
     },
   });
+
+  if (refundedRepurchase) {
+    await params.db.businessSubmission.update({
+      where: { id: membership.business.submissions[0].id },
+      data: { paymentStatus: "PAID" },
+    });
+  }
 
   return { duplicate: false, membership, paymentId: finalizedPaymentId, purpose };
 }

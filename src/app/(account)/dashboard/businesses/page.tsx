@@ -84,6 +84,7 @@ export default async function DashboardBusinessesPage({
         },
         createdBusiness: {
           select: {
+            membership: { select: { entitlementRevokedAt: true, graceEndsAt: true } },
             images: {
               orderBy: {
                 sortOrder: "asc",
@@ -118,6 +119,8 @@ export default async function DashboardBusinessesPage({
         partnerCommissions: {
           select: {
             amountCents: true,
+            eligibleAt: true,
+            payment: { select: { status: true, refundRequestedAt: true, refundStatus: true } },
             sourceKey: true,
             status: true,
             type: true,
@@ -141,6 +144,7 @@ export default async function DashboardBusinessesPage({
         },
         createdBusiness: {
           select: {
+            membership: { select: { entitlementRevokedAt: true, graceEndsAt: true } },
             images: {
               orderBy: {
                 sortOrder: "asc",
@@ -175,6 +179,8 @@ export default async function DashboardBusinessesPage({
         partnerCommissions: {
           select: {
             amountCents: true,
+            eligibleAt: true,
+            payment: { select: { status: true, refundRequestedAt: true, refundStatus: true } },
             sourceKey: true,
             status: true,
             type: true,
@@ -208,6 +214,7 @@ export default async function DashboardBusinessesPage({
           />
         </div>
         <PartnerSubmissions
+          now={new Date().toISOString()}
           locale={locale}
           drafts={draftSubmissions}
           submissions={activeSubmissions}

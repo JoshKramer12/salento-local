@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ensurePartnerRenewalCommissionForPayment, reversePartnerCommissionForPayment } from "@/lib/partner-ledger";
+import { ensurePartnerRefundRepurchaseCommissionForPayment, ensurePartnerRenewalCommissionForPayment, reversePartnerCommissionForPayment } from "@/lib/partner-ledger";
 import { getStripe } from "@/lib/stripe";
 import { markStripePaymentRefunded } from "@/lib/stripe-payment-sync";
 import { finalizeMembershipRenewalPayment } from "@/lib/membership-renewal";
@@ -13,6 +13,7 @@ import {
 import { normalizeEnvValue } from "@/lib/env";
 import { EMAIL_MANUAL_PAYMENT_FLOW, getVerifiedManualElementPaymentIntent, NO_EMAIL_PAYMENT_FLOW } from "@/lib/no-email-payment";
 import { getVerifiedInitialSubscriptionInvoice } from "@/lib/embedded-subscription";
+import { reconcileInitialRefund } from "@/lib/self-service-refunds";
 
 export async function POST(request: Request) {
   const signature = request.headers.get("stripe-signature");
@@ -73,9 +74,10 @@ export async function POST(request: Request) {
           stripeCustomerId: typeof session.customer === "string" ? session.customer : null,
           subscriptionId: typeof session.subscription === "string" ? session.subscription : null,
         }));
-        if (result?.paymentId && !result.duplicate) {
+        if (result?.paymentId) {
           await ensurePartnerRenewalCommissionForPayment({ paymentId: result.paymentId, sourceEventId: event.id, sourceEventType: event.type });
-          await sendMembershipPaymentOutcomeEmail({ membershipId: result.membership.id });
+          await ensurePartnerRefundRepurchaseCommissionForPayment({ paymentId: result.paymentId, sourceEventId: event.id, sourceEventType: event.type });
+          if (!result.duplicate) await sendMembershipPaymentOutcomeEmail({ membershipId: result.membership.id });
         }
         await completeStripeWebhookProcessing({ id: webhookLog.id, status: result ? "PROCESSED" : "FAILED" });
         return NextResponse.json({ received: true });
@@ -178,9 +180,10 @@ export async function POST(request: Request) {
         })(),
         subscriptionId,
       }));
-      if (result?.paymentId && !result.duplicate) {
+      if (result?.paymentId) {
         await ensurePartnerRenewalCommissionForPayment({ paymentId: result.paymentId, sourceEventId: event.id, sourceEventType: event.type });
-        await sendMembershipPaymentOutcomeEmail({ membershipId: result.membership.id });
+        await ensurePartnerRefundRepurchaseCommissionForPayment({ paymentId: result.paymentId, sourceEventId: event.id, sourceEventType: event.type });
+        if (!result.duplicate) await sendMembershipPaymentOutcomeEmail({ membershipId: result.membership.id });
       }
       await completeStripeWebhookProcessing({ id: webhookLog.id, status: "PROCESSED" });
       return NextResponse.json({ received: true });
@@ -240,9 +243,10 @@ export async function POST(request: Request) {
           paidAt: new Date(),
           paymentIntentId: paymentIntent.id,
         }));
-        if (result?.paymentId && !result.duplicate) {
+        if (result?.paymentId) {
           await ensurePartnerRenewalCommissionForPayment({ paymentId: result.paymentId, sourceEventId: event.id, sourceEventType: event.type });
-          await sendMembershipPaymentOutcomeEmail({ membershipId: result.membership.id });
+          await ensurePartnerRefundRepurchaseCommissionForPayment({ paymentId: result.paymentId, sourceEventId: event.id, sourceEventType: event.type });
+          if (!result.duplicate) await sendMembershipPaymentOutcomeEmail({ membershipId: result.membership.id });
         }
         await completeStripeWebhookProcessing({ id: webhookLog.id, status: result ? "PROCESSED" : "FAILED" });
         return NextResponse.json({ received: true });
@@ -275,6 +279,24 @@ export async function POST(request: Request) {
 
     if (event.type === "charge.refunded") {
       const charge = event.data.object;
+      // Current Stripe charge events do not include expanded Refund objects.
+      // Read the exact charge's refunds so crash recovery uses the same finalizer.
+      const chargeRefunds = charge.refunds?.data ?? (await getStripe().refunds.list({ charge: charge.id, limit: 100 })).data;
+      const selfService = chargeRefunds.find((refund) => refund.metadata?.salentoRefundType === "initial_membership_14_day");
+      if (selfService) {
+        await reconcileInitialRefund(selfService, event.id);
+        await completeStripeWebhookProcessing({ id: webhookLog.id, status: "PROCESSED" });
+        return NextResponse.json({ received: true });
+      }
+
+      // An operator-created bank Refund may have no Salento metadata. Bind
+      // it only to a durable timely support request for this exact payment.
+      for (const refund of chargeRefunds) {
+        if (await reconcileInitialRefund(refund, event.id)) {
+          await completeStripeWebhookProcessing({ id: webhookLog.id, status: "PROCESSED" });
+          return NextResponse.json({ received: true });
+        }
+      }
 
       if (typeof charge.payment_intent === "string") {
         await markStripePaymentRefunded({
@@ -294,6 +316,12 @@ export async function POST(request: Request) {
         id: webhookLog.id,
         status: "PROCESSED",
       });
+      return NextResponse.json({ received: true });
+    }
+
+    if (event.type === "refund.updated" || event.type === "refund.created" || event.type === "refund.failed") {
+      const handled = await reconcileInitialRefund(event.data.object, event.id);
+      await completeStripeWebhookProcessing({ id: webhookLog.id, status: handled ? "PROCESSED" : "SKIPPED" });
       return NextResponse.json({ received: true });
     }
 
