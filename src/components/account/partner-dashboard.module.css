@@ -20,3 +20,5 @@
 
 /* Keep the lower dashboard content in deliberate rows, not a masonry column. */
 @media(min-width:901px){.businessPanel{grid-column:1;grid-row:2}.recentEarnings{grid-column:2;grid-row:2}.guide{grid-column:1;grid-row:3}.businessSummary{grid-column:2;grid-row:3}}
+
+.financialStates{display:grid;justify-items:start;gap:6px;margin-top:9px}.financialStatus{display:inline-block;max-width:100%;border-radius:12px;padding:5px 8px;font-size:.7rem;font-weight:700;line-height:1.4;overflow-wrap:anywhere}.financialgreen,.latestEarning .financialgreen{background:#ddf1e3;color:#075c47}.financialyellow,.latestEarning .financialyellow{background:#fff0c9;color:#78490b}.financialred,.latestEarning .financialred{background:#fde5e3;color:#9c2925}.latestEarning .financialgreen,.latestEarning .financialyellow,.latestEarning .financialred{display:inline-block;margin-top:5px;border-radius:8px;padding:4px 7px}

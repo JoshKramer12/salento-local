@@ -41,11 +41,7 @@ export function AccountWorkspaceNav<Key extends string>({
               key={item.key}
               ariaCurrent={isActive ? "true" : undefined}
               href={item.href}
-              className={`flex min-h-10 ${scrollable ? "shrink-0 px-3" : "min-w-0 px-1.5"} items-center justify-center rounded-xl text-center text-[0.72rem] font-semibold transition sm:text-xs ${
-                isActive
-                  ? "border border-[rgba(42,98,87,0.14)] bg-white text-[var(--foreground)] shadow-sm"
-                  : "text-[var(--muted)] hover:bg-white/70 hover:text-[var(--foreground)]"
-              }`}
+              className={`nav-link flex min-h-11 ${scrollable ? "shrink-0" : "min-w-0"} items-center justify-center whitespace-nowrap text-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)] ${isActive ? "nav-link-active" : ""}`}
             >
               <span className={scrollable ? "" : "truncate"}>{item.label}</span>
             </HardNavigationLink>

@@ -57,7 +57,7 @@ test("Business Owner navigation keeps claim actions out of account and workspace
   assert.match(businessesPage, /<BusinessOwnerAccountNav active="drafts" draftCount=\{draftSubmissions\.length\} locale=\{locale\} \/>/);
   assert.deepEqual(getBusinessOwnerNavigationItems("en"), [
     { href: "/dashboard", key: "businesses", label: "My businesses" },
-    { href: "/dashboard/businesses#drafts", key: "drafts", label: "Drafts" },
+    { href: "/dashboard/businesses", key: "drafts", label: "Drafts" },
   ]);
   assert.match(ownerNav, /<AccountWorkspaceNav/);
   assert.match(ownerNav, /columns=\{2\}/);
@@ -67,7 +67,7 @@ test("Business Owner navigation keeps claim actions out of account and workspace
   assert.doesNotMatch(ownerNav, /bg-\[var\(--primary\)\] text-white/);
   assert.match(partnerWorkspaceNav, /<AccountWorkspaceNav/);
   assert.match(accountWorkspaceNav, /columns === 2 \? "grid-cols-2" : "grid-cols-3"/);
-  assert.match(accountWorkspaceNav, /bg-white text-\[var\(--foreground\)\] shadow-sm/);
+  assert.match(accountWorkspaceNav, /nav-link-active/);
   assert.match(businessesPage, /<BusinessOwnerWorkspaceNav active="drafts" locale=\{locale\} \/>/);
   assert.doesNotMatch(claimPage, /BusinessOwner(?:Account|Workspace)Nav/);
   assert.match(dashboardPage, /<BusinessOwnerWorkspaceNav active="businesses" locale=\{locale\} \/>/);

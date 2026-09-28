@@ -16,6 +16,6 @@ export function getBusinessOwnerNavigationItems(locale: Locale) {
 
   return [
     { href: "/dashboard", key: "businesses" as const, label: labels.businesses },
-    { href: "/dashboard/businesses#drafts", key: "drafts" as const, label: labels.drafts },
+    { href: "/dashboard/businesses", key: "drafts" as const, label: labels.drafts },
   ] satisfies { href: string; key: BusinessOwnerNavigationKey; label: string }[];
 }

@@ -35,7 +35,9 @@ import {
   getPartnerBalanceSummary,
   getPartnerOutstandingCommissionItems,
   getPartnerPayoutHistory,
+  payableCommissionWhere,
 } from "@/lib/partner-ledger";
+import { selectPartnerPaidBusinesses, selectPartnerPaidBusinessCommissions } from "@/lib/partner-dashboard-display";
 import { prisma } from "@/lib/prisma";
 import { getSingleParam } from "@/lib/site";
 import { buildDraftLikeSubmissionWhere } from "@/lib/submission-drafts";
@@ -332,6 +334,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const resolvedSearchParams = await searchParams;
   const payoutStatus = getSingleParam(resolvedSearchParams.payoutStatus);
 
+  const dashboardNow = new Date();
   const [
     submissions,
     partnerBalances,
@@ -339,6 +342,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     partnerHistory,
     partnerSetup,
     partnerRecentCommissions,
+    partnerPayableCommissions,
     adminDashboard,
     ownedBusinesses,
   ] = await Promise.all([
@@ -358,10 +362,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           },
         },
         commissionCents: true,
-        partnerCommissions: { select: { amountCents: true, eligibleAt: true, status: true, type: true, payment: { select: { status: true, refundRequestedAt: true, refundStatus: true } } } },
+        partnerCommissions: { where: { partnerUserId: viewer.id }, select: { id: true, sourceKey: true, amountCents: true, eligibleAt: true, status: true, type: true, payment: { select: { purpose: true, status: true, refundRequestedAt: true, refundStatus: true } } } },
         createdAt: true,
         createdBusiness: {
           select: {
+            id: true,
             membership: { select: { entitlementRevokedAt: true, graceEndsAt: true } },
             images: {
               orderBy: { sortOrder: "asc" },
@@ -381,8 +386,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           },
           select: {
             bankTransferReference: true,
+            amountCents: true,
+            businessId: true,
+            purpose: true,
+            status: true,
           },
-          take: 1,
         },
         status: true,
         town: {
@@ -411,19 +419,27 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             status: { not: "REVERSED" },
           },
           orderBy: [{ earnedAt: "desc" }, { createdAt: "desc" }],
-          take: 5,
           select: {
             amountCents: true,
+            businessId: true,
+            businessSubmissionId: true,
             business: { select: { name: true } },
             businessSubmission: { select: { businessName: true } },
             createdAt: true,
             earnedAt: true,
             eligibleAt: true,
             id: true,
-            payment: { select: { purpose: true, refundRequestedAt: true, refundStatus: true } },
+            payment: { select: { purpose: true, status: true, refundRequestedAt: true, refundStatus: true } },
             status: true,
             sourceKey: true,
+            type: true,
           },
+        })
+      : Promise.resolve([]),
+    viewer.role === "GETTER"
+      ? prisma.partnerCommission.findMany({
+          where: { ...payableCommissionWhere(dashboardNow), partnerUserId: viewer.id },
+          select: { id: true },
         })
       : Promise.resolve([]),
     viewer.role === "ADMIN" ? getAdminDashboardData() : Promise.resolve(null),
@@ -622,15 +638,19 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       return <PartnerFirstBusinessDashboard locale={locale} username={viewer.username} />;
     }
 
+    const paidBusinesses = selectPartnerPaidBusinesses(submissions);
+    const paidBusinessCommissions = selectPartnerPaidBusinessCommissions(partnerRecentCommissions, paidBusinesses).slice(0, 5);
+
     return (
       <PartnerDashboard
-        now={new Date().toISOString()}
+        now={dashboardNow.toISOString()}
         balances={partnerBalances}
         history={partnerHistory}
         locale={locale}
-        recentCommissions={partnerRecentCommissions}
+        recentCommissions={paidBusinessCommissions}
         setup={partnerSetup}
-        submissions={submissions}
+        payableCommissionIds={partnerPayableCommissions.map((commission) => commission.id)}
+        submissions={paidBusinesses}
         totals={totals}
         username={viewer.username}
       />

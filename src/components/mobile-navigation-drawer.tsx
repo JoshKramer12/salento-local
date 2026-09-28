@@ -10,6 +10,7 @@ import {
   IconMapPins,
   IconPlus,
   IconSettings,
+  IconHelp,
   IconWallet,
 } from "@tabler/icons-react";
 import type { UserRole } from "@prisma/client";
@@ -99,6 +100,7 @@ export function MobileNavigationDrawer({
         language: "Lingua",
         logout: "Esci",
         settings: "Impostazioni",
+        support: "Assistenza",
         townsAndLocalities: "Comuni e localita",
       }
     : {
@@ -112,6 +114,7 @@ export function MobileNavigationDrawer({
         language: "Language",
         logout: "Log out",
         settings: "Settings",
+        support: "Support",
         townsAndLocalities: "Towns & localities",
       };
   const displayName = viewer?.name?.trim() || viewer?.username.trim() || "";
@@ -271,6 +274,9 @@ export function MobileNavigationDrawer({
 
           {viewer ? (
             <div className="mt-6 grid gap-0.5 border-t border-[var(--border)] pt-5">
+              {viewer.role === "GETTER" || viewer.role === "BUSINESS_OWNER" ? (
+                <DrawerLink href="/dashboard/support" icon={IconHelp} label={copy.support} onClose={onClose} />
+              ) : null}
               <DrawerLink
                 href="/settings"
                 icon={IconSettings}

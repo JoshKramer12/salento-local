@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import { getBusinessOwnerNavigationItems } from "@/lib/business-owner-navigation";
+
 const businessesPage = readFileSync("src/app/(account)/dashboard/businesses/page.tsx", "utf8");
 const submissionList = readFileSync("src/components/account/submission-list.tsx", "utf8");
 
@@ -19,4 +21,11 @@ test("drafts use the existing submissions empty card without changing the normal
   assert.match(submissionList, /className="card p-6 text-sm text-\[var\(--muted\)\]"/);
   assert.match(submissionList, /\{emptyMessage \?\? copy\.empty\}/);
   assert.match(submissionList, /There are no submissions to show yet\./);
+});
+
+test("Owner Drafts uses fresh page navigation without a section fragment in both languages", () => {
+  for (const locale of ["en", "it"] as const) {
+    const drafts = getBusinessOwnerNavigationItems(locale).find((item) => item.key === "drafts");
+    assert.equal(drafts?.href, "/dashboard/businesses");
+  }
 });
