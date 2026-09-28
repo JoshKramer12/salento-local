@@ -1694,21 +1694,3 @@ button {
     box-shadow: none;
   }
 }
-
-/* Refund presentation shares the account area's warm cards and touch targets. */
-.refund-experience, .refund-note, .refund-summary { overflow-wrap: anywhere; }
-.refund-note { border: 1px solid var(--border); background: rgba(247,244,239,.7); border-radius: 1rem; padding: 1rem; font-size: .925rem; line-height: 1.65; }
-.refund-note--amber { background: #fff7e5; border-color: #e8d7ac; color: #684b19; }
-.refund-note--red { background: #fbefec; border-color: #ebcfc8; color: #813f36; }
-.refund-summary { display: grid; gap: .8rem; font-size: .9rem; }
-.refund-summary > div { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.2fr); gap: .8rem; }
-.refund-summary dt { color: var(--muted); }
-.refund-summary dd { font-weight: 600; }
-.refund-actions { display: grid; gap: .75rem; }
-.refund-actions > * { min-width: 0; width: 100%; }
-.refund-actions a, .refund-actions button, .refund-destructive { white-space: normal; text-align: center; line-height: 1.4; }
-.refund-destructive { border-color: #b66f62; color: #813f36; background: #fffaf8; }
-.refund-destructive:hover { background: #fbefec; color: #71352e; }
-.refund-actions :focus-visible, .refund-destructive:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
-.refund-actions button:disabled { opacity: .65; cursor: wait; }
-@media (min-width: 640px) { .refund-actions { grid-template-columns: repeat(2,minmax(0,1fr)); } .refund-actions > :last-child:nth-child(3) { grid-column: 1 / -1; } }

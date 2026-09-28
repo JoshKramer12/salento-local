@@ -154,7 +154,7 @@ test("Owner and Partner refund notifications claim once with separate stable key
   const send = async (args: { to: string; subject: string; idempotencyKey?: string }) => { sends.push(args); return { success: true as const, provider: "smtp" as const, messageId: "synthetic" }; };
   await sendInitialRefundNotifications(f.payment.id, { send });
   await sendInitialRefundNotifications(f.payment.id, { send });
-  assert.equal(sends.length, 2); assert.ok(sends.some((s) => s.subject.includes("rimborso"))); assert.ok(sends.some((s) => /refund/i.test(s.subject)));
+  assert.equal(sends.length, 2); assert.ok(sends.some((s) => s.subject.includes("rimborso"))); assert.ok(sends.some((s) => s.subject.includes("Refund")));
   assert.equal(new Set(sends.map((s) => s.idempotencyKey)).size, 2);
 });
 

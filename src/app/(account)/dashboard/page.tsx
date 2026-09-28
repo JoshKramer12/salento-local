@@ -315,12 +315,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     const firstName = displayName.split(/\s+/)[0] || viewer.username;
     const businessesWithRefund = await Promise.all(businesses.map(async (business) => {
       const refund = await findInitialRefundForBusiness(business.id);
-      return { ...business, refundState: refund.state, refundDeadline: refund.deadline, refundMethod: refund.payment?.method ?? null, refundPayment: refund.payment ? {
-        amountCents: refund.payment.amountCents, currency: refund.payment.currency, status: refund.payment.status,
-        method: refund.payment.method, refundRequestedAt: refund.payment.refundRequestedAt, refundStatus: refund.payment.refundStatus,
-        stripeRefundId: refund.payment.stripeRefundId, selfServiceRefundedAt: refund.payment.selfServiceRefundedAt,
-        refundedAt: refund.payment.refundedAt, refundedAmountCents: refund.payment.refundedAmountCents,
-      } : null };
+      return { ...business, refundState: refund.state, refundDeadline: refund.deadline, refundMethod: refund.payment?.method ?? null };
     }));
 
     return (
@@ -367,7 +362,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           },
         },
         commissionCents: true,
-        partnerCommissions: { where: { partnerUserId: viewer.id }, select: { id: true, sourceKey: true, amountCents: true, eligibleAt: true, status: true, type: true, payment: { select: { purpose: true, amountCents: true, currency: true, paidAt: true, status: true, refundRequestedAt: true, refundStatus: true } } } },
+        partnerCommissions: { where: { partnerUserId: viewer.id }, select: { id: true, sourceKey: true, amountCents: true, eligibleAt: true, status: true, type: true, payment: { select: { purpose: true, status: true, refundRequestedAt: true, refundStatus: true } } } },
         createdAt: true,
         createdBusiness: {
           select: {
@@ -434,7 +429,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             earnedAt: true,
             eligibleAt: true,
             id: true,
-            payment: { select: { purpose: true, amountCents: true, currency: true, paidAt: true, status: true, refundRequestedAt: true, refundStatus: true } },
+            payment: { select: { purpose: true, status: true, refundRequestedAt: true, refundStatus: true } },
             status: true,
             sourceKey: true,
             type: true,

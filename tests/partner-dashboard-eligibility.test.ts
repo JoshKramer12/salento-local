@@ -96,10 +96,8 @@ test("completed refund and reversed commission stay visible historically in red"
   const before = { businesses: await prisma.business.count(), payments: await prisma.payment.count(), submissions: await prisma.businessSubmission.count() };
   const d = await dashboard(f.partner.id);
   assert.equal(d.paid.length, 1); assert.equal(d.display(f.commission.id).tone, "red");
-  assert.match(d.display(f.commission.id).label, /commission cancelled/);
-  assert.match(d.display(f.commission.id).detail, /membership was refunded/);
-  assert.match(d.display(f.commission.id, "it").label, /commissione annullata/);
-  assert.match(d.display(f.commission.id, "it").detail, /membership.*rimborsata/);
+  assert.match(d.display(f.commission.id).label, /Refunded.*cancelled/);
+  assert.match(d.display(f.commission.id, "it").label, /Rimborsata.*annullata/);
   assert.deepEqual({ businesses: await prisma.business.count(), payments: await prisma.payment.count(), submissions: await prisma.businessSubmission.count() }, before);
 });
 

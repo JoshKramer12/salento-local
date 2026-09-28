@@ -1,4 +1,3 @@
-import { payableCommissionWhere } from "@/lib/partner-ledger";
 import { redirect } from "next/navigation";
 
 import {
@@ -119,10 +118,9 @@ export default async function DashboardBusinessesPage({
         },
         partnerCommissions: {
           select: {
-            id: true,
             amountCents: true,
             eligibleAt: true,
-            payment: { select: { purpose: true, amountCents: true, currency: true, paidAt: true, status: true, refundRequestedAt: true, refundStatus: true } },
+            payment: { select: { status: true, refundRequestedAt: true, refundStatus: true } },
             sourceKey: true,
             status: true,
             type: true,
@@ -180,10 +178,9 @@ export default async function DashboardBusinessesPage({
         },
         partnerCommissions: {
           select: {
-            id: true,
             amountCents: true,
             eligibleAt: true,
-            payment: { select: { purpose: true, amountCents: true, currency: true, paidAt: true, status: true, refundRequestedAt: true, refundStatus: true } },
+            payment: { select: { status: true, refundRequestedAt: true, refundStatus: true } },
             sourceKey: true,
             status: true,
             type: true,
@@ -205,7 +202,6 @@ export default async function DashboardBusinessesPage({
     : submissions;
 
   if (viewer.role === "GETTER" && !showAll) {
-    const payable = await prisma.partnerCommission.findMany({ where: { ...payableCommissionWhere(new Date()), partnerUserId: viewer.id }, select: { id: true } });
     return (
       <>
         <PartnerWorkspaceNav active="businesses" locale={locale} />
@@ -218,7 +214,6 @@ export default async function DashboardBusinessesPage({
           />
         </div>
         <PartnerSubmissions
-          payableCommissionIds={payable.map((entry) => entry.id)}
           now={new Date().toISOString()}
           locale={locale}
           drafts={draftSubmissions}

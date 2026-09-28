@@ -1,4 +1,3 @@
-import { RefundPolicySummary } from "@/components/account/refund-policy-summary";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import type { Metadata } from "next";
@@ -74,7 +73,6 @@ export default async function NoEmailPaymentPage({ params }: Props) {
         <strong className="shrink-0 text-xl text-[var(--primary)]">{amount}</strong>
       </div>
       <div className="mt-6 flex items-center gap-2 text-sm font-semibold text-[var(--primary)]"><IconLock size={19} />{locale === "it" ? "Pagamento sicuro" : "Secure payment"}</div>
-      <div className="mt-6"><RefundPolicySummary locale={locale} /></div>
       <NoEmailPaymentForm amount={amount} clientSecret={intent.client_secret} locale={locale} ownerEmail={payment.businessSubmission.ownerEmail.trim()} publishableKey={publishableKey} returnUrl={returnUrl} />
       <p className="mt-5 flex items-center justify-center gap-2 text-center text-xs leading-5 text-[var(--muted)]"><IconShieldCheck size={18} />{locale === "it" ? "Pagamenti elaborati in modo sicuro da Stripe." : "Payments are securely processed by Stripe."}</p>
     </section>

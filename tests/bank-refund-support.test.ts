@@ -55,7 +55,7 @@ test("eligible bank payment retains refund eligibility and shows the support con
   assert.equal((await findInitialRefundForBusiness(f.business.id)).state, "AVAILABLE");
   for (const locale of ["en", "it"] as const) {
     const html = renderToStaticMarkup(createElement(AppRouterContext.Provider, { value: { push() {}, replace() {}, refresh() {}, back() {}, forward() {}, prefetch: async () => {} } as never }, createElement(BankRefundRequest, { businessId: f.business.id, businessName: f.business.name, paymentId: f.payment.id, amount: "€100.00", requestedAt: null, state: "AVAILABLE", locale, ownerEmail: f.owner.email })));
-    assert.match(html, locale === "en" ? /Submit my €100.00 refund request/ : /Invia la mia richiesta di rimborso di €100.00/);
+    assert.match(html, locale === "en" ? /Submit refund request/ : /Invia richiesta di rimborso/);
     assert.match(html, locale === "en" ? /remain active until/ : /resterà attiva fino/);
     assert.doesNotMatch(html, /Stripe’s bank-refund instructions|instructions_email/);
   }

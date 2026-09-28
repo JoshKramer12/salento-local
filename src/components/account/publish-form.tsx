@@ -2790,7 +2790,7 @@ export function PublishForm({
             accepted={agreementAccepted}
             businessName={businessName}
             firstYearPriceLabel={firstYearPriceLabel}
-            keyTerms={[copy.summaryAuthorized, copy.summaryPublish, copy.summaryPrice, copy.summaryRenewal]}
+            keyTerms={[copy.summaryAuthorized, copy.summaryPublish, copy.summaryPrice, copy.summaryRenewal, locale === "it" ? "Rimborso completo del pagamento iniziale: richiesta dall’account entro 14 giorni. Su carta viene elaborato online; per bonifici aiuta l’assistenza. La scheda si disattiva solo dopo il rimborso, con dati salvati." : "Full initial-payment refund: request through your account within 14 days. Cards are processed online; bank transfers use support. The listing becomes inactive only after refund completion, with its information retained."]}
             locale={locale}
             onAcceptedChange={setAgreementAccepted}
             photoUrl={photos.exterior || photos.interior || undefined}
