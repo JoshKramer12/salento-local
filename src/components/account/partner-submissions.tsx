@@ -12,22 +12,20 @@ import {
 } from "@tabler/icons-react";
 
 import { DraftDeleteButton } from "@/components/account/draft-delete-button";
+import { PartnerRefundContext } from "@/components/account/partner-refund-context";
 import { PartnerOwnerAccess } from "@/components/account/partner-owner-access";
 import { HardNavigationLink } from "@/components/hard-navigation-link";
 import { formatCurrencyFromCents, getPaymentStatusLabel, getSubmissionStatusLabel } from "@/lib/account";
 import { getBusinessPhotoUrls } from "@/lib/business-photos";
+import { getPartnerCommissionDisplay, type DashboardCommission } from "@/lib/partner-dashboard-display";
+import { getRefundDisplayState } from "@/lib/refund-display";
+import { isBusinessMembershipPublic } from "@/lib/business-membership";
+import { refundCopy } from "@/lib/refund-copy";
 import type { Locale } from "@/lib/i18n";
 
 import styles from "./partner-submissions.module.css";
 
-type Commission = {
-  amountCents: number;
-  eligibleAt: Date | null;
-  payment: { status: string; refundRequestedAt: Date | null; refundStatus?: string | null } | null;
-  sourceKey: string;
-  status: "PENDING" | "AVAILABLE" | "RESERVED" | "PAID" | "REVERSED" | "DEBT";
-  type: "COMMISSION" | "REVERSAL" | "ADJUSTMENT";
-};
+type Commission = DashboardCommission & { eligibleAt: Date | null };
 
 type Submission = {
   addressPlaceId: string | null;
@@ -51,7 +49,7 @@ type Submission = {
   partnerCommissions: Commission[];
 };
 
-type Props = { drafts: Submission[]; locale: Locale; now: string; submissions: Submission[] };
+type Props = { payableCommissionIds?: string[]; drafts: Submission[]; locale: Locale; now: string; submissions: Submission[] };
 
 const copy = {
   en: {
@@ -156,21 +154,27 @@ function statusTone(status: Submission["status"]) {
   return styles.waiting;
 }
 
-function paymentDisplay(submission: Submission, locale: Locale) {
-  const paid = submission.paymentStatus === "PAID";
-  return { label: paid ? copy[locale].paymentPaid : getPaymentStatusLabel(submission.paymentStatus, locale), paid };
+function initialCommission(submission: Submission) {
+  const initial = submission.partnerCommissions.filter((entry) => (entry.sourceKey === `commission:submission:${submission.id}` || entry.sourceKey.startsWith("commission:refund-repurchase:")) && entry.type === "COMMISSION");
+  return initial.find((entry) => entry.status !== "REVERSED" && entry.status !== "DEBT") ?? initial[0];
 }
 
-function commissionDisplay(submission: Submission, locale: Locale, now: string) {
-  const initial = submission.partnerCommissions.filter((entry) => (entry.sourceKey === `commission:submission:${submission.id}` || entry.sourceKey.startsWith("commission:refund-repurchase:")) && entry.type === "COMMISSION");
-  const commission = initial.find((entry) => entry.status !== "REVERSED" && entry.status !== "DEBT");
-  if (!commission) return { label: initial.some((entry) => entry.status === "REVERSED") ? `${formatCurrencyFromCents(5000, locale)} ${locale === "it" ? "annullata" : "canceled"}` : "—", tone: styles.mutedEarning };
-  const unresolvedRefund = Boolean(commission.payment?.refundRequestedAt && commission.payment?.refundStatus !== "support_closed");
-  const settled = commission.status === "RESERVED" || commission.status === "PAID" || Boolean(!unresolvedRefund && commission.payment?.status === "PAID" && commission.eligibleAt && new Date(commission.eligibleAt).getTime() <= new Date(now).getTime());
-  return {
-    label: unresolvedRefund ? `${formatCurrencyFromCents(commission.amountCents, locale)} · ${locale === "it" ? "Richiesta di rimborso in sospeso" : "Refund request pending"}` : `${formatCurrencyFromCents(commission.amountCents, locale)} ${settled ? copy[locale].earned : copy[locale].pending}`,
-    tone: settled ? styles.earned : styles.pendingEarning,
-  };
+function paymentDisplay(submission: Submission, locale: Locale) {
+  const c = refundCopy(locale);
+  const payment = initialCommission(submission)?.payment;
+  const display = getRefundDisplayState({ payment });
+  if (["processing", "support_pending", "needs_attention"].includes(display)) return { label: display === "needs_attention" ? c.historyAttention : c.historyProgress, tone: styles.paymentPending };
+  if (display === "closed_without_refund") return { label: c.paidClosed, tone: styles.mutedEarning };
+  // Submission payment status continues to describe the current purchase after a repurchase.
+  const paid = submission.paymentStatus === "PAID";
+  return { label: paid ? copy[locale].paymentPaid : getPaymentStatusLabel(submission.paymentStatus, locale), tone: paid ? styles.paid : submission.paymentStatus === "REFUNDED" ? styles.cancelledEarning : styles.paymentPending };
+}
+
+function commissionDisplay(submission: Submission, locale: Locale, now: string, payableIds: ReadonlySet<string>) {
+  const commission = initialCommission(submission);
+  if (!commission) return { label: "—", detail: "", tone: styles.mutedEarning };
+  const display = getPartnerCommissionDisplay(commission, submission.partnerCommissions, payableIds, locale, new Date(now));
+  return { ...display, tone: display.tone === "red" ? styles.cancelledEarning : display.tone === "green" ? styles.earned : styles.pendingEarning };
 }
 
 function renewalCommissionDisplay(submission: Submission, locale: Locale) {
@@ -186,7 +190,7 @@ function SubmissionThumbnail({ locale, submission }: { locale: Locale; submissio
   return <div className={styles.thumbnail}>{photos[0] ? <img src={photos[0]} alt={submission.createdBusiness?.images[0]?.alt || submission.businessName} /> : <IconBuildingStore aria-label={locale === "it" ? "Foto non disponibile" : "Photo unavailable"} size={30} />}</div>;
 }
 
-export function PartnerSubmissions({ drafts, locale, now, submissions }: Props) {
+export function PartnerSubmissions({ payableCommissionIds = [], drafts, locale, now, submissions }: Props) {
   const text = copy[locale];
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("ALL");
@@ -219,7 +223,7 @@ export function PartnerSubmissions({ drafts, locale, now, submissions }: Props) 
           <label className={styles.filter}><span>{locale === "it" ? "Stato" : "Status"}:</span><select aria-label={locale === "it" ? "Filtra per stato" : "Filter by status"} value={status} onChange={(event) => setStatus(event.target.value)}><option value="ALL">{text.all}</option>{statusOptions.map((entry) => <option key={entry} value={entry}>{getSubmissionStatusLabel(entry, locale)}</option>)}</select><IconChevronDown aria-hidden="true" size={17} /></label>
         </div>
       </div>
-      <div className={styles.cards}>{filtered.length ? filtered.map((submission) => <SubmittedCard expanded={openDetails === submission.id} key={submission.id} locale={locale} now={now} onToggleDetails={() => setOpenDetails(openDetails === submission.id ? null : submission.id)} submission={submission} />) : <p className={styles.empty}>{text.empty}</p>}</div>
+      <div className={styles.cards}>{filtered.length ? filtered.map((submission) => <SubmittedCard payableIds={new Set(payableCommissionIds)} expanded={openDetails === submission.id} key={submission.id} locale={locale} now={now} onToggleDetails={() => setOpenDetails(openDetails === submission.id ? null : submission.id)} submission={submission} />) : <p className={styles.empty}>{text.empty}</p>}</div>
       <aside className={styles.addCard}><span><IconBulb aria-hidden="true" size={25} /></span><div><h3>{text.addTitle}</h3><p>{text.addBody}</p></div><HardNavigationLink href="/publish" className={styles.addButton}>+ {text.add}</HardNavigationLink></aside>
     </section>
   </main>;
@@ -234,19 +238,19 @@ function DraftCard({ locale, submission }: { locale: Locale; submission: Submiss
   </article>;
 }
 
-function SubmittedCard({ expanded, locale, now, onToggleDetails, submission }: { expanded: boolean; locale: Locale; now: string; onToggleDetails: () => void; submission: Submission }) {
-  const text = copy[locale]; const payment = paymentDisplay(submission, locale); const earnings = commissionDisplay(submission, locale, now);
+function SubmittedCard({ payableIds, expanded, locale, now, onToggleDetails, submission }: { payableIds: ReadonlySet<string>; expanded: boolean; locale: Locale; now: string; onToggleDetails: () => void; submission: Submission }) {
+  const text = copy[locale]; const payment = paymentDisplay(submission, locale); const earnings = commissionDisplay(submission, locale, now, payableIds);
   const membership = submission.createdBusiness?.membership;
-  const refunded = submission.paymentStatus === "REFUNDED" && Boolean(membership?.entitlementRevokedAt);
+  const refunded = Boolean(membership?.entitlementRevokedAt);
   const expired = Boolean(membership && !membership.entitlementRevokedAt && new Date(membership.graceEndsAt).getTime() <= new Date(now).getTime());
-  const published = submission.status === "PUBLISHED" && submission.paymentStatus === "PAID" && Boolean(submission.createdBusiness?.slug) && !refunded && !expired;
-  const listingStatus = refunded ? (locale === "it" ? "Rimborsata · scheda inattiva" : "Refunded · listing inactive") : expired ? (locale === "it" ? "Scaduta · scheda inattiva" : "Expired · listing inactive") : getSubmissionStatusLabel(submission.status, locale);
+  const published = submission.status === "PUBLISHED" && submission.paymentStatus === "PAID" && Boolean(submission.createdBusiness?.slug) && !membership?.entitlementRevokedAt && !expired;
+  const listingStatus = refunded ? (refundCopy(locale).listingInactive) : expired ? (locale === "it" ? "Scaduta · scheda inattiva" : "Expired · listing inactive") : getSubmissionStatusLabel(submission.status, locale);
   return <article className={styles.submissionCard}>
     <SubmissionThumbnail locale={locale} submission={submission} />
     <div className={styles.listingInfo}><h3>{submission.businessName}</h3><p><IconMapPin aria-hidden="true" size={15} />{submission.category.name} <span>·</span> {submission.town.name}</p></div>
-    <div className={styles.infoGroups}><InfoGroup label={text.submitted}>{formatDate(submission.createdAt, locale)}</InfoGroup><InfoGroup label={text.ownerPayment}><span className={payment.paid ? styles.paid : styles.paymentPending}><i />{payment.label}</span></InfoGroup><InfoGroup label={text.earnings}><span className={earnings.tone}>{earnings.label}</span></InfoGroup></div>
-    <div className={styles.listingActions}><span className={`${styles.badge} ${refunded || expired ? styles.neutral : statusTone(submission.status)}`}>{listingStatus}</span>{published ? <HardNavigationLink href={`/businesses/${submission.createdBusiness?.slug}`} className={styles.primary}>{text.viewListing}<IconArrowRight aria-hidden="true" size={18} /></HardNavigationLink> : <button type="button" className={styles.primary} onClick={onToggleDetails}>{text.viewDetails}<IconArrowRight aria-hidden="true" size={18} /></button>}<button type="button" aria-expanded={expanded} className={styles.secondary} onClick={onToggleDetails}><IconFileDescription aria-hidden="true" size={17} />{text.details}</button>{published ? <div className={styles.ownerAccess}><PartnerOwnerAccess locale={locale} submissionId={submission.id} /></div> : null}</div>
-    {expanded ? <div className={styles.details}><InfoGroup label={text.submitted}>{formatDate(submission.createdAt, locale)}</InfoGroup><InfoGroup label={text.ownerPayment}>{payment.label}</InfoGroup><InfoGroup label={text.initialCommission}>{earnings.label}</InfoGroup><InfoGroup label={text.renewalCommission}>{renewalCommissionDisplay(submission, locale)}</InfoGroup><InfoGroup label={locale === "it" ? "Pubblicazione" : "Publication"}>{getSubmissionStatusLabel(submission.status, locale)}</InfoGroup></div> : null}
+    <div className={styles.infoGroups}><InfoGroup label={text.submitted}>{formatDate(submission.createdAt, locale)}</InfoGroup><InfoGroup label={text.ownerPayment}><span className={payment.tone}><i />{payment.label}</span></InfoGroup><InfoGroup label={text.earnings}><span className={earnings.tone}>{earnings.label}</span></InfoGroup>{earnings.detail ? <div className={styles.refundExplanation}><p>{earnings.detail}</p><PartnerRefundContext payment={initialCommission(submission)?.payment ?? null} listingActive={isBusinessMembershipPublic({ ...membership, now: new Date(now) })} locale={locale} /></div> : null}</div>
+    <div className={styles.listingActions}><span className={`${styles.badge} ${refunded ? styles.cancelledEarning : expired ? styles.neutral : statusTone(submission.status)}`}>{listingStatus}</span>{published ? <HardNavigationLink href={`/businesses/${submission.createdBusiness?.slug}`} className={styles.primary}>{text.viewListing}<IconArrowRight aria-hidden="true" size={18} /></HardNavigationLink> : <button type="button" className={styles.primary} onClick={onToggleDetails}>{text.viewDetails}<IconArrowRight aria-hidden="true" size={18} /></button>}<button type="button" aria-expanded={expanded} className={styles.secondary} onClick={onToggleDetails}><IconFileDescription aria-hidden="true" size={17} />{text.details}</button>{published ? <div className={styles.ownerAccess}><PartnerOwnerAccess locale={locale} submissionId={submission.id} /></div> : null}</div>
+    {expanded ? <div className={styles.details}><InfoGroup label={text.submitted}>{formatDate(submission.createdAt, locale)}</InfoGroup><InfoGroup label={text.ownerPayment}>{payment.label}</InfoGroup><InfoGroup label={text.initialCommission}>{earnings.label}</InfoGroup><InfoGroup label={text.renewalCommission}>{renewalCommissionDisplay(submission, locale)}</InfoGroup><InfoGroup label={refundCopy(locale).publicationHistory}>{getSubmissionStatusLabel(submission.status, locale)}</InfoGroup>{submission.createdBusiness ? <InfoGroup label={refundCopy(locale).currentListing}>{isBusinessMembershipPublic({ ...membership, now: new Date(now) }) ? refundCopy(locale).active : refundCopy(locale).inactive}</InfoGroup> : null}</div> : null}
   </article>;
 }
 

@@ -1,3 +1,6 @@
+import { PartnerCommissionStatusList } from "@/components/account/partner-commission-status-list";
+import { getPartnerCommissionDisplay } from "@/lib/partner-dashboard-display";
+import { payableCommissionWhere } from "@/lib/partner-ledger";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -246,6 +249,20 @@ export default async function DashboardEarningsPage({
         }),
       ]);
 
+    const [commissionStates, payableRows] = await Promise.all([
+      prisma.partnerCommission.findMany({ where: { partnerUserId: viewer.id }, orderBy: { createdAt: "desc" }, select: {
+        id: true, sourceKey: true, type: true, status: true, amountCents: true, eligibleAt: true,
+        business: { select: { name: true } }, businessSubmission: { select: { businessName: true } },
+        payment: { select: { purpose: true, status: true, amountCents: true, currency: true, paidAt: true, refundRequestedAt: true, refundStatus: true } },
+      } }),
+      prisma.partnerCommission.findMany({ where: { ...payableCommissionWhere(new Date()), partnerUserId: viewer.id }, select: { id: true } }),
+    ]);
+    const payableIds = new Set(payableRows.map((row) => row.id));
+    const outstandingDisplay = outstandingCommissions.map((item) => {
+      const entry = commissionStates.find((row) => row.id === item.id);
+      return { ...item, display: entry ? getPartnerCommissionDisplay(entry, commissionStates, payableIds, locale) : undefined };
+    });
+
     return (
       <>
         <PartnerWorkspaceNav active="earnings" locale={locale} />
@@ -280,7 +297,7 @@ export default async function DashboardEarningsPage({
           </article>
           <PartnerOutstandingCommissionCard
             amountCents={balances.available}
-            items={outstandingCommissions}
+            items={outstandingDisplay}
             locale={locale}
           />
           <article className="card p-5">
@@ -293,6 +310,7 @@ export default async function DashboardEarningsPage({
           </article>
         </section>
 
+        <PartnerCommissionStatusList now={new Date().toISOString()} entries={commissionStates} payableCommissionIds={[...payableIds]} locale={locale} />
         <PartnerPayoutSummary
           balances={balances}
           history={history}

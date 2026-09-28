@@ -1,3 +1,6 @@
+import { isBusinessMembershipPublic } from "@/lib/business-membership";
+import { refundAmount } from "@/lib/refund-display";
+import { completedRefundEmail } from "@/lib/refund-email-copy";
 import { sendTransactionalEmail } from "@/lib/email";
 import { prisma } from "@/lib/prisma";
 
@@ -19,6 +22,7 @@ export async function sendInitialRefundNotifications(paymentId: string, dependen
         },
       },
       businessSubmission: { select: { ownerEmail: true } },
+      partnerCommissions: true,
     },
   });
   if (!payment || payment.status !== "REFUNDED" || !payment.selfServiceRefundedAt || !payment.business) return;
@@ -30,7 +34,6 @@ export async function sendInitialRefundNotifications(paymentId: string, dependen
     where: { userId: payment.business.ownerAccesses[0]?.userId ?? payment.business.ownerUserId ?? payment.userId },
     orderBy: { acceptedAt: "desc" }, select: { locale: true },
   });
-  const currency = new Intl.NumberFormat(ownerLocale?.locale === "en" ? "en-US" : "it-IT", { style: "currency", currency: payment.currency.toUpperCase() }).format((payment.refundedAmountCents ?? payment.amountCents) / 100);
   const businessName = payment.business.name;
   const paidDate = payment.paidAt ? new Intl.DateTimeFormat(ownerLocale?.locale === "en" ? "en-US" : "it-IT", { dateStyle: "medium" }).format(payment.paidAt) : null;
   const reference = payment.stripePaymentIntentId || payment.id;
@@ -44,17 +47,15 @@ export async function sendInitialRefundNotifications(paymentId: string, dependen
     const errorField = job.kind === "owner" ? "ownerRefundEmailError" : "partnerRefundEmailError";
     const claim = await prisma.payment.updateMany({ where: { id: paymentId, [claimedField]: null, [sentField]: null }, data: { [claimedField]: new Date() } });
     if (!claim.count) continue;
-    const italian = job.locale === "it";
-    const subject = job.kind === "owner"
-      ? italian ? "Il tuo rimborso Salento Local è stato elaborato" : "Your Salento Local refund has been processed"
-      : italian ? `Rimborso richiesto per ${businessName}` : `Refund requested for ${businessName}`;
-    const text = job.kind === "owner"
-      ? italian
-        ? `Il rimborso di ${currency} per ${businessName} è stato elaborato. Pagamento originale: ${reference}${paidDate ? `, ${paidDate}` : ""}. La scheda non è più pubblica. Le informazioni e l'accesso al tuo account restano disponibili; potrai acquistare una nuova membership per riattivarla. Il rimborso viene restituito con il metodo appropriato al pagamento originale. La banca o il fornitore di pagamento potrebbero richiedere ulteriore tempo per mostrarlo.`
-        : `Your ${currency} refund for ${businessName} has been processed. Original payment: ${reference}${paidDate ? `, ${paidDate}` : ""}. The listing is no longer public. Your business information and account access remain available; you can buy a new membership to reactivate it. The refund is returned using the appropriate method for the original payment. Your bank or payment provider may take additional time to show it.`
-      : italian
-        ? `Il titolare ha richiesto un rimborso entro 14 giorni per ${businessName}. La membership è stata disattivata e la commissione iniziale di €50 è stata annullata. L'attività resta nella dashboard Partner. Se il titolare acquista una nuova membership dopo questo rimborso, può maturare una nuova commissione iniziale di €50.`
-        : `The owner requested a refund within 14 days for ${businessName}. The membership has been deactivated and the initial €50 commission canceled. The business remains in your Partner dashboard. If the owner buys a new membership after this refund, a new €50 initial commission may be earned.`;
+    const initial = payment.partnerCommissions.filter((entry) => entry.type === "COMMISSION" && entry.partnerUserId === partner?.id);
+    const cancelled = initial.length > 0 && initial.every((entry) => entry.status === "REVERSED" || entry.status === "DEBT" || payment.partnerCommissions.some((reversal) => reversal.sourceKey === `commission:reversal:${entry.id}` && ["REVERSED", "DEBT"].includes(reversal.status)));
+    const message = completedRefundEmail({ kind: job.kind, locale: job.locale, businessName,
+      amount: refundAmount(job.locale, payment.refundedAmountCents ?? payment.amountCents, payment.currency),
+      commissionAmount: initial.length ? refundAmount(job.locale, initial.reduce((sum, entry) => sum + entry.amountCents, 0), payment.currency) : undefined,
+      commissionCancelled: cancelled, listingActive: isBusinessMembershipPublic(payment.business.membership ?? {}),
+    });
+    const subject = message.subject;
+    const text = message.text + (job.kind === "owner" ? ` ${job.locale === "it" ? "Pagamento originale" : "Original payment"}: ${reference}${paidDate ? `, ${paidDate}` : ""}.` : "");
     try {
       await (dependencies.send ?? sendTransactionalEmail)({
         to: job.recipient,

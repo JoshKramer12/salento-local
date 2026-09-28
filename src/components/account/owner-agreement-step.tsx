@@ -10,6 +10,7 @@ import {
 } from "@tabler/icons-react";
 import { useState } from "react";
 
+import { refundCopy } from "@/lib/refund-copy";
 import type { Locale } from "@/lib/i18n";
 
 type OwnerAgreementStepProps = {
@@ -121,6 +122,7 @@ export function OwnerAgreementStep({
         </button>
         <div id="owner-agreement-key-terms" hidden={!keyTermsOpen} className="owner-agreement__disclosure-body">
           <ul>{keyTerms.map((term) => <li key={term}><IconCheck size={18} aria-hidden="true" /><span>{term}</span></li>)}</ul>
+          <div className="mt-4 border-t border-[var(--border)] pt-4"><h3 className="font-semibold">{refundCopy(locale).moneyBack}</h3><p className="mt-2 text-sm leading-6">{refundCopy(locale).agreement(firstYearPriceLabel)}</p><p className="mt-2 text-sm leading-6">{refundCopy(locale).agreementMethods}</p></div>
         </div>
       </section>
 

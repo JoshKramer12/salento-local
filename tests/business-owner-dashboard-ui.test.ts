@@ -62,7 +62,7 @@ test("membership panel retains the existing action paths for every lifecycle", (
     "AutoRenewCancelControl",
   ]) assert.match(dashboard, new RegExp(action));
   assert.match(dashboard, /healthyAuto \? <AutoRenewCancelControl/);
-  assert.match(dashboard, /state === "EXPIRED" \|\| state === "REFUNDED"\) \? c\.reactivate : c\.renew/);
+  assert.match(dashboard, /state === "EXPIRED" \|\| state === "REFUNDED"\) \? reactivationLabel\(business, locale\) : c\.renew/);
   assert.match(dashboard, /state === "GRACE" \? c\.renewalNeeded/);
 });
 

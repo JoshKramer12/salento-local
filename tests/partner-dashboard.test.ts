@@ -8,7 +8,7 @@ const dashboardStyles = readFileSync("src/components/account/partner-dashboard.m
 const partnerWorkspaceNav = readFileSync("src/components/account/partner-workspace-nav.tsx", "utf8");
 
 test("partner dashboard projects authoritative commission purpose and payout setup data", () => {
-  assert.match(dashboardPage, /payment: \{ select: \{ purpose: true, status: true, refundRequestedAt: true, refundStatus: true \} \}/);
+  assert.match(dashboardPage, /payment: \{ select: \{ purpose: true, amountCents: true, currency: true, paidAt: true, status: true, refundRequestedAt: true, refundStatus: true \} \}/);
   assert.match(dashboardPage, /type: "COMMISSION"/);
   assert.match(dashboardPage, /status: \{ not: "REVERSED" \}/);
   assert.match(dashboard, /purpose === "INITIAL_MEMBERSHIP"/);

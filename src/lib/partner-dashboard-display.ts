@@ -1,5 +1,7 @@
 import type { PaymentPurpose, PaymentStatus } from "@prisma/client";
 import { formatCurrencyFromCents } from "@/lib/account";
+import { refundCopy } from "@/lib/refund-copy";
+import { refundAmount } from "@/lib/refund-display";
 import type { Locale } from "@/lib/i18n";
 
 type PaidBusinessCandidate = {
@@ -48,7 +50,8 @@ export type DashboardCommission = {
   sourceKey: string;
   status: string;
   type: string;
-  payment: { purpose: PaymentPurpose; status: PaymentStatus; refundRequestedAt: Date | null; refundStatus: string | null } | null;
+  payment: { purpose: PaymentPurpose; status: PaymentStatus; refundRequestedAt: Date | null; refundStatus: string | null; amountCents?: number; currency?: string; paidAt?: Date | null } | null;
+  eligibleAt?: Date | null;
 };
 
 /** Availability comes from payableCommissionWhere on the server, including its
@@ -60,23 +63,29 @@ export function getPartnerCommissionDisplay(
   ledger: DashboardCommission[],
   payableIds: ReadonlySet<string>,
   locale: Locale,
-): { tone: "green" | "yellow" | "red"; label: string } {
+  now = new Date(),
+): { tone: "green" | "yellow" | "red"; label: string; detail: string; cancelled: boolean } {
   const it = locale === "it";
+  const c = refundCopy(locale);
   const amount = formatCurrencyFromCents(entry.amountCents, locale);
   const reversal = ledger.some((row) => row.type === "REVERSAL" &&
     row.sourceKey === `commission:reversal:${entry.id}` && ["REVERSED", "DEBT"].includes(row.status));
   if (entry.status === "REVERSED" || entry.status === "DEBT" || reversal) {
-    return { tone: "red", label: `${amount} · ${entry.payment?.status === "REFUNDED" ? (it ? "Rimborsata · commissione annullata" : "Refunded · commission cancelled") : (it ? "Commissione annullata" : "Commission cancelled")}` };
+    const refunded = entry.payment?.status === "REFUNDED";
+    return { tone: "red", label: `${amount} ${c.commissionCancelled}`, detail: refunded && entry.payment?.purpose === "INITIAL_MEMBERSHIP" && entry.payment.amountCents !== undefined ? c.cancelledRefund(refundAmount(locale, entry.payment.amountCents, entry.payment.currency)) : refunded ? c.commissionRefunded + ". " + c.cancelledGeneric : c.cancelledGeneric, cancelled: true };
   }
   if (entry.payment?.refundRequestedAt && entry.payment.refundStatus !== "support_closed") {
-    return { tone: "yellow", label: `${amount} · ${it ? "Richiesta di rimborso in sospeso" : "Refund request pending"}` };
+    return { tone: "yellow", label: `${amount} ${c.commissionHold}`, detail: c.holdRefund, cancelled: false };
   }
   // A refunded payment alone cannot establish that its commission was reversed.
   if (entry.payment?.status === "REFUNDED") {
-    return { tone: "yellow", label: `${amount} · ${it ? "In sospeso" : "On hold"}` };
+    return { tone: "yellow", label: `${amount} ${c.commissionHold}`, detail: c.commissionRefunded, cancelled: false };
   }
-  if (entry.status === "PAID") return { tone: "green", label: `${amount} · ${it ? "Pagata" : "Paid"}` };
-  if (payableIds.has(entry.id)) return { tone: "green", label: `${amount} · ${it ? "Disponibile" : "Available"}` };
-  if (entry.status === "RESERVED") return { tone: "yellow", label: `${amount} · ${it ? "Pagamento in corso" : "Payout processing"}` };
-  return { tone: "yellow", label: `${amount} · ${it ? "In attesa" : "Pending"}` };
+  const closed = entry.payment?.refundRequestedAt && entry.payment.refundStatus === "support_closed";
+  const normal = (tone: "green" | "yellow", label: string, detail = "") => ({ tone, label: `${amount} ${label}`, detail: closed ? c.closedCommission + (detail ? " " + detail : "") : detail, cancelled: false });
+  if (entry.status === "PAID") return normal("green", it ? "pagata" : "Paid");
+  if (payableIds.has(entry.id)) return normal("green", it ? "Disponibile" : "Available");
+  if (entry.status === "RESERVED") return normal("yellow", it ? "Pagamento in corso" : "Payout processing");
+  const inInitialPeriod = entry.payment?.purpose === "INITIAL_MEMBERSHIP" && entry.payment.status === "PAID" && entry.payment.paidAt && new Date(entry.payment.paidAt).getTime() + 14 * 86_400_000 > now.getTime();
+  return normal("yellow", c.commissionPending, inInitialPeriod ? c.holdPeriod : "");
 }

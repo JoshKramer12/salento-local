@@ -1,33 +1,28 @@
-import { BankRefundRequest } from "@/components/account/bank-refund-request";
+import { InitialRefundExperience } from "@/components/account/initial-refund-experience";
 import { redirect } from "next/navigation";
-import { HardNavigationLink } from "@/components/hard-navigation-link";
-import { FormSubmitButton } from "@/components/form-submit-button";
-import { checkInitialRefundStatusAction, confirmInitialRefundAction } from "./actions";
 import { requireCompletedViewer } from "@/lib/auth-guards";
 import { canManageBusiness } from "@/lib/business-owner-access";
+import { isBusinessMembershipPublic } from "@/lib/business-membership";
 import { getCurrentLocale } from "@/lib/locale";
 import { prisma } from "@/lib/prisma";
 import { findInitialRefundForBusiness } from "@/lib/self-service-refunds";
+import { refundAmount } from "@/lib/refund-display";
 
-type Props = { params: Promise<{ businessId: string }>; searchParams: Promise<{ status?: string }> };
-
+type Props = { params: Promise<{ businessId: string }>; searchParams: Promise<{ status?: string; payment?: string }> };
 export default async function InitialRefundPage({ params, searchParams }: Props) {
   const [viewer, locale, { businessId }, query] = await Promise.all([requireCompletedViewer(), getCurrentLocale(), params, searchParams]);
   if (viewer.role !== "BUSINESS_OWNER" || !await canManageBusiness({ businessId, userId: viewer.id })) redirect("/dashboard");
   const [business, refund] = await Promise.all([
-    prisma.business.findUnique({ where: { id: businessId }, select: { name: true } }),
+    prisma.business.findUnique({ where: { id: businessId }, select: { name: true, membership: { select: { entitlementRevokedAt: true, graceEndsAt: true } } } }),
     findInitialRefundForBusiness(businessId),
   ]);
   if (!business) redirect("/dashboard");
-  const it = locale === "it";
-  const amount = refund.payment ? new Intl.NumberFormat(it ? "it-IT" : "en-US", { style: "currency", currency: refund.payment.currency.toUpperCase() }).format(refund.payment.amountCents / 100) : "";
-  if (refund.payment?.method === "BANK_TRANSFER") return <BankRefundRequest businessId={businessId} businessName={business.name} paymentId={refund.payment.id} amount={amount} requestedAt={refund.payment.refundRequestedAt} state={refund.state} locale={locale} ownerEmail={viewer.email || null} error={query.status} />;
-  const status = refund.state === "ACTION_REQUIRED" ? "action_required" : refund.state === "REFUNDED" ? "refunded" : refund.state === "PROCESSING" ? "processing" : refund.state === "FAILED" ? "failed" : query.status === "check" ? "check" : "confirm";
-  return <main className="shell px-4 py-10 sm:px-6"><div className="mx-auto max-w-xl rounded-[1.5rem] border border-[var(--border)] bg-[var(--card)] p-6 shadow-sm sm:p-8">
-    <p className="section-kicker">{it ? "MEMBERSHIP" : "MEMBERSHIP"}</p>
-    <h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{status === "action_required" ? it ? "Completa i dettagli per il rimborso" : "Complete your refund details" : status === "refunded" ? it ? "Rimborso elaborato" : "Refund processed" : status === "processing" ? it ? "Rimborso in elaborazione" : "Refund processing" : status === "failed" ? it ? "Rimborso non riuscito" : "Refund could not be completed" : it ? "Richiedi il rimborso completo" : "Request full refund"}</h1>
-    <p className="mt-3 text-lg font-semibold text-[var(--foreground)]">{business.name}</p>
-    {status === "action_required" ? <p className="mt-5 leading-7 text-[var(--muted-strong)]">{it ? "Stripe richiede i dati bancari per completare il rimborso del bonifico. Segui le istruzioni nell’email di Stripe, poi controlla lo stato qui. Non inviare una nuova richiesta." : "Stripe needs bank details to complete your bank-transfer refund. Follow the instructions in Stripe’s email, then check the status here. Please do not submit another request."}</p> : status === "refunded" ? <p className="mt-5 leading-7 text-[var(--muted-strong)]">{it ? `Il rimborso di ${amount} è stato elaborato. I tempi di accredito dipendono dalla banca o dal fornitore. La scheda è ora disattivata; i dati dell'attività restano salvati e potrai riattivarla in seguito.` : `Your ${amount} refund has been processed. Your bank or payment provider may take more time to show it. Your listing is now inactive; your business information remains saved and you can reactivate later.`}</p> : status === "failed" ? <p className="mt-5 leading-7 text-[var(--muted-strong)]">{it ? "Il fornitore di pagamento non ha completato il rimborso. La scheda mantiene lo stato attuale. Contatta l’assistenza indicando l’attività; non inviare una nuova richiesta." : "The payment provider did not complete the refund. Your listing keeps its current status. Contact support with the business name; please do not submit another request."}</p> : status === "processing" || status === "check" ? <p className="mt-5 leading-7 text-[var(--muted-strong)]">{it ? "Stiamo verificando lo stato del rimborso. Non inviare una nuova richiesta. Puoi aggiornare questa pagina per controllare lo stato." : "We are checking your refund status. Please do not submit another request. Refresh this page to check its progress."}</p> : refund.state === "AVAILABLE" ? <><p className="mt-4 font-semibold text-[var(--foreground)]">{it ? "Rimborso" : "Refund"}: {amount}</p><ul className="mt-4 list-disc space-y-2 pl-5 text-sm leading-6 text-[var(--muted-strong)]"><li>{it ? "Il pagamento completo verrà restituito al metodo di pagamento originale. La banca potrebbe richiedere altro tempo per mostrarlo." : "Your full payment will be returned to its original payment method. Your bank may take more time to show it."}</li><li>{it ? "La scheda verrà rimossa dalla directory pubblica." : "Your listing will be removed from the public directory."}</li><li>{it ? "Le informazioni dell'attività e il tuo accesso resteranno salvati." : "Your business information and account access will remain saved."}</li><li>{it ? "Potrai riattivare la scheda acquistando una nuova membership." : "You can reactivate the listing by buying a new membership."}</li></ul><div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row"><HardNavigationLink className="btn-secondary min-h-12 justify-center px-5" href="/dashboard">{it ? "Mantieni la membership" : "Keep membership"}</HardNavigationLink><form action={confirmInitialRefundAction}><input type="hidden" name="businessId" value={businessId} /><FormSubmitButton className="btn-primary min-h-12 w-full justify-center px-5" pendingLabel={it ? "Elaborazione…" : "Processing…"}>{it ? "Conferma rimborso" : "Confirm refund"}</FormSubmitButton></form></div></> : <p className="mt-5 leading-7 text-[var(--muted-strong)]">{it ? "Questa membership non è idonea al rimborso self-service." : "This membership is not eligible for a self-service refund."}</p>}
-    {status !== "confirm" ? <div className="mt-7 flex flex-wrap gap-3"><HardNavigationLink className="btn-secondary min-h-12 justify-center px-5" href="/dashboard">{it ? "Torna alla dashboard" : "Back to dashboard"}</HardNavigationLink>{status !== "refunded" && status !== "failed" ? <form action={checkInitialRefundStatusAction}><input type="hidden" name="businessId" value={businessId} /><button className="btn-secondary min-h-12 justify-center px-5" type="submit">{it ? "Controlla lo stato" : "Check refund status"}</button></form> : null}</div> : null}
-  </div></main>;
+  const historicalPayment = query.payment && query.payment !== refund.payment?.id
+    ? await prisma.payment.findFirst({ where: { id: query.payment, purpose: "INITIAL_MEMBERSHIP", OR: [{ businessId }, { businessId: null, businessSubmission: { is: { createdBusiness: { is: { id: businessId } } } } }] } })
+    : null;
+  const payment = historicalPayment ?? refund.payment;
+  // Historical details are read-only: actions continue to target the current candidate.
+  const historical = Boolean(historicalPayment);
+
+  return <InitialRefundExperience businessId={businessId} businessName={business.name} paymentId={payment?.id} amount={payment ? refundAmount(locale, payment.status === "REFUNDED" ? payment.refundedAmountCents ?? payment.amountCents : payment.amountCents, payment.currency) : "—"} locale={locale} state={historical ? "UNAVAILABLE" : refund.state} canCheck={!historical} payment={payment} deadline={historical ? null : refund.deadline} listingActive={isBusinessMembershipPublic(business.membership ?? {})} ownerEmail={viewer.email || null} error={query.status} />;
 }

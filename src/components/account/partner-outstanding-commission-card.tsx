@@ -5,7 +5,7 @@ import {
   IconChevronDown,
   IconChevronUp,
   IconCircleCheckFilled,
-  IconCircleXFilled,
+  IconClock,
 } from "@tabler/icons-react";
 
 import { formatCurrencyFromCents } from "@/lib/account";
@@ -16,6 +16,7 @@ type OutstandingCommissionItem = {
   businessName: string;
   id: string;
   status: "AVAILABLE" | "PENDING" | "RESERVED";
+  display?: { label: string; detail: string; tone: "green" | "yellow" | "red" };
 };
 
 type PartnerOutstandingCommissionCardProps = {
@@ -74,7 +75,7 @@ export function PartnerOutstandingCommissionCard({
           <div className="grid gap-3">
             {items.length ? (
               items.map((item) => {
-                const approved = item.status !== "PENDING";
+                const approved = item.display ? item.display.tone === "green" : item.status !== "PENDING";
 
                 return (
                   <div
@@ -92,14 +93,14 @@ export function PartnerOutstandingCommissionCard({
                           {approved ? (
                             <IconCircleCheckFilled size={16} />
                           ) : (
-                            <IconCircleXFilled size={16} />
+                            <IconClock size={16} />
                           )}
-                          {approved
+                          {item.display ? item.display.label : approved
                             ? copy.approved
                             : locale === "it"
                               ? "In attesa di approvazione del pagamento"
                               : "Awaiting payment approval"}
-                        </p>
+                        </p>{item.display?.detail ? <p className="mt-2 text-sm leading-6 text-[var(--muted-strong)]">{item.display.detail}</p> : null}
                       </div>
                       <p className="font-medium text-[var(--foreground)]">
                         {formatCurrencyFromCents(item.amountCents, locale)}

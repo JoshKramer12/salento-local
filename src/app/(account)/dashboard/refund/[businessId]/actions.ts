@@ -9,7 +9,7 @@ export async function confirmInitialRefundAction(formData: FormData) {
   const viewer = await requireCompletedViewer();
   const businessId = String(formData.get("businessId") ?? "");
   if (viewer.role !== "BUSINESS_OWNER" || !businessId) redirect("/dashboard");
-  let status = "check";
+  let status = "start_failed";
   try {
     const result = await requestInitialRefund({ businessId, userId: viewer.id, locale: await getCurrentLocale(), instructionsEmail: String(formData.get("instructionsEmail") ?? "") });
     status = result.status === "succeeded" ? "refunded" : "processing";
