@@ -136,8 +136,8 @@ export function BusinessOwnerDashboardClient({ accountNavigation, businesses, fi
 
   return <main className="shell px-4 py-8 sm:px-6 sm:py-12">
     {accountNavigation}
-    <section className="mb-7 grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-      <div><p className="section-kicker mb-2">{c.account}</p><h1 className="font-serif text-[2.35rem] leading-[1.03] text-[var(--foreground)] sm:text-5xl">{c.welcome}, {firstName}</h1><p className="mt-3 text-base leading-7 text-[var(--muted)]">{c.welcomeBody}</p></div>
+    <section className="mb-7 grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+      <div className="min-w-0"><p className="section-kicker mb-2">{c.account}</p><h1 className="break-words font-serif text-[2.35rem] leading-[1.03] text-[var(--foreground)] sm:text-5xl">{c.welcome}, {firstName}</h1><p className="mt-3 text-base leading-7 text-[var(--muted)]">{c.welcomeBody}</p></div>
       <HardNavigationLink href="/publish" className="btn-primary min-h-12 justify-center"><IconPlus size={18} /> {c.add}</HardNavigationLink>
     </section>
 
