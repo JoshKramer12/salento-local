@@ -129,7 +129,7 @@ test("new initial card payments use embedded setup while historical Checkout han
 
 test("processing UX keeps Pay disabled, shows localized spinner, and offers safe status checks", () => {
   assert.match(paymentForm, /submitting\.current = true/);
-  assert.match(paymentForm, /disabled=\{!stripe \|\| !elements \|\| busy\}/);
+  assert.match(paymentForm, /disabled=\{!stripe \|\| !elements \|\| busy \|\| walletPending\}/);
   assert.match(paymentForm, /payment-processing-spinner/);
   for (const copy of [
     "Processing your payment", "Please wait while we confirm your payment. Do not close this page.",

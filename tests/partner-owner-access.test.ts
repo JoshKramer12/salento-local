@@ -113,7 +113,7 @@ test("dashboard, endpoint, and spinner retain security and processing constraint
   assert.match(spinner, /@keyframes payment-processing-rotate\s*\{\s*to\s*\{\s*transform: rotate\(360deg\)/);
   assert.match(spinner, /animation: payment-processing-rotate 800ms linear infinite/);
   assert.match(spinner, /prefers-reduced-motion: reduce/);
-  assert.match(payment, /disabled=\{!stripe \|\| !elements \|\| busy\}/);
+  assert.match(payment, /disabled=\{!stripe \|\| !elements \|\| busy \|\| walletPending\}/);
   assert.match(payment, /setBusy\(false\)/);
   assert.match(payment, /window\.location\.assign\(returnUrl\)/);
 });
