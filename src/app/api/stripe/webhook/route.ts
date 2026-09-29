@@ -12,7 +12,8 @@ import {
 } from "@/lib/stripe-webhook-log";
 import { normalizeEnvValue } from "@/lib/env";
 import { EMAIL_MANUAL_PAYMENT_FLOW, getVerifiedManualElementPaymentIntent, NO_EMAIL_PAYMENT_FLOW } from "@/lib/no-email-payment";
-import { getVerifiedInitialSubscriptionInvoice } from "@/lib/embedded-subscription";
+import { getVerifiedInitialSubscriptionInvoice, MEMBERSHIP_SUBSCRIPTION_FLOW } from "@/lib/embedded-subscription";
+import { MEMBERSHIP_ELEMENT_FLOW, syncMembershipElementPayment } from "@/lib/membership-element-payment";
 import { reconcileInitialRefund } from "@/lib/self-service-refunds";
 
 export async function POST(request: Request) {
@@ -132,6 +133,18 @@ export async function POST(request: Request) {
       const rawSubscription = invoice.parent?.subscription_details?.subscription;
       const subscriptionId = typeof rawSubscription === "string" ? rawSubscription : null;
       if (invoice.billing_reason === "subscription_create" && invoice.status === "paid") {
+        if (invoice.parent?.subscription_details?.metadata?.paymentFlow === MEMBERSHIP_SUBSCRIPTION_FLOW) {
+          const paymentId = invoice.parent.subscription_details.metadata.paymentId;
+          const payment = paymentId ? await prisma.payment.findUnique({ where: { id: paymentId } }) : null;
+          if (!payment || payment.stripeInvoiceId !== invoice.id || payment.stripeSubscriptionId !== subscriptionId) {
+            // Retry if Stripe delivered before the setup response was persisted.
+            throw new Error("membership_element_invoice_association_pending");
+          }
+          const result = await syncMembershipElementPayment(payment.id, { eventId: event.id, eventType: event.type });
+          if (!result) throw new Error("membership_element_invoice_not_confirmed");
+          await completeStripeWebhookProcessing({ id: webhookLog.id, status: "PROCESSED" });
+          return NextResponse.json({ received: true });
+        }
         const exactPayment = await prisma.payment.findUnique({
           where: { stripeInvoiceId: invoice.id },
           select: { id: true, stripeCheckoutSessionId: true, stripeSubscriptionId: true },
@@ -209,6 +222,13 @@ export async function POST(request: Request) {
       const paymentIntent = event.data.object;
       const businessSubmissionId = paymentIntent.metadata?.businessSubmissionId?.trim();
       const paymentFlow = paymentIntent.metadata?.paymentFlow?.trim();
+
+      if (paymentFlow === MEMBERSHIP_ELEMENT_FLOW) {
+        const result = await syncMembershipElementPayment(paymentIntent.metadata.paymentId, { eventId: event.id, eventType: event.type });
+        if (!result) throw new Error("membership_element_intent_not_confirmed");
+        await completeStripeWebhookProcessing({ id: webhookLog.id, status: "PROCESSED" });
+        return NextResponse.json({ received: true });
+      }
 
       if (paymentFlow === NO_EMAIL_PAYMENT_FLOW || paymentFlow === EMAIL_MANUAL_PAYMENT_FLOW) {
         const payment = await getVerifiedManualElementPaymentIntent(paymentIntent);

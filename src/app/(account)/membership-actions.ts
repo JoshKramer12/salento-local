@@ -1,14 +1,12 @@
 "use server";
 
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
 import { requireCompletedViewer } from "@/lib/auth-guards";
 import { canManageBusiness } from "@/lib/business-owner-access";
-import { ensureMembershipRenewalCheckout } from "@/lib/membership-renewal-checkout";
+import { ensureMembershipElementPayment } from "@/lib/membership-element-payment";
 import { prisma } from "@/lib/prisma";
-import { getOriginFromHeaders } from "@/lib/request-origin";
 import { getStringValue } from "@/lib/validation";
 import { getStripe } from "@/lib/stripe";
 
@@ -16,9 +14,9 @@ export async function startMembershipRenewalAction(formData: FormData) {
   const viewer = await requireCompletedViewer();
   const businessId = getStringValue(formData.get("businessId")).trim();
   if (!businessId || !(await canManageBusiness({ businessId, userId: viewer.id }))) redirect("/dashboard");
-  const session = await ensureMembershipRenewalCheckout({ appUrl: getOriginFromHeaders(await headers()), businessId, userId: viewer.id });
-  if (!session?.url) redirect("/dashboard?membership=unavailable");
-  redirect(session.url);
+  const payment = await ensureMembershipElementPayment({ businessId, userId: viewer.id });
+  if (!payment) redirect("/dashboard?membership=unavailable");
+  redirect(`/dashboard/membership/payment?payment=${encodeURIComponent(payment.id)}`);
 }
 
 export async function startMembershipBankTransferAction(formData: FormData) {
@@ -43,15 +41,18 @@ export async function turnOnMembershipAutoRenewAction(formData: FormData) {
   const businessId = getStringValue(formData.get("businessId")).trim();
   if (!businessId || !(await canManageBusiness({ businessId, userId: viewer.id }))) redirect("/dashboard");
   const membership = await prisma.businessMembership.findUnique({ where: { businessId } });
-  if (membership?.stripeSubscriptionId && membership.stripeCancelAtPeriodEnd) {
+  const subscription = membership?.stripeSubscriptionId
+    ? await getStripe().subscriptions.retrieve(membership.stripeSubscriptionId) : null;
+  if (subscription && ["active", "trialing"].includes(subscription.status) && !subscription.cancel_at_period_end) return;
+  if (membership?.stripeSubscriptionId && subscription &&
+    ["active", "trialing"].includes(subscription.status) && subscription.cancel_at_period_end) {
     await getStripe().subscriptions.update(membership.stripeSubscriptionId, { cancel_at_period_end: false });
     await prisma.businessMembership.update({ where: { id: membership.id }, data: { automaticRenewal: true, recurringPaymentReady: true, stripeCancelAtPeriodEnd: false, stripeSubscriptionStatus: "active" } });
     revalidatePath("/dashboard");
     return;
   }
-  // A canceled/no-card subscription is never switched on locally. Stripe
-  // Checkout collects fresh recurring authority and charges the next term.
-  const session = await ensureMembershipRenewalCheckout({ appUrl: getOriginFromHeaders(await headers()), automaticRenewal: true, businessId, userId: viewer.id });
-  if (!session?.url) redirect("/dashboard?membership=setup-unavailable");
-  redirect(session.url);
+  // Fresh recurring authority uses the shared invoice-backed Payment Element.
+  const payment = await ensureMembershipElementPayment({ automaticRenewal: true, businessId, userId: viewer.id });
+  if (!payment) redirect("/dashboard?membership=setup-unavailable");
+  redirect(`/dashboard/membership/payment?payment=${encodeURIComponent(payment.id)}`);
 }

@@ -7,16 +7,17 @@ import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
 
 export const EMBEDDED_SUBSCRIPTION_FLOW = "INITIAL_SUBSCRIPTION_ELEMENT";
+export const MEMBERSHIP_SUBSCRIPTION_FLOW = "MEMBERSHIP_SUBSCRIPTION_ELEMENT";
 const RETRY_WINDOW_MS = 23 * 60 * 60 * 1000;
-type Operation = "product" | "customer" | "subscription";
-type SetupDb = Pick<PrismaClient, "businessSubmission" | "payment">;
+type Operation = "product" | "customer" | "subscription" | "intent";
+export type SetupDb = Pick<PrismaClient, "businessSubmission" | "payment">;
 
 /**
  * Stripe and SQLite cannot commit together. An operation is recorded before
  * the Stripe call. Retries inside Stripe's idempotency window replay that call;
  * an unresolved older operation fails closed for manual reconciliation.
  */
-async function beginOperation(db: SetupDb, payment: Payment, operation: Operation, now: Date) {
+export async function beginEmbeddedPaymentOperation(db: SetupDb, payment: Payment, operation: Operation, now: Date) {
   if (payment.stripeSetupOperation) {
     if (payment.stripeSetupOperation !== operation || !payment.stripeSetupStartedAt ||
       now.getTime() - payment.stripeSetupStartedAt.getTime() >= RETRY_WINDOW_MS) {
@@ -32,7 +33,7 @@ async function beginOperation(db: SetupDb, payment: Payment, operation: Operatio
   return { ...payment, stripeSetupOperation: operation, stripeSetupStartedAt: now };
 }
 
-async function finishOperation(db: SetupDb, payment: Payment, operation: Operation, data: {
+export async function finishEmbeddedPaymentOperation(db: SetupDb, payment: Payment, operation: Operation, data: {
   stripeProductId?: string;
   stripeCustomerId?: string;
   stripeSubscriptionId?: string;
@@ -60,7 +61,7 @@ function intentIdFromInvoice(invoice: Stripe.Invoice) {
   return typeof intent === "string" ? intent : intent?.id ?? null;
 }
 
-function matchesAnnualPrice(subscription: Stripe.Subscription, payment: Pick<Payment, "amountCents" | "currency" | "stripeProductId">) {
+export function matchesAnnualPrice(subscription: Stripe.Subscription, payment: Pick<Payment, "amountCents" | "currency" | "stripeProductId">) {
   const item = subscription.items.data[0];
   const productId = typeof item?.price.product === "string" ? item.price.product : item?.price.product.id;
   return subscription.items.data.length === 1 && item?.quantity === 1 &&
@@ -71,7 +72,7 @@ function matchesAnnualPrice(subscription: Stripe.Subscription, payment: Pick<Pay
 
 /** Called only by a trusted operator after locating the exact Stripe ID. */
 export async function reconcileEmbeddedSubscriptionOperation(params: {
-  operation: Operation; paymentId: string; stripeObjectId: string;
+  operation: Exclude<Operation, "intent">; paymentId: string; stripeObjectId: string;
 }, dependencies: { db?: SetupDb; stripe?: Stripe } = {}) {
   const db = dependencies.db ?? prisma;
   const stripe = dependencies.stripe ?? getStripe();
@@ -80,23 +81,25 @@ export async function reconcileEmbeddedSubscriptionOperation(params: {
   });
   if (!payment || payment.status !== "PENDING_PAYMENT" ||
     payment.stripeSetupOperation !== params.operation ||
-    !payment.stripeSetupStartedAt || !payment.id.startsWith("initial-element:") ||
+    !payment.stripeSetupStartedAt ||
+    (!payment.id.startsWith("initial-element:") && !payment.id.startsWith("membership-element:")) ||
     !payment.businessSubmission.ownerEmail.trim()) throw new Error("embedded_subscription_reconciliation_state_mismatch");
 
+  const flow = payment.id.startsWith("membership-element:") ? MEMBERSHIP_SUBSCRIPTION_FLOW : EMBEDDED_SUBSCRIPTION_FLOW;
   if (params.operation === "product") {
     const product = await stripe.products.retrieve(params.stripeObjectId);
     if (product.deleted || product.id !== params.stripeObjectId || payment.stripeProductId || product.metadata.paymentId !== payment.id ||
-      product.metadata.paymentFlow !== EMBEDDED_SUBSCRIPTION_FLOW) throw new Error("embedded_subscription_reconciliation_object_mismatch");
-    return finishOperation(db, payment, "product", { stripeProductId: product.id });
+      product.metadata.paymentFlow !== flow) throw new Error("embedded_subscription_reconciliation_object_mismatch");
+    return finishEmbeddedPaymentOperation(db, payment, "product", { stripeProductId: product.id });
   }
   if (params.operation === "customer") {
     const customer = await stripe.customers.retrieve(params.stripeObjectId);
     if (customer.deleted || customer.id !== params.stripeObjectId || payment.stripeCustomerId || customer.metadata.paymentId !== payment.id ||
-      customer.metadata.paymentFlow !== EMBEDDED_SUBSCRIPTION_FLOW ||
+      customer.metadata.paymentFlow !== flow ||
       customer.email?.trim() !== payment.businessSubmission.ownerEmail.trim()) {
       throw new Error("embedded_subscription_reconciliation_object_mismatch");
     }
-    return finishOperation(db, payment, "customer", { stripeCustomerId: customer.id });
+    return finishEmbeddedPaymentOperation(db, payment, "customer", { stripeCustomerId: customer.id });
   }
   const subscription = await stripe.subscriptions.retrieve(params.stripeObjectId, {
     expand: ["latest_invoice.confirmation_secret", "latest_invoice.payments"],
@@ -105,14 +108,14 @@ export async function reconcileEmbeddedSubscriptionOperation(params: {
   const intentId = invoice ? intentIdFromInvoice(invoice) : null;
   if (subscription.id !== params.stripeObjectId || payment.stripeSubscriptionId || !payment.stripeProductId || !payment.stripeCustomerId ||
     subscription.metadata.paymentId !== payment.id ||
-    subscription.metadata.paymentFlow !== EMBEDDED_SUBSCRIPTION_FLOW ||
+    subscription.metadata.paymentFlow !== flow ||
     subscription.customer !== payment.stripeCustomerId ||
     !invoice || !intentId || invoice.amount_due !== payment.amountCents ||
     invoice.currency !== payment.currency ||
     !matchesAnnualPrice(subscription, payment)) {
     throw new Error("embedded_subscription_reconciliation_object_mismatch");
   }
-  return finishOperation(db, payment, "subscription", {
+  return finishEmbeddedPaymentOperation(db, payment, "subscription", {
     stripeSubscriptionId: subscription.id, stripeInvoiceId: invoice.id, stripePaymentIntentId: intentId,
   });
 }
@@ -156,7 +159,6 @@ export async function ensureEmbeddedSubscription(submissionId: string, dependenc
 } = {}) {
   const db = dependencies.db ?? prisma;
   const stripe = dependencies.stripe ?? getStripe();
-  const now = dependencies.now ?? new Date();
   const submission = await db.businessSubmission.findUnique({
     where: { id: submissionId }, include: { user: { select: { role: true } } },
   });
@@ -179,7 +181,7 @@ export async function ensureEmbeddedSubscription(submissionId: string, dependenc
   }
 
   const id = `initial-element:${submissionId}`;
-  let payment = await db.payment.upsert({
+  const payment = await db.payment.upsert({
     where: { id },
     create: {
       id, businessSubmissionId: submissionId, userId: submission.userId,
@@ -196,42 +198,57 @@ export async function ensureEmbeddedSubscription(submissionId: string, dependenc
     throw new Error("embedded_subscription_conflicting_manual_payment");
   }
 
+  return ensureEmbeddedPaymentSubscription(payment, {
+    businessName: submission.businessName, ownerEmail: submission.ownerEmail.trim(),
+    ownerName: submission.ownerName, ownerPhone: submission.ownerPhone,
+    flow: EMBEDDED_SUBSCRIPTION_FLOW,
+    metadata: { businessSubmissionId: submissionId, paymentId: id,
+      paymentFlow: EMBEDDED_SUBSCRIPTION_FLOW, userId: submission.userId,
+      partnerId: payment.partnerUserId || "" },
+  }, dependencies);
+}
+
+/** Shared invoice-backed Payment Element setup for initial and later terms. */
+export async function ensureEmbeddedPaymentSubscription(payment: Payment, context: {
+  businessName: string; ownerEmail: string; ownerName: string; ownerPhone: string;
+  flow: string; metadata: Record<string, string>;
+}, dependencies: { db?: SetupDb; stripe?: Stripe; now?: Date } = {}): Promise<Payment> {
+  const db = dependencies.db ?? prisma;
+  const stripe = dependencies.stripe ?? getStripe();
+  const now = dependencies.now ?? new Date();
+  const id = payment.id;
   if (!payment.stripeProductId) {
-    payment = await beginOperation(db, payment, "product", now);
+    payment = await beginEmbeddedPaymentOperation(db, payment, "product", now);
     const product = await stripe.products.create({
-      name: `Salento Local annual membership: ${submission.businessName}`,
-      metadata: { businessSubmissionId: submissionId, paymentId: id, paymentFlow: EMBEDDED_SUBSCRIPTION_FLOW },
+      name: `Salento Local annual membership: ${context.businessName}`,
+      metadata: context.metadata,
     }, { idempotencyKey: `initial-element:product:${id}` });
-    payment = await finishOperation(db, payment, "product", { stripeProductId: product.id });
+    payment = await finishEmbeddedPaymentOperation(db, payment, "product", { stripeProductId: product.id });
   }
   if (!payment.stripeCustomerId) {
-    payment = await beginOperation(db, payment, "customer", now);
+    payment = await beginEmbeddedPaymentOperation(db, payment, "customer", now);
     const customer = await stripe.customers.create({
-      email: submission.ownerEmail.trim(), name: submission.ownerName || submission.businessName,
-      phone: submission.ownerPhone || undefined,
-      metadata: { businessSubmissionId: submissionId, paymentId: id, paymentFlow: EMBEDDED_SUBSCRIPTION_FLOW },
+      email: context.ownerEmail, name: context.ownerName || context.businessName,
+      phone: context.ownerPhone || undefined,
+      metadata: context.metadata,
     }, { idempotencyKey: `initial-element:customer:${id}` });
-    payment = await finishOperation(db, payment, "customer", { stripeCustomerId: customer.id });
+    payment = await finishEmbeddedPaymentOperation(db, payment, "customer", { stripeCustomerId: customer.id });
   }
   const [product, customer] = await Promise.all([
     stripe.products.retrieve(payment.stripeProductId!),
     stripe.customers.retrieve(payment.stripeCustomerId!),
   ]);
   if (product.deleted || product.metadata.paymentId !== id || customer.deleted ||
-    customer.metadata.paymentId !== id || customer.email?.trim() !== submission.ownerEmail.trim()) {
+    customer.metadata.paymentId !== id || customer.email?.trim() !== context.ownerEmail) {
     throw new Error("embedded_subscription_customer_or_product_mismatch");
   }
   if (!payment.stripeSubscriptionId) {
-    payment = await beginOperation(db, payment, "subscription", now);
+    payment = await beginEmbeddedPaymentOperation(db, payment, "subscription", now);
     const subscription = await stripe.subscriptions.create({
       customer: payment.stripeCustomerId!,
       items: [{ price_data: { currency: DEFAULT_CURRENCY, product: payment.stripeProductId!,
         recurring: { interval: "year" }, unit_amount: payment.amountCents } }],
-      metadata: {
-        businessSubmissionId: submissionId, paymentId: id,
-        paymentFlow: EMBEDDED_SUBSCRIPTION_FLOW, userId: submission.userId,
-        partnerId: payment.partnerUserId || "",
-      },
+      metadata: context.metadata,
       payment_behavior: "default_incomplete",
       payment_settings: { payment_method_types: ["card"], save_default_payment_method: "on_subscription" },
       expand: ["latest_invoice.confirmation_secret", "latest_invoice.payments"],
@@ -240,7 +257,7 @@ export async function ensureEmbeddedSubscription(submissionId: string, dependenc
     const intentId = invoice ? intentIdFromInvoice(invoice) : null;
     if (!invoice?.id || !intentId || invoice.amount_due !== payment.amountCents ||
       invoice.currency !== DEFAULT_CURRENCY) throw new Error("embedded_subscription_invoice_mismatch");
-    payment = await finishOperation(db, payment, "subscription", {
+    payment = await finishEmbeddedPaymentOperation(db, payment, "subscription", {
       stripeSubscriptionId: subscription.id, stripeInvoiceId: invoice.id, stripePaymentIntentId: intentId,
     });
   }
@@ -263,11 +280,11 @@ export async function ensureEmbeddedSubscription(submissionId: string, dependenc
       },
     });
     if (reset.count !== 1) throw new Error("embedded_subscription_concurrent_change");
-    return ensureEmbeddedSubscription(submissionId, dependencies);
+    return ensureEmbeddedPaymentSubscription(await db.payment.findUniqueOrThrow({ where: { id } }), context, dependencies);
   }
   if (subscription.customer !== payment.stripeCustomerId || !invoice || invoice.id !== payment.stripeInvoiceId ||
     invoice.amount_due !== payment.amountCents || invoice.currency !== DEFAULT_CURRENCY ||
-    subscription.metadata.paymentId !== id || subscription.metadata.paymentFlow !== EMBEDDED_SUBSCRIPTION_FLOW ||
+    subscription.metadata.paymentId !== id || subscription.metadata.paymentFlow !== context.flow ||
     !matchesAnnualPrice(subscription, payment) ||
     !invoice.confirmation_secret?.client_secret) throw new Error("embedded_subscription_state_mismatch");
   return payment;

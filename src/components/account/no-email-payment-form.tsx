@@ -66,6 +66,7 @@ function PaymentForm({ amount, locale, ownerEmail, returnUrl }: { amount: string
 
   return <form onSubmit={submit} className="mt-6">
     <PaymentElement options={{ wallets: { link: "never" }, layout: "tabs",
+      defaultValues: { billingDetails: { address: { country: "IT" } } },
       ...(ownerEmail ? { fields: { billingDetails: { email: "never" as const } } } : {}),
     }} />
     {busy ? <div role="status" className="mt-6 rounded-2xl bg-[rgba(42,98,87,0.07)] px-5 py-6 text-center text-[var(--foreground)]">

@@ -33,6 +33,8 @@ export async function finalizeMembershipRenewalPayment(params: {
   sessionId?: string | null;
   subscriptionId?: string | null;
   stripeCustomerId?: string | null;
+  stripeSubscriptionStatus?: string | null;
+  stripeCancelAtPeriodEnd?: boolean | null;
 }) {
   const membership = await params.db.businessMembership.findFirst({
     where: params.businessId
@@ -157,10 +159,13 @@ export async function finalizeMembershipRenewalPayment(params: {
       graceEndsAt: period.graceEndsAt,
       stripeSubscriptionId: params.subscriptionId ?? undefined,
       stripeCustomerId: params.stripeCustomerId ?? undefined,
-      stripeSubscriptionStatus: params.subscriptionId ? "active" : undefined,
-      automaticRenewal: params.subscriptionId ? Boolean(params.automaticRenewal) : undefined,
-      recurringPaymentReady: params.subscriptionId ? Boolean(params.automaticRenewal) : undefined,
-      stripeCancelAtPeriodEnd: params.subscriptionId ? false : undefined,
+      stripeSubscriptionStatus: params.subscriptionId ? params.stripeSubscriptionStatus ?? "active" : undefined,
+      // Cycle invoices preserve the established recurring authority when no new
+      // renewal preference was supplied.
+      automaticRenewal: params.subscriptionId && params.automaticRenewal !== undefined ? params.automaticRenewal : undefined,
+      recurringPaymentReady: params.subscriptionId && params.automaticRenewal !== undefined ? params.automaticRenewal : undefined,
+      stripeCancelAtPeriodEnd: params.subscriptionId
+        ? params.stripeCancelAtPeriodEnd ?? (params.automaticRenewal !== undefined ? false : undefined) : undefined,
     },
   });
 
