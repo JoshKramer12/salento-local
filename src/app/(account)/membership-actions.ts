@@ -43,7 +43,14 @@ export async function turnOnMembershipAutoRenewAction(formData: FormData) {
   const membership = await prisma.businessMembership.findUnique({ where: { businessId } });
   const subscription = membership?.stripeSubscriptionId
     ? await getStripe().subscriptions.retrieve(membership.stripeSubscriptionId) : null;
-  if (subscription && ["active", "trialing"].includes(subscription.status) && !subscription.cancel_at_period_end) return;
+  if (membership && subscription && ["active", "trialing"].includes(subscription.status) && !subscription.cancel_at_period_end) {
+    await prisma.businessMembership.update({ where: { id: membership.id }, data: {
+      automaticRenewal: true, recurringPaymentReady: true,
+      stripeCancelAtPeriodEnd: false, stripeSubscriptionStatus: subscription.status,
+    } });
+    revalidatePath("/dashboard");
+    return;
+  }
   if (membership?.stripeSubscriptionId && subscription &&
     ["active", "trialing"].includes(subscription.status) && subscription.cancel_at_period_end) {
     await getStripe().subscriptions.update(membership.stripeSubscriptionId, { cancel_at_period_end: false });
