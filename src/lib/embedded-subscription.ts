@@ -217,11 +217,16 @@ export async function ensureEmbeddedPaymentSubscription(payment: Payment, contex
   const stripe = dependencies.stripe ?? getStripe();
   const now = dependencies.now ?? new Date();
   const id = payment.id;
+  // Preserve the original initial-setup request payloads so an interrupted
+  // pre-deployment operation can replay its existing Stripe idempotency key.
+  const resourceMetadata = context.flow === EMBEDDED_SUBSCRIPTION_FLOW
+    ? { businessSubmissionId: context.metadata.businessSubmissionId, paymentId: id, paymentFlow: context.flow }
+    : context.metadata;
   if (!payment.stripeProductId) {
     payment = await beginEmbeddedPaymentOperation(db, payment, "product", now);
     const product = await stripe.products.create({
       name: `Salento Local annual membership: ${context.businessName}`,
-      metadata: context.metadata,
+      metadata: resourceMetadata,
     }, { idempotencyKey: `initial-element:product:${id}` });
     payment = await finishEmbeddedPaymentOperation(db, payment, "product", { stripeProductId: product.id });
   }
@@ -230,7 +235,7 @@ export async function ensureEmbeddedPaymentSubscription(payment: Payment, contex
     const customer = await stripe.customers.create({
       email: context.ownerEmail, name: context.ownerName || context.businessName,
       phone: context.ownerPhone || undefined,
-      metadata: context.metadata,
+      metadata: resourceMetadata,
     }, { idempotencyKey: `initial-element:customer:${id}` });
     payment = await finishEmbeddedPaymentOperation(db, payment, "customer", { stripeCustomerId: customer.id });
   }

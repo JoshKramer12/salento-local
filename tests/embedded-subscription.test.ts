@@ -14,6 +14,7 @@ function fixture(failOnceOn?: "stripeProductId" | "stripeCustomerId" | "stripeSu
   let payment: Record<string, unknown> | null = null;
   let fail = failOnceOn;
   const created = { product: 0, customer: 0, subscription: 0 };
+  const setupMetadata: Record<string, unknown> = {};
   const idempotent = new Map<string, unknown>();
   const product = { id: "prod_1", deleted: false, metadata: { paymentId: "initial-element:submission-1", paymentFlow: EMBEDDED_SUBSCRIPTION_FLOW } };
   const customer = { id: "cus_1", deleted: false, email: submission.ownerEmail, metadata: { paymentId: "initial-element:submission-1", paymentFlow: EMBEDDED_SUBSCRIPTION_FLOW } };
@@ -65,11 +66,11 @@ function fixture(failOnceOn?: "stripeProductId" | "stripeCustomerId" | "stripeSu
   const stripe = {
     checkout: { sessions: { retrieve: async () => { throw Error("unexpected checkout"); } } },
     products: {
-      create: async (_data: unknown, options: { idempotencyKey: string }) => once(options.idempotencyKey, "product", product),
+      create: async (data: { metadata: unknown }, options: { idempotencyKey: string }) => { setupMetadata.product = data.metadata; return once(options.idempotencyKey, "product", product); },
       retrieve: async () => product,
     },
     customers: {
-      create: async (_data: unknown, options: { idempotencyKey: string }) => once(options.idempotencyKey, "customer", customer),
+      create: async (data: { metadata: unknown }, options: { idempotencyKey: string }) => { setupMetadata.customer = data.metadata; return once(options.idempotencyKey, "customer", customer); },
       retrieve: async () => customer,
     },
     subscriptions: {
@@ -82,7 +83,7 @@ function fixture(failOnceOn?: "stripeProductId" | "stripeCustomerId" | "stripeSu
     },
   };
   const dependencies = { db: db as never, stripe: stripe as never };
-  return { created, dependencies, getPayment: () => payment, invoice, subscription };
+  return { created, setupMetadata, dependencies, getPayment: () => payment, invoice, subscription };
 }
 
 test("embedded subscription setup persists exact Customer, Subscription, invoice and PaymentIntent IDs", async () => {
@@ -202,4 +203,13 @@ test("only the exact paid initial invoice can finalize the embedded subscription
   assert.equal(await getVerifiedInitialSubscriptionInvoice({ ...paid, id: "in_other" } as never, state.dependencies), null);
   state.subscription.items.data[0].price.unit_amount = 9000;
   assert.equal(await getVerifiedInitialSubscriptionInvoice(paid as never, state.dependencies), null);
+});
+
+
+test("initial Product and Customer retry payloads retain historical idempotency parameters", async () => {
+  const state = fixture();
+  await ensureEmbeddedSubscription("submission-1", state.dependencies);
+  const expected = { businessSubmissionId: "submission-1", paymentId: "initial-element:submission-1", paymentFlow: EMBEDDED_SUBSCRIPTION_FLOW };
+  assert.deepEqual(state.setupMetadata.product, expected);
+  assert.deepEqual(state.setupMetadata.customer, expected);
 });
