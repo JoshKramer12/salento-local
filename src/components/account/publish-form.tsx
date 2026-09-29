@@ -30,6 +30,7 @@ import {
 import {
   startTransition,
   useActionState,
+  useCallback,
   useEffect,
   useEffectEvent,
   useLayoutEffect,
@@ -41,7 +42,6 @@ import {
 import {
   saveBusinessSubmissionAction,
   updateOwnedBusinessWithWizardAction,
-  type DuplicateBusinessMatch,
   type FormState,
   type SubmissionFormValues,
 } from "@/app/(account)/actions";
@@ -51,7 +51,6 @@ import { SignaturePad } from "@/components/account/signature-pad";
 import { PaymentChoiceButton } from "@/components/account/payment-choice-button";
 import { OwnerAgreementStep } from "@/components/account/owner-agreement-step";
 import { AddressAutocomplete } from "@/components/address-autocomplete";
-import { HardNavigationLink } from "@/components/hard-navigation-link";
 import { PhoneCountrySelector } from "@/components/phone-country-selector";
 import {
   buildSelectedAddressFromStoredFields,
@@ -60,13 +59,12 @@ import {
   type SelectedAddress,
 } from "@/lib/address-selection";
 import type { Locale } from "@/lib/i18n";
-import { hasCredibleDuplicateMatches } from "@/lib/duplicate-business-matching";
 import { getAudienceTermsLink, getLegalLinks } from "@/lib/legal";
 import { LISTING_OFFER, LISTING_SIGNER_ROLE_VALUES } from "@/lib/listing-offer";
 import type { PhoneCountryOption } from "@/lib/phone-country-options";
 import { getCategoryLabel } from "@/lib/site";
 import { normalizeSubmissionSocialInput } from "@/lib/business-links";
-import { duplicateResponseMatchesSubmittedValues } from "@/lib/publish-flow";
+import { initializeOwnerContact, type OwnerContactDefaults } from "@/lib/publish-owner-defaults";
 import { requestPaymentQr } from "@/lib/payment-choice-client";
 import { buildPhoneValue, getOwnerPhoneStepError, getOwnerStepError } from "@/lib/publish-owner-phone";
 import {
@@ -129,6 +127,9 @@ type SubmissionDraft = {
 };
 
 type PublishFormProps = {
+  ownerContactDefaults?: OwnerContactDefaults;
+  submissionUpdatedAt?: string;
+  viewerId?: string;
   adminMode?: boolean;
   categories: Pick<Category, "id" | "name" | "slug">[];
   googlePlacesApiKey: string;
@@ -176,7 +177,6 @@ type WizardStep =
   | "hours"
   | "photos"
   | "review"
-  | "duplicate-blocked"
   | "handoff"
   | "owner-review"
   | "agreement"
@@ -717,11 +717,11 @@ function buildSubmissionFormValues(submission: SubmissionDraft): SubmissionFormV
   };
 }
 
-function getResumeWizardStep(values: SubmissionFormValues): WizardStep {
+function getResumeWizardStep(values: SubmissionFormValues, skipOwnerStep = false): WizardStep {
   const hasBusiness = Boolean(values.businessName && values.categoryId && values.addressPlaceId && values.townId);
   if (!hasBusiness) return "business";
   if (!values.phone) return "contact";
-  if (!values.ownerName || !values.ownerPhone || (!values.ownerEmail && !values.ownerHasNoEmail)) return "owner";
+  if (!values.ownerName || !values.ownerPhone || (!values.ownerEmail && !values.ownerHasNoEmail)) return skipOwnerStep ? "contact" : "owner";
   if (countOfferItems(parseOfferItems(values.longDescription)) < 2) return "about";
   if (!parseOpeningHours(values.openingHours).some((day) => day.closed || Boolean(day.open1 && day.close1))) return "hours";
   const photos = parsePhotos(values.photoUrls);
@@ -737,13 +737,20 @@ export function PublishForm({
   locale,
   phoneCountryOptions,
   previousSuccessfulSubmissionCount = 0,
+  ownerContactDefaults,
+  submissionUpdatedAt,
+  viewerId,
   role = "USER",
   submission,
   towns,
 }: PublishFormProps) {
   const router = useRouter();
   const isEditMode = Boolean(editMode);
-  const initialSubmissionValues = buildSubmissionFormValues(submission);
+  const isOwnerFlow = role === "BUSINESS_OWNER" && !adminMode;
+  const skipOwnerStep = isOwnerFlow && !isEditMode;
+  const initialSubmissionValues = buildSubmissionFormValues(
+    skipOwnerStep && ownerContactDefaults ? initializeOwnerContact(submission, ownerContactDefaults) : submission,
+  );
   const initialSelectedAddress = buildSelectedAddressFromStoredFields(initialSubmissionValues);
   const initialOfferItems = parseOfferItems(initialSubmissionValues.longDescription);
   const generatedInitialSummary = buildShortDescription(initialOfferItems);
@@ -818,11 +825,12 @@ export function PublishForm({
   const [previewUrls, setPreviewUrls] = useState<Partial<Record<PhotoSlot, string>>>({});
   const [uploadingSlots, setUploadingSlots] = useState<Partial<Record<PhotoSlot, boolean>>>({});
   const [uploadError, setUploadError] = useState("");
+  const [localDraftReady, setLocalDraftReady] = useState(false);
   const [draftNotice, setDraftNotice] = useState("");
   const [draftSavePending, setDraftSavePending] = useState(false);
   const [ownerDetailsExpanded, setOwnerDetailsExpanded] = useState(false);
   const [wizardStep, setWizardStep] = useState<WizardStep>(() =>
-    editMode ? editMode.initialStep ?? "business" : getResumeWizardStep(initialSubmissionValues),
+    editMode ? editMode.initialStep ?? "business" : getResumeWizardStep(initialSubmissionValues, skipOwnerStep),
   );
   const offerInputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const photoInputRefs = useRef<Partial<Record<PhotoSlot, HTMLInputElement | null>>>({});
@@ -831,17 +839,15 @@ export function PublishForm({
   const paymentMethodInputRef = useRef<HTMLInputElement | null>(null);
   const exitAfterDraftSaveInputRef = useRef<HTMLInputElement | null>(null);
   const previewUrlsRef = useRef<Partial<Record<PhotoSlot, string>>>({});
-  const duplicateNoticeRef = useRef<HTMLElement | null>(null);
   const errorNoticeRef = useRef<HTMLParagraphElement | null>(null);
   const awaitingDraftResponseRef = useRef(false);
-  const awaitingDuplicateCheckRef = useRef(false);
   const pendingDraftPayloadRef = useRef<string | null>(null);
   const pendingDraftNextStepRef = useRef<WizardStep | null>(null);
   const pendingDraftExitRef = useRef(false);
   const pendingEditExitDestinationRef = useRef<"dashboard" | "listing">("dashboard");
   const lastServerSavedPayloadRef = useRef<string | null>(null);
   const initialDraftRestoreCheckedRef = useRef(false);
-  const storageKey = useMemo(() => buildLocalDraftStorageKey(adminMode), [adminMode]);
+  const storageKey = useMemo(() => `${buildLocalDraftStorageKey(adminMode)}:${viewerId ?? role}:${currentSubmissionId || "new"}`, [adminMode, currentSubmissionId, role, viewerId]);
   const {
     error: paymentOpeningError,
     openPaymentQr,
@@ -888,7 +894,7 @@ export function PublishForm({
   const hasBusinessWhatsappError =
     hasFieldError("whatsapp") || Boolean(businessWhatsappErrorMessage);
   const hasOwnerPhoneError = hasFieldError("ownerPhone") || Boolean(ownerPhoneErrorMessage);
-  const copy = useMemo(
+  const sharedCopy = useMemo(
     () =>
       locale === "it"
         ? {
@@ -942,16 +948,6 @@ export function PublishForm({
             "Una breve descrizione del posto, della sua storia o di quello che vende",
           draft: "Salva bozza",
           draftPending: "Salvataggio...",
-          duplicateAddress: "Indirizzo",
-          duplicateCategory: "Categoria",
-          duplicateExistsBody:
-            "Abbiamo trovato una scheda simile. Aprila per controllare i dettagli.",
-          duplicateExistsTitle: "Scheda simile trovata",
-          duplicateMatchAddress: "Stesso indirizzo",
-          duplicateMatchName: "Stesso nome",
-          duplicateMatchPhone: "Stesso numero di telefono",
-          duplicateOpenListing: "Apri scheda",
-          duplicateTown: "Comune",
           exteriorPhoto: "Foto esterna",
           helper:
             "Completa nome, categoria, indirizzo, telefono, contatto privato, orari e almeno 2 foto.",
@@ -1131,16 +1127,6 @@ export function PublishForm({
             "A short description of the business, its story, or what it sells",
           draft: "Save draft",
           draftPending: "Saving...",
-          duplicateAddress: "Address",
-          duplicateCategory: "Category",
-          duplicateExistsBody:
-            "We found a similar listing. Open it to review the details.",
-          duplicateExistsTitle: "Similar listing found",
-          duplicateMatchAddress: "Same address",
-          duplicateMatchName: "Same name",
-          duplicateMatchPhone: "Same phone number",
-          duplicateOpenListing: "Open listing",
-          duplicateTown: "Town",
           exteriorPhoto: "Exterior photo",
           helper:
             "Complete the name, category, address, phone, private contact, hours, and at least 2 photos.",
@@ -1272,6 +1258,23 @@ export function PublishForm({
     [locale],
   );
 
+  const copy = useMemo(() => isOwnerFlow ? {
+    ...sharedCopy,
+    businessEmailHelp: locale === "it" ? "Facoltativa. Aggiungi la tua email pubblica per questa attività." : "Optional. Add your public email for this business.",
+    contactBody: locale === "it" ? "Questi dati restano privati e servono per comunicare con te." : "These details stay private and are used to contact you.",
+    ownerName: locale === "it" ? "Il tuo nome" : "Your name",
+    ownerEmail: locale === "it" ? "La tua email privata" : "Your private email",
+    ownerWhatsapp: locale === "it" ? "Il tuo numero WhatsApp privato" : "Your private WhatsApp number",
+    noEmail: locale === "it" ? "Non ho un'email" : "I do not have an email",
+    sellOrOffer: locale === "it" ? "Cosa vendi o offri" : "What you sell or offer",
+    businessSummaryHelp: locale === "it" ? "Facoltativa. Racconta la storia della tua attività o descrivi ciò che vendi." : "Optional. Tell your business's story or describe what you sell.",
+    photosBody: locale === "it" ? "Aggiungi almeno una foto esterna e una interna della tua attività." : "Add at least one exterior and one interior photo of your business.",
+  } : sharedCopy, [isOwnerFlow, locale, sharedCopy]);
+
+  const renderPrivateContactFields = () => (
+    <div className="grid gap-4 sm:grid-cols-2"><label className="field-label self-start"><FieldLabel title={copy.ownerName} required={copy.required} /><input value={ownerName} onChange={(event) => setOwnerName(event.target.value)} className="input-field" /></label><label className="field-label"><FieldLabel title={copy.ownerWhatsapp} required={copy.required} /><div className="grid grid-cols-[7.25rem_minmax(0,1fr)] gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]"><PhoneCountrySelector value={ownerContactParts.country} onChange={(country) => { setOwnerMatchesBusinessWhatsapp(false); setOwnerContactParts({ ...ownerContactParts, country }); }} options={phoneCountryOptions} aria-label={copy.phoneCode} aria-invalid={hasOwnerPhoneError} /><input value={ownerContactParts.number} onChange={(event) => { setOwnerMatchesBusinessWhatsapp(false); setOwnerContactParts({ ...ownerContactParts, number: normalizeEditablePhoneNumberInput(event.target.value) }); }} inputMode="tel" className="input-field" aria-invalid={hasOwnerPhoneError} /></div><FieldError message={ownerPhoneErrorMessage} /><CopyToggle checked={ownerMatchesBusinessWhatsapp} onChange={(checked) => { setOwnerMatchesBusinessWhatsapp(checked); if (checked) setOwnerContactParts(businessPhoneParts); }} label={copy.sameAsBusinessPhone} /></label><label className="field-label sm:col-span-2"><FieldLabel title={copy.ownerEmail} required={ownerHasNoEmail ? undefined : copy.required} /><input type="email" value={ownerEmail} disabled={ownerHasNoEmail} onChange={(event) => setOwnerEmail(event.target.value)} className="input-field disabled:opacity-60" /><CopyToggle checked={ownerHasNoEmail} onChange={(checked) => { setOwnerHasNoEmail(checked); if (checked) { setOwnerEmail(""); setRenewalPreference("MANUAL"); } }} label={copy.noEmail} /></label></div>
+  );
+
   function setPreviewUrlForSlot(slot: PhotoSlot, nextUrl: string | null) {
     setPreviewUrls((current) => {
       const previousUrl = current[slot];
@@ -1351,17 +1354,13 @@ export function PublishForm({
     setAddressSelectionError("");
   });
 
-  function duplicateResponseMatchesCurrentValues(nextSubmission: SubmissionFormValues) {
-    return duplicateResponseMatchesSubmittedValues(nextSubmission, {
-      address,
-      businessName,
-      phone: businessPhone,
-    });
-  }
+  const clearNewLocalDraft = useEffectEvent((savedId: string | undefined) => {
+    if (!currentSubmissionId && savedId) window.localStorage.removeItem(storageKey);
+  });
 
-  function getPostDuplicateCheckStep(): WizardStep {
-    return role === "GETTER" && !adminMode ? "handoff" : "owner-review";
-  }
+  const moveToWizardStep = useCallback((next: WizardStep) => {
+    startTransition(() => setWizardStep(skipOwnerStep && next === "owner" ? "contact" : next));
+  }, [skipOwnerStep]);
 
   useEffect(() => {
     if (!state.submission) {
@@ -1377,24 +1376,6 @@ export function PublishForm({
 
     const submission = state.submission;
 
-    if (awaitingDuplicateCheckRef.current) {
-      awaitingDuplicateCheckRef.current = false;
-
-      if (state.error) {
-        const duplicateCheckError = state.error;
-        startTransition(() => setDraftNotice(duplicateCheckError));
-        return;
-      }
-
-      moveToWizardStep(
-        hasCredibleDuplicateMatches(state.duplicateMatches) &&
-        duplicateResponseMatchesCurrentValues(submission)
-          ? "duplicate-blocked"
-          : getPostDuplicateCheckStep(),
-      );
-      return;
-    }
-
     if (awaitingDraftResponseRef.current) {
       if (pendingDraftPayloadRef.current) {
         lastServerSavedPayloadRef.current = pendingDraftPayloadRef.current;
@@ -1409,6 +1390,7 @@ export function PublishForm({
       pendingDraftNextStepRef.current = null;
       pendingDraftExitRef.current = false;
       pendingEditExitDestinationRef.current = "dashboard";
+      clearNewLocalDraft(submission.id);
       startTransition(() => {
         setCurrentSubmissionId(submission.id ?? "");
         setDraftSavePending(false);
@@ -1435,7 +1417,7 @@ export function PublishForm({
     startTransition(() => {
       restoreSubmission(submission);
     });
-  }, [adminMode, editMode?.businessSlug, isEditMode, role, router, state.duplicateMatches, state.error, state.submission]);
+  }, [adminMode, editMode?.businessSlug, isEditMode, role, router, moveToWizardStep, state.error, state.submission]);
 
   useEffect(() => {
     return () => {
@@ -1582,26 +1564,6 @@ export function PublishForm({
     [currentDraftSnapshot],
   );
   const canPersistServerDraft = Boolean(categoryId && selectedTownId);
-  const duplicateReviewMatchesCurrentValues = useMemo(() => {
-    if (!state.duplicateMatches?.length || !state.submission) {
-      return false;
-    }
-
-    return duplicateResponseMatchesCurrentValues(state.submission);
-  }, [
-    address,
-    businessName,
-    businessPhone,
-    selectedAddress,
-    state.duplicateMatches,
-    state.submission,
-  ]);
-  const activeDuplicateMatches = useMemo<DuplicateBusinessMatch[]>(
-    () => (duplicateReviewMatchesCurrentValues ? state.duplicateMatches ?? [] : []),
-    [duplicateReviewMatchesCurrentValues, state.duplicateMatches],
-  );
-  const duplicateCheckMessage =
-    duplicateReviewMatchesCurrentValues ? state.duplicateCheckMessage ?? "" : "";
   const signerRoleRequiresOther = signerRole === "OTHER_AUTHORIZED_REPRESENTATIVE";
   const signerRoleOptions = useMemo(
     () =>
@@ -1643,7 +1605,7 @@ export function PublishForm({
       details: "Vedi tutti i dettagli",
       detailsHide: "Nascondi tutti i dettagli",
       hours: "Orari",
-      ownerConfirmation: "Conferma del titolare",
+      ownerConfirmation: isOwnerFlow ? "Conferma la tua scheda" : "Conferma del titolare",
       ownerPrepared: "La tua scheda è pronta. Controlla che i dettagli principali qui sotto siano corretti.",
       payment: "Pagamento",
       photos: "Foto",
@@ -1659,7 +1621,7 @@ export function PublishForm({
       details: "View all details",
       detailsHide: "Hide all details",
       hours: "Opening hours",
-      ownerConfirmation: "Owner confirmation",
+      ownerConfirmation: isOwnerFlow ? "Confirm your listing" : "Owner confirmation",
       ownerPrepared: "Your listing has been prepared. Please make sure the key details below are correct.",
       payment: "Payment",
       photos: "Photos",
@@ -1675,7 +1637,7 @@ export function PublishForm({
         {selectedCategory ? <div><p className="summary-label">{locale === "it" ? "Categoria" : "Category"}</p><p className="mt-1 text-sm text-[var(--foreground)]">{getCategoryLabel(selectedCategory.slug, selectedCategory.name, locale)}</p></div> : null}
         {businessSummary ? <div className="sm:col-span-2"><p className="summary-label">{locale === "it" ? "Descrizione attività" : "Business description"}</p><p className="mt-1 whitespace-pre-line text-sm leading-6 text-[var(--foreground)]">{businessSummary}</p></div> : null}
         {shortDescriptionValue ? <div className="sm:col-span-2"><p className="summary-label">{locale === "it" ? "Informazioni" : "About"}</p><p className="mt-1 text-sm leading-6 text-[var(--foreground)]">{shortDescriptionValue}</p></div> : null}
-        {offerItems.filter(Boolean).length ? <div className="sm:col-span-2"><p className="summary-label">{locale === "it" ? "Cosa offrono" : "What they offer"}</p><div className="mt-2 flex flex-wrap gap-2">{offerItems.filter(Boolean).map((item) => <span key={item} className="pill-muted">{item}</span>)}</div></div> : null}
+        {offerItems.filter(Boolean).length ? <div className="sm:col-span-2"><p className="summary-label">{locale === "it" ? (isOwnerFlow ? "Cosa offri" : "Cosa offrono") : (isOwnerFlow ? "What you offer" : "What they offer")}</p><div className="mt-2 flex flex-wrap gap-2">{offerItems.filter(Boolean).map((item) => <span key={item} className="pill-muted">{item}</span>)}</div></div> : null}
         {hoursSummary.length ? <div className="sm:col-span-2"><p className="summary-label">{locale === "it" ? "Orari" : "Opening hours"}</p><div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm text-[var(--foreground)] sm:grid-cols-3">{hoursSummary.map((entry) => <span key={entry.label}>{entry.label}: {entry.value}</span>)}</div></div> : null}
         <div><p className="summary-label">{locale === "it" ? "Contatti" : "Contact"}</p><div className="mt-1 grid gap-1 text-sm text-[var(--foreground)]"><span>{businessPhone}</span>{businessWhatsapp ? <span>WhatsApp: {businessWhatsapp}</span> : null}{businessEmail ? <span>{businessEmail}</span> : null}</div></div>
         {website || instagram || facebook ? <div><p className="summary-label">{locale === "it" ? "Online" : "Online"}</p><div className="mt-1 grid gap-1 break-words text-sm text-[var(--foreground)]">{website ? <span>{website}</span> : null}{instagram ? <span>Instagram: {instagram}</span> : null}{facebook ? <span>Facebook: {facebook}</span> : null}</div></div> : null}
@@ -1811,24 +1773,6 @@ export function PublishForm({
 
   useEffect(() => {
     if (isEditMode) {
-      return;
-    }
-
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    window.localStorage.setItem(
-      storageKey,
-      JSON.stringify({
-        ...currentDraftSnapshot,
-        updatedAt: new Date().toISOString(),
-      }),
-    );
-  }, [currentDraftSnapshot, isEditMode, storageKey]);
-
-  useEffect(() => {
-    if (isEditMode) {
       lastServerSavedPayloadRef.current = currentDraftPayload;
       return;
     }
@@ -1838,9 +1782,16 @@ export function PublishForm({
     }
 
     initialDraftRestoreCheckedRef.current = true;
-    const storedDraft = parseLocalDraftSnapshot(window.localStorage.getItem(storageKey));
+    startTransition(() => setLocalDraftReady(true));
+    // Older browser snapshots lacked account/draft scoping. Recover them only
+    // when the server has authorized this exact saved submission for the viewer.
+    const legacyDraft = currentSubmissionId
+      ? parseLocalDraftSnapshot(window.localStorage.getItem(buildLocalDraftStorageKey(adminMode)))
+      : null;
+    const storedDraft = parseLocalDraftSnapshot(window.localStorage.getItem(storageKey)) ??
+      (legacyDraft?.id === currentSubmissionId ? legacyDraft : null);
 
-    if (!storedDraft) {
+    if (!storedDraft || (submissionUpdatedAt && (!storedDraft.updatedAt || Date.parse(storedDraft.updatedAt) <= Date.parse(submissionUpdatedAt)))) {
       lastServerSavedPayloadRef.current = currentDraftPayload;
       return;
     }
@@ -1862,13 +1813,32 @@ export function PublishForm({
 
     startTransition(() => {
       restoreSubmission(storedDraft);
+      setWizardStep(getResumeWizardStep(storedDraft, skipOwnerStep));
       setDraftNotice(
         locale === "it"
           ? "Bozza recuperata da questo browser. Puoi continuare subito."
           : "Draft recovered from this browser. You can continue right away.",
       );
     });
-  }, [currentDraftPayload, currentSubmissionId, isEditMode, locale, storageKey]);
+  }, [adminMode, currentDraftPayload, currentSubmissionId, isEditMode, locale, skipOwnerStep, storageKey, submissionUpdatedAt]);
+
+  useEffect(() => {
+    if (isEditMode || !localDraftReady) {
+      return;
+    }
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        ...currentDraftSnapshot,
+        updatedAt: new Date().toISOString(),
+      }),
+    );
+  }, [currentDraftSnapshot, isEditMode, localDraftReady, storageKey]);
 
   useEffect(() => {
     if (!state.notice) {
@@ -1897,17 +1867,11 @@ export function PublishForm({
   }, [state.error]);
 
   useEffect(() => {
-    if (activeDuplicateMatches.length) {
-      duplicateNoticeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      duplicateNoticeRef.current?.focus();
-      return;
-    }
-
     if (state.error) {
       errorNoticeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       errorNoticeRef.current?.focus();
     }
-  }, [activeDuplicateMatches.length, state.error]);
+  }, [state.error]);
 
   function setHourValue(
     day: DayKey,
@@ -2043,77 +2007,12 @@ export function PublishForm({
     return true;
   }
 
-  const duplicateReviewSection = activeDuplicateMatches.length ? (
-    <section
-      ref={duplicateNoticeRef}
-      tabIndex={-1}
-      className="rounded-[1.6rem] border border-[rgba(191,91,42,0.18)] bg-[rgba(255,248,243,0.96)] px-5 py-5 shadow-[var(--shadow-card)]"
-    >
-      <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[var(--accent)]">
-        {copy.duplicateExistsTitle}
-      </p>
-      <p className="mt-2 text-sm text-[var(--accent)]">
-        {duplicateCheckMessage || copy.duplicateExistsBody}
-      </p>
-      <div className="mt-5 grid gap-4">
-        {activeDuplicateMatches.map((business) => (
-          <article
-            key={business.id}
-            className="rounded-[1.4rem] border border-[rgba(191,91,42,0.16)] bg-white p-4"
-          >
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <h3 className="font-serif text-2xl text-[var(--foreground)]">{business.name}</h3>
-                <p className="mt-1 text-sm text-[var(--muted)]">
-                  {business.categoryName} · {copy.duplicateTown}: {business.townName}
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {business.matchReasons.map((reason) => (
-                  <span key={`${business.id}-${reason}`} className="pill-warning">
-                    {reason === "name"
-                      ? copy.duplicateMatchName
-                      : reason === "address"
-                        ? copy.duplicateMatchAddress
-                        : copy.duplicateMatchPhone}
-                  </span>
-                ))}
-              </div>
-            </div>
-            <div className="mt-4 grid gap-3 text-sm text-[var(--muted)] sm:grid-cols-2">
-              <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-[var(--accent)]">
-                  {copy.duplicateAddress}
-                </p>
-                <p className="mt-1 font-medium text-[var(--foreground)]">{business.address}</p>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-[var(--accent)]">
-                  {copy.duplicateMatchPhone}
-                </p>
-                <p className="mt-1 font-medium text-[var(--foreground)]">{business.phone || "—"}</p>
-              </div>
-            </div>
-            <div className="mt-4">
-              <HardNavigationLink
-                href={`/businesses/${business.slug}`}
-                className="btn-secondary w-full sm:w-auto"
-              >
-                {copy.duplicateOpenListing}
-              </HardNavigationLink>
-            </div>
-          </article>
-        ))}
-      </div>
-    </section>
-  ) : null;
-
   const firstSubmission = previousSuccessfulSubmissionCount === 0;
   const isPartnerFlow = role === "GETTER" && !adminMode;
   const collectionSteps: Array<{ key: WizardStep; label: string }> = [
     { key: "business", label: locale === "it" ? "Attività" : "Business" },
     { key: "contact", label: locale === "it" ? "Contatti" : "Contact" },
-    { key: "owner", label: locale === "it" ? "Titolare" : "Owner" },
+    ...(!skipOwnerStep ? [{ key: "owner" as const, label: locale === "it" ? "Titolare" : "Owner" }] : []),
     { key: "about", label: locale === "it" ? "Descrizione" : "About" },
     { key: "hours", label: locale === "it" ? "Orari" : "Hours" },
     { key: "photos", label: locale === "it" ? "Foto" : "Photos" },
@@ -2146,7 +2045,7 @@ export function PublishForm({
       }
     } else if (wizardStep === "contact" && (!businessPhone || !isPossiblePhoneNumber(businessPhone))) {
       error = locale === "it" ? "Inserisci un numero di telefono valido dell'attività." : "Enter a valid business phone number.";
-    } else if (wizardStep === "owner") {
+    } else if (wizardStep === "owner" || (wizardStep === "contact" && skipOwnerStep)) {
       setOwnerStepAttempted(true);
       error = getOwnerStepError({ locale, ownerEmail, ownerHasNoEmail, ownerName, ownerPhone: ownerContact, submitterRole: role });
     } else if (wizardStep === "about" && offerItemsCount < 2) {
@@ -2171,36 +2070,10 @@ export function PublishForm({
     requestDraftSave("autosave", false, next);
   }
 
-  function moveToWizardStep(next: WizardStep) {
-    startTransition(() => setWizardStep(next));
-  }
 
   useLayoutEffect(() => {
     window.scrollTo({ top: 0 });
   }, [wizardStep]);
-
-  function checkForExistingBusinesses() {
-    if (!businessName.trim() || !categoryId || !isValidSelectedAddress(selectedAddress) || !selectedTownId) {
-      setDraftNotice(
-        locale === "it"
-          ? "Completa prima nome, categoria e indirizzo verificato."
-          : "Complete the name, category, and verified address first.",
-      );
-      return;
-    }
-
-    if (!formRef.current || !intentInputRef.current) {
-      return;
-    }
-
-    intentInputRef.current.value = "check";
-    if (exitAfterDraftSaveInputRef.current) {
-      exitAfterDraftSaveInputRef.current.value = "";
-    }
-    setDraftNotice("");
-    awaitingDuplicateCheckRef.current = true;
-    formRef.current.requestSubmit();
-  }
 
   function continueWithPaymentMethod(method: PaymentQrMethod) {
     if (!formRef.current || actionPending || paymentOpeningMethod) {
@@ -2234,7 +2107,7 @@ export function PublishForm({
     formRef.current?.requestSubmit();
   }
 
-  const showWizardFooter = wizardStep !== "duplicate-blocked" && wizardStep !== "payment";
+  const showWizardFooter = wizardStep !== "payment";
   const specialFooterStep = wizardStep === "agreement" || wizardStep === "signature";
   const showFooterButtonIcons = collectionIndex >= 0 || specialFooterStep;
 
@@ -2245,7 +2118,7 @@ export function PublishForm({
       case "owner":
         return "contact";
       case "about":
-        return "owner";
+        return skipOwnerStep ? "contact" : "owner";
       case "hours":
         return "about";
       case "photos":
@@ -2424,27 +2297,28 @@ export function PublishForm({
       <div className={`publish-form-card card overflow-visible sm:overflow-hidden ${wizardStep === "hours" ? "publish-form-card-hours" : ""} ${wizardStep === "agreement" ? "publish-form-card--agreement" : ""}`}>
       <section className="publish-form-content p-5 sm:p-7">
         {wizardStep === "business" ? <div className="grid gap-5">
-          <div><p className="section-kicker">1. {locale === "it" ? "Attività" : "Business"}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{isEditMode ? (locale === "it" ? "Modifica la mia attività" : "Edit my business") : (locale === "it" ? "Quale attività stai aggiungendo?" : "Which business are you adding?")}</h1><p className="mt-3 text-sm leading-6 text-[var(--muted)]">{isEditMode ? (locale === "it" ? "Aggiorna il nome, la categoria o l'indirizzo e scegli un nuovo indirizzo verificato se lo modifichi." : "Update the name, category, or address. If you change the address, select a new verified result.") : (locale === "it" ? "Chiedi il nome esatto, poi cerca e seleziona l'indirizzo verificato." : "Ask for the exact name, then search and select the verified address.")}</p></div>
+          <div><p className="section-kicker">1. {locale === "it" ? "Attività" : "Business"}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{isEditMode ? (locale === "it" ? "Modifica la mia attività" : "Edit my business") : (locale === "it" ? "Quale attività stai aggiungendo?" : "Which business are you adding?")}</h1><p className="mt-3 text-sm leading-6 text-[var(--muted)]">{isEditMode ? (locale === "it" ? "Aggiorna il nome, la categoria o l'indirizzo e scegli un nuovo indirizzo verificato se lo modifichi." : "Update the name, category, or address. If you change the address, select a new verified result.") : (locale === "it" ? (isOwnerFlow ? "Inserisci il nome esatto della tua attività, poi seleziona l'indirizzo verificato." : "Chiedi il nome esatto, poi cerca e seleziona l'indirizzo verificato.") : (isOwnerFlow ? "Enter your business's exact name, then select its verified address." : "Ask for the exact name, then search and select the verified address."))}</p></div>
           <label className="field-label"><FieldLabel title={copy.businessName} required={copy.required} /><input value={businessName} onChange={(event) => setBusinessName(event.target.value)} className={getFieldInputClass(hasFieldError("businessName"))} /></label>
           <label className="field-label"><FieldLabel title={copy.category} required={copy.required} /><select value={categoryId} onChange={(event) => setCategoryId(event.target.value)} className={getFieldInputClass(hasFieldError("categoryId"))}><option value="">{locale === "it" ? "Seleziona" : "Select"}</option>{categories.map((category) => <option key={category.id} value={category.id}>{getCategoryLabel(category.slug, category.name, locale)}</option>)}</select></label>
           <div className="field-label"><FieldLabel title={copy.address} description={copy.addressHelp} required={copy.required} /><AddressAutocomplete initialGooglePlacesApiKey={googlePlacesApiKey} locale={locale} query={address} selectedAddress={selectedAddress} onQueryChange={setAddress} onSelectedAddressChange={setSelectedAddress} clientError={addressSelectionError} emphasizeError={addressSelectionError === copy.addressUnsupportedTown} onClientErrorChange={setAddressSelectionError} serverError={state.fieldErrors?.address} />{selectedAddress ? <p className="rounded-2xl bg-[rgba(42,98,87,0.08)] px-4 py-3 text-sm text-[var(--foreground)]">✓ {buildStreetAddressLine(selectedAddress)}<br />{selectedAddress.locality}, {selectedAddress.administrativeAreaLevel2} {selectedAddress.postalCode}</p> : null}</div>
         </div> : null}
 
         {wizardStep === "contact" ? <div className="grid gap-5">
-          <div><p className="section-kicker">2. {locale === "it" ? "Contatti pubblici" : "Public contact"}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? "Come possono contattarli i clienti?" : "How can customers contact them?"}</h1>{firstSubmission ? <p className="mt-3 rounded-2xl bg-[rgba(42,98,87,0.08)] p-4 text-sm text-[var(--foreground)]">{locale === "it" ? "Chiedi al titolare: Qual e il numero migliore per contattarti?" : "Ask the owner: What's the best number customers should use to contact you?"}</p> : null}<p className="mt-3 text-sm text-[var(--muted)]">{locale === "it" ? "Questi dati possono comparire pubblicamente nella scheda." : "These details may appear publicly on the listing."}</p></div>
+          <div><p className="section-kicker">2. {locale === "it" ? "Contatti pubblici" : "Public contact"}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? (isOwnerFlow ? "Come possono contattarti i clienti?" : "Come possono contattarli i clienti?") : (isOwnerFlow ? "How can customers contact you?" : "How can customers contact them?")}</h1>{firstSubmission ? <p className="mt-3 rounded-2xl bg-[rgba(42,98,87,0.08)] p-4 text-sm text-[var(--foreground)]">{locale === "it" ? (isOwnerFlow ? "Qual è il numero migliore per contattare la tua attività?" : "Chiedi al titolare: Qual e il numero migliore per contattarti?") : (isOwnerFlow ? "What's the best number customers should use to contact your business?" : "Ask the owner: What's the best number customers should use to contact you?")}</p> : null}<p className="mt-3 text-sm text-[var(--muted)]">{locale === "it" ? "Questi dati possono comparire pubblicamente nella scheda." : "These details may appear publicly on the listing."}</p></div>
           <div className="grid gap-4 sm:grid-cols-2"><label className="field-label"><FieldLabel title={copy.businessPhone} required={copy.required} /><div className="grid grid-cols-[7.25rem_minmax(0,1fr)] gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]"><PhoneCountrySelector value={businessPhoneParts.country} onChange={(country) => setBusinessPhoneParts({ ...businessPhoneParts, country })} options={phoneCountryOptions} aria-label={copy.phoneCode} aria-invalid={hasBusinessPhoneError} /><input value={businessPhoneParts.number} onChange={(event) => setBusinessPhoneParts({ ...businessPhoneParts, number: normalizeEditablePhoneNumberInput(event.target.value) })} inputMode="tel" className="input-field" /></div><FieldError message={businessPhoneErrorMessage} /></label><label className="field-label"><FieldLabel title={copy.whatsapp} optional={copy.optional} /><div className="grid grid-cols-[7.25rem_minmax(0,1fr)] gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]"><PhoneCountrySelector value={businessWhatsappParts.country} onChange={(country) => setBusinessWhatsappParts({ ...businessWhatsappParts, country })} options={phoneCountryOptions} aria-label={copy.phoneCode} aria-invalid={hasBusinessWhatsappError} /><input value={businessWhatsappParts.number} onChange={(event) => setBusinessWhatsappParts({ ...businessWhatsappParts, number: normalizeEditablePhoneNumberInput(event.target.value) })} inputMode="tel" className="input-field" /></div></label><label className="field-label"><FieldLabel title={copy.businessEmail} optional={copy.optional} /><input type="email" value={businessEmail} onChange={(event) => setBusinessEmail(event.target.value)} className="input-field" /></label><label className="field-label"><FieldLabel title="Website" optional={copy.optional} /><input value={website} onChange={(event) => setWebsite(event.target.value)} className="input-field" placeholder="https://" /></label><label className="field-label"><FieldLabel title="Instagram" optional={copy.optional} /><SocialHandleInput hasError={hasFieldError("instagram")} value={instagram} onChange={setInstagram} /></label><label className="field-label"><FieldLabel title="Facebook" optional={copy.optional} /><SocialHandleInput hasError={hasFieldError("facebook")} value={facebook} onChange={setFacebook} /></label></div>
+          {skipOwnerStep ? <section className="grid gap-4 border-t border-[var(--border)] pt-5"><h2 className="font-serif text-2xl">{locale === "it" ? "I tuoi contatti privati" : "Your private contact information"}</h2><p className="text-sm text-[var(--muted)]">{locale === "it" ? "Controlla i dati del tuo account. Puoi modificarli per questa scheda; restano privati." : "Check your account details. You can edit them for this listing; they stay private."}</p>{renderPrivateContactFields()}</section> : null}
         </div> : null}
 
-        {wizardStep === "owner" ? <div className="grid gap-5"><div><p className="section-kicker">3. {locale === "it" ? "Titolare" : "Owner"}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? "Con chi stai parlando?" : "Who are you speaking with?"}</h1><p className="mt-3 rounded-2xl border border-[rgba(42,98,87,0.16)] bg-[rgba(247,244,239,0.7)] p-4 text-sm leading-6 text-[var(--foreground)]"><strong>{locale === "it" ? "Informazioni private." : "Private information."}</strong> {locale === "it" ? "Servono per approvazione e comunicazioni: non compariranno nella scheda pubblica." : "These are used for approval and communication and will not appear on the public listing."}</p></div><div className="grid gap-4 sm:grid-cols-2"><label className="field-label self-start"><FieldLabel title={copy.ownerName} required={copy.required} /><input value={ownerName} onChange={(event) => setOwnerName(event.target.value)} className="input-field" /></label><label className="field-label"><FieldLabel title={copy.ownerWhatsapp} required={copy.required} /><div className="grid grid-cols-[7.25rem_minmax(0,1fr)] gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]"><PhoneCountrySelector value={ownerContactParts.country} onChange={(country) => { setOwnerMatchesBusinessWhatsapp(false); setOwnerContactParts({ ...ownerContactParts, country }); }} options={phoneCountryOptions} aria-label={copy.phoneCode} aria-invalid={hasOwnerPhoneError} /><input value={ownerContactParts.number} onChange={(event) => { setOwnerMatchesBusinessWhatsapp(false); setOwnerContactParts({ ...ownerContactParts, number: normalizeEditablePhoneNumberInput(event.target.value) }); }} inputMode="tel" className="input-field" aria-invalid={hasOwnerPhoneError} /></div><FieldError message={ownerPhoneErrorMessage} /><CopyToggle checked={ownerMatchesBusinessWhatsapp} onChange={(checked) => { setOwnerMatchesBusinessWhatsapp(checked); if (checked) setOwnerContactParts(businessPhoneParts); }} label={copy.sameAsBusinessPhone} /></label><label className="field-label sm:col-span-2"><FieldLabel title={copy.ownerEmail} required={ownerHasNoEmail ? undefined : copy.required} /><input type="email" value={ownerEmail} disabled={ownerHasNoEmail} onChange={(event) => setOwnerEmail(event.target.value)} className="input-field disabled:opacity-60" /><CopyToggle checked={ownerHasNoEmail} onChange={(checked) => { setOwnerHasNoEmail(checked); if (checked) { setOwnerEmail(""); setRenewalPreference("MANUAL"); } }} label={copy.noEmail} /></label></div></div> : null}
+        {wizardStep === "owner" ? <div className="grid gap-5"><div><p className="section-kicker">3. {locale === "it" ? "Titolare" : "Owner"}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? (isOwnerFlow ? "I tuoi contatti privati" : "Con chi stai parlando?") : (isOwnerFlow ? "Your private contact information" : "Who are you speaking with?")}</h1><p className="mt-3 rounded-2xl border border-[rgba(42,98,87,0.16)] bg-[rgba(247,244,239,0.7)] p-4 text-sm leading-6 text-[var(--foreground)]"><strong>{locale === "it" ? "Informazioni private." : "Private information."}</strong> {locale === "it" ? "Servono per approvazione e comunicazioni: non compariranno nella scheda pubblica." : "These are used for approval and communication and will not appear on the public listing."}</p></div>{renderPrivateContactFields()}</div> : null}
 
-        {wizardStep === "about" ? <div className="grid gap-5"><div><p className="section-kicker">4. {locale === "it" ? "Descrizione" : "About"}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? "Raccontaci dell'attività" : "Tell us about the business"}</h1>{firstSubmission ? <p className="mt-3 rounded-2xl bg-[rgba(42,98,87,0.08)] p-4 text-sm">{locale === "it" ? "Chiedi: Cosa vorresti che chi visita il Salento sapesse della tua attività?" : "Ask: What would you like people visiting Salento to know about your business?"}</p> : null}</div><div className="grid gap-3"><FieldLabel title={copy.sellOrOffer} description={locale === "it" ? "Aggiungi almeno due punti." : "Add at least two points."} required={copy.required} />{offerItems.map((item, index) => <div key={index} className="flex gap-2"><input ref={(node) => { offerInputRefs.current[index] = node; }} value={item} onChange={(event) => updateOfferItem(index, event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addOfferItem(index); } }} className="input-field" placeholder={copy.sellOrOfferPlaceholder} /><button type="button" onClick={() => removeOfferItem(index)} className="btn-secondary px-3" aria-label={copy.removeBullet}><IconTrash size={18} /></button></div>)}<button type="button" onClick={() => addOfferItem()} className="btn-secondary w-fit"><IconPlus size={18} /> {locale === "it" ? "Aggiungi un altro" : "Add another"}</button></div><label className="field-label"><FieldLabel title={copy.businessSummary} optional={copy.optional} /><textarea value={businessSummary} onChange={(event) => setBusinessSummary(event.target.value)} className="input-field min-h-28" placeholder={copy.businessSummaryPlaceholder} /></label></div> : null}
+        {wizardStep === "about" ? <div className="grid gap-5"><div><p className="section-kicker">{collectionSteps.findIndex((step) => step.key === "about") + 1}. {locale === "it" ? "Descrizione" : "About"}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? "Raccontaci dell'attività" : "Tell us about the business"}</h1>{firstSubmission ? <p className="mt-3 rounded-2xl bg-[rgba(42,98,87,0.08)] p-4 text-sm">{locale === "it" ? (isOwnerFlow ? "Cosa vorresti che chi visita il Salento sapesse della tua attività?" : "Chiedi: Cosa vorresti che chi visita il Salento sapesse della tua attività?") : (isOwnerFlow ? "What would you like people visiting Salento to know about your business?" : "Ask: What would you like people visiting Salento to know about your business?")}</p> : null}</div><div className="grid gap-3"><FieldLabel title={copy.sellOrOffer} description={locale === "it" ? "Aggiungi almeno due punti." : "Add at least two points."} required={copy.required} />{offerItems.map((item, index) => <div key={index} className="flex gap-2"><input ref={(node) => { offerInputRefs.current[index] = node; }} value={item} onChange={(event) => updateOfferItem(index, event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addOfferItem(index); } }} className="input-field" placeholder={copy.sellOrOfferPlaceholder} /><button type="button" onClick={() => removeOfferItem(index)} className="btn-secondary px-3" aria-label={copy.removeBullet}><IconTrash size={18} /></button></div>)}<button type="button" onClick={() => addOfferItem()} className="btn-secondary w-fit"><IconPlus size={18} /> {locale === "it" ? "Aggiungi un altro" : "Add another"}</button></div><label className="field-label"><FieldLabel title={copy.businessSummary} optional={copy.optional} /><textarea value={businessSummary} onChange={(event) => setBusinessSummary(event.target.value)} className="input-field min-h-28" placeholder={copy.businessSummaryPlaceholder} /></label></div> : null}
 
         {wizardStep === "hours" ? (
           <div className="hours-step grid gap-4">
             <div>
-              <p className="section-kicker">5. {locale === "it" ? "Orari" : "Hours"}</p>
+              <p className="section-kicker">{collectionSteps.findIndex((step) => step.key === "hours") + 1}. {locale === "it" ? "Orari" : "Hours"}</p>
               <h1 className="mt-2 font-serif text-[2rem] leading-[1.1] text-[var(--foreground)] sm:text-3xl">
-                {locale === "it" ? "Quando sono aperti?" : "When are they open?"}
+                {locale === "it" ? (isOwnerFlow ? "Quando è aperta la tua attività?" : "Quando sono aperti?") : (isOwnerFlow ? "When is your business open?" : "When are they open?")}
               </h1>
             </div>
 
@@ -2616,7 +2490,7 @@ export function PublishForm({
         {wizardStep === "photos" ? (
           <div className="grid gap-5">
             <div>
-              <p className="section-kicker">6. {locale === "it" ? "Foto" : "Photos"}</p>
+              <p className="section-kicker">{collectionSteps.findIndex((step) => step.key === "photos") + 1}. {locale === "it" ? "Foto" : "Photos"}</p>
               <h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">
                 {locale === "it" ? "Aggiungi qualche foto" : "Add some photos"}
               </h1>
@@ -2727,8 +2601,8 @@ export function PublishForm({
               </h1>
               <p className="mt-3 text-[var(--muted)]">
                 {locale === "it"
-                  ? "Dai un'ultima occhiata prima di consegnare il telefono al titolare."
-                  : "Take a quick look before handing the phone to the owner."}
+                  ? (isOwnerFlow ? "Controlla i dettagli della tua scheda prima di continuare." : "Dai un'ultima occhiata prima di consegnare il telefono al titolare.")
+                  : (isOwnerFlow ? "Review your listing details before continuing." : "Take a quick look before handing the phone to the owner.")}
               </p>
             </div>
             <div className="rounded-[1.6rem] border border-[rgba(42,98,87,0.14)] bg-white p-5 shadow-[var(--shadow-card)] sm:p-6">
@@ -2749,41 +2623,16 @@ export function PublishForm({
               ))}
             </div>
             <div className="flex flex-wrap justify-end gap-3">
-              <button type="button" disabled={actionPending} onClick={checkForExistingBusinesses} className="btn-primary disabled:cursor-wait disabled:opacity-50">
-                {actionPending ? (locale === "it" ? "Controllo..." : "Checking...") : isPartnerFlow ? <>{locale === "it" ? "Consegna il telefono al titolare" : "Hand phone to owner"}<IconArrowRight size={18} aria-hidden="true" /></> : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}
+              <button type="button" disabled={draftSavePending || actionPending} onClick={() => requestDraftSave("autosave", false, isPartnerFlow ? "handoff" : "owner-review")} className="btn-primary disabled:cursor-wait disabled:opacity-50">
+                {draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : isPartnerFlow ? <>{locale === "it" ? "Consegna il telefono al titolare" : "Hand phone to owner"}<IconArrowRight size={18} aria-hidden="true" /></> : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}
               </button>
-            </div>
-          </div>
-        ) : null}
-
-        {wizardStep === "duplicate-blocked" ? (
-          <div className="grid gap-5">
-            <div>
-              <p className="section-kicker">{locale === "it" ? "Scheda già presente" : "Listing already found"}</p>
-              <h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">
-                {locale === "it" ? "Questa attività potrebbe già essere su Salento Local" : "This business may already be on Salento Local"}
-              </h1>
-              <p className="mt-3 text-[var(--muted)]">
-                {locale === "it"
-                  ? "Per evitare una seconda scheda e un altro pagamento, apri la scheda esistente. Se non è ancora gestita, il titolare può usare Rivendica attività. Se è già gestita, usa l'accesso del titolare dalla dashboard Partner."
-                  : "To avoid a second listing and payment, open the existing listing. If it is unclaimed, the owner can use Claim Business. If it is already managed, use Owner access from the Partner dashboard."}
-              </p>
-            </div>
-            {duplicateReviewSection}
-            <div className="flex flex-wrap gap-3">
-              <button type="button" onClick={() => moveToWizardStep("review")} className="btn-secondary">
-                <IconArrowLeft size={18} aria-hidden="true" />{locale === "it" ? "Rivedi i dati" : "Review details"}
-              </button>
-              <HardNavigationLink href="/dashboard/businesses" className="btn-secondary">
-                {locale === "it" ? "Vai alla dashboard" : "Go to dashboard"}
-              </HardNavigationLink>
             </div>
           </div>
         ) : null}
 
         {wizardStep === "handoff" ? <div className="mx-auto grid max-w-xl gap-6 text-center"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[rgba(42,98,87,0.1)] text-[var(--primary)]"><IconCheck size={28} aria-hidden="true" /></div><div><p className="section-kicker">{locale === "it" ? "Parte del partner completata" : "Partner section complete"}</p><h1 className="mt-3 font-serif text-4xl text-[var(--foreground)]">{locale === "it" ? "Ora consegna il telefono al titolare." : "Now hand the phone to the business owner."}</h1><p className="mx-auto mt-4 max-w-lg text-[var(--muted)]">{locale === "it" ? "Controllerà la scheda e completerà gli ultimi passaggi." : "They’ll confirm the listing and complete the final steps."}</p></div><button type="button" onClick={() => moveToWizardStep("owner-review")} className="btn-primary mx-auto">{locale === "it" ? "Sono il titolare" : "I'm the business owner"}<IconArrowRight size={18} aria-hidden="true" /></button></div> : null}
 
-        {wizardStep === "owner-review" ? <div className="grid gap-6"><div><p className="section-kicker">{ownerFlowCopy.ownerConfirmation}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{ownerName ? `${locale === "it" ? "Ciao" : "Hi"} ${ownerName.split(" ")[0]}` : locale === "it" ? "Ciao" : "Hi"}</h1><p className="mt-3 max-w-xl text-[var(--muted)]">{ownerFlowCopy.ownerPrepared}</p></div>{renderOwnerConfirmationSummary()}<label className="owner-confirmation-checkbox"><input type="checkbox" checked={ownerInformationConfirmed} onChange={(event) => setOwnerInformationConfirmed(event.target.checked)} className="mt-1 h-5 w-5 shrink-0 accent-[var(--primary)]" /><span>{locale === "it" ? "Confermo che questi dati dell'attività sono corretti." : "I confirm that these business details are correct."}</span></label><button type="button" onClick={() => moveToWizardStep("review")} className="owner-confirmation-help">{locale === "it" ? "Qualcosa non va? Chiedi al partner di modificare" : "Something looks wrong? Ask the partner to edit"}</button></div> : null}
+        {wizardStep === "owner-review" ? <div className="grid gap-6"><div><p className="section-kicker">{ownerFlowCopy.ownerConfirmation}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{ownerName ? `${locale === "it" ? "Ciao" : "Hi"} ${ownerName.split(" ")[0]}` : locale === "it" ? "Ciao" : "Hi"}</h1><p className="mt-3 max-w-xl text-[var(--muted)]">{ownerFlowCopy.ownerPrepared}</p></div>{renderOwnerConfirmationSummary()}<label className="owner-confirmation-checkbox"><input type="checkbox" checked={ownerInformationConfirmed} onChange={(event) => setOwnerInformationConfirmed(event.target.checked)} className="mt-1 h-5 w-5 shrink-0 accent-[var(--primary)]" /><span>{locale === "it" ? "Confermo che questi dati dell'attività sono corretti." : "I confirm that these business details are correct."}</span></label><button type="button" onClick={() => moveToWizardStep("review")} className="owner-confirmation-help">{locale === "it" ? (isOwnerFlow ? "Qualcosa non va? Modifica i tuoi dati" : "Qualcosa non va? Chiedi al partner di modificare") : (isOwnerFlow ? "Something looks wrong? Edit your details" : "Something looks wrong? Ask the partner to edit")}</button></div> : null}
 
         {wizardStep === "agreement" ? (
           <OwnerAgreementStep
@@ -2803,7 +2652,7 @@ export function PublishForm({
 
         {wizardStep === "signature" ? <div className="grid gap-5"><div><p className="section-kicker">{locale === "it" ? "Firma" : "Sign"}</p><h1 className="font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? "Firma per continuare" : "Sign to continue"}</h1><p className="mt-3 text-[var(--muted)]">{locale === "it" ? "Inserisci i tuoi dati e firma per confermare l'autorizzazione." : "Enter your details and sign to confirm your authorisation."}</p></div><div className="grid gap-4 sm:grid-cols-2"><label className="field-label"><FieldLabel title={copy.signerName} required={copy.required} /><input value={signerFullName} onChange={(event) => setSignerFullName(event.target.value)} className="input-field" /></label><label className="field-label"><FieldLabel title={copy.signerRole} required={copy.required} /><select value={signerRole} onChange={(event) => setSignerRole(event.target.value)} className="input-field"><option value="">{copy.signerRolePlaceholder}</option>{signerRoleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label></div>{signerRoleRequiresOther ? <label className="field-label"><FieldLabel title={copy.signerRoleOther} required={copy.required} /><input value={signerRoleOther} onChange={(event) => setSignerRoleOther(event.target.value)} className="input-field" /></label> : null}<div className="field-label"><FieldLabel title={copy.signatureTitle} description={copy.signatureIntro} required={copy.required} /><SignaturePad clearLabel={copy.clearSignature} drawHint={copy.signatureDrawHint} hasError={hasFieldError("agreementSignature")} legacyValueNotice={copy.signatureLegacyNotice} value={signature} onChange={setSignature} /></div></div> : null}
 
-        {wizardStep === "payment" ? <div className="grid gap-6"><div><p className="section-kicker">{locale === "it" ? "Pagamento" : "Payment"}</p><h1 className="mt-2 font-serif text-4xl text-[var(--foreground)]">{locale === "it" ? "Come preferiscono pagare?" : "How would they like to pay?"}</h1><p className="mt-3 text-[var(--muted)]">{locale === "it" ? "Chiedi al titolare quale opzione preferisce." : "Ask the business owner which option they prefer."}</p></div>{!adminMode ? <section className="rounded-[1.6rem] border border-[rgba(42,98,87,0.28)] bg-[rgba(237,248,242,0.52)] p-5 sm:p-6"><p className="text-sm font-bold uppercase tracking-[0.14em] text-[var(--primary)]">{locale === "it" ? "Rinnovo" : "Renewal"}</p><div className="mt-4 grid gap-3">{ownerEmail.trim() ? <label className={effectiveRenewalPreference === "AUTO" ? "block cursor-pointer rounded-[1.3rem] border border-[var(--primary)] bg-white p-4 shadow-[0_0_0_2px_rgba(42,98,87,0.12)] transition-colors sm:p-5" : "block cursor-pointer rounded-[1.3rem] border border-[var(--border)] bg-white p-4 transition-colors hover:border-[rgba(42,98,87,0.48)] sm:p-5"}><span className="flex items-start gap-3"><input type="radio" name="renewalChoice" value="AUTO" checked={renewalPreference === "AUTO"} onChange={() => setRenewalPreference("AUTO")} className="mt-1 h-5 w-5 shrink-0 accent-[var(--primary)]" /><span><span className="font-semibold text-[var(--foreground)]">{locale === "it" ? "Rinnovo automatico — Consigliato" : "Automatic renewal — Recommended"}</span><span className="mt-2 block text-sm leading-6 text-[var(--muted)]">{locale === "it" ? "€100/anno. Si rinnova automaticamente ogni anno. Puoi disattivare il rinnovo automatico in qualsiasi momento dal tuo account." : "€100/year. Renews automatically every year. Cancel automatic renewal anytime from your account."}</span></span></span></label> : null}<label className={effectiveRenewalPreference === "MANUAL" ? "block cursor-pointer rounded-[1.3rem] border border-[var(--primary)] bg-white p-4 shadow-[0_0_0_2px_rgba(42,98,87,0.12)] transition-colors sm:p-5" : "block cursor-pointer rounded-[1.3rem] border border-[var(--border)] bg-white p-4 transition-colors hover:border-[rgba(42,98,87,0.48)] sm:p-5"}><span className="flex items-start gap-3"><input type="radio" name="renewalChoice" value="MANUAL" checked={effectiveRenewalPreference === "MANUAL"} onChange={() => setRenewalPreference("MANUAL")} className="mt-1 h-5 w-5 shrink-0 accent-[var(--primary)]" /><span><span className="font-semibold text-[var(--foreground)]">{locale === "it" ? "Rinnovo manuale" : "Manual renewal"}</span><span className="mt-2 block text-sm leading-6 text-[var(--muted)]">{locale === "it" ? "€100/anno. Ti ricorderemo prima della scadenza. Dovrai rinnovare manualmente ogni anno." : "€100/year. We’ll remind you before your membership expires. You’ll need to renew manually each year."}</span></span></span></label></div></section> : null}{paymentOpeningError ? <p role="alert" className="rounded-2xl border border-[rgba(191,91,42,0.25)] bg-[rgba(255,248,243,0.96)] px-4 py-3 text-sm font-medium text-[var(--accent)]">{paymentOpeningError}</p> : null}{adminMode ? <div className="rounded-2xl bg-[rgba(42,98,87,0.08)] p-4 text-sm">{locale === "it" ? "Modalita admin: la pubblicazione non richiede il pagamento." : "Admin mode: publication does not require payment."}</div> : <div className="grid gap-5 lg:grid-cols-2"><article className="flex flex-col rounded-[1.6rem] border-[1.5px] border-[rgba(42,98,87,0.42)] bg-white p-5 shadow-[0_12px_30px_rgba(42,98,87,0.08)] sm:p-6"><div className="flex items-center justify-between gap-3"><span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(42,98,87,0.1)] text-[var(--primary)]"><IconQrcode size={23} /></span><span className="rounded-full bg-[rgba(42,98,87,0.1)] px-3 py-1.5 text-[0.68rem] font-bold tracking-[0.12em] text-[var(--primary)]">{locale === "it" ? "CONSIGLIATO" : "RECOMMENDED"}</span></div><h2 className="mt-5 font-serif text-2xl text-[var(--foreground)]">{locale === "it" ? "Paga ora dal telefono" : "Pay now by phone"}</h2><p className="mt-2 text-sm leading-6 text-[var(--muted)]">{locale === "it" ? "Il titolare paga in sicurezza dal proprio telefono." : "The owner pays securely on their own phone."}</p><div className="mt-5 grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-1 rounded-2xl bg-[rgba(247,244,239,0.65)] p-3 text-center text-[0.7rem] font-semibold text-[var(--foreground)] sm:gap-2 sm:p-4"><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[var(--primary)]">1</b>{locale === "it" ? "Mostra QR" : "Show QR"}</span><span className="text-[var(--muted)]">→</span><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[var(--primary)]">2</b>{locale === "it" ? "Scansiona" : "Owner scans"}</span><span className="text-[var(--muted)]">→</span><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[var(--primary)]">3</b>{locale === "it" ? "Paga" : "Owner pays"}</span></div><p className="mt-4 text-center text-xs text-[var(--muted)]">Card <span className="mx-1 text-[var(--border)]">•</span> Apple Pay <span className="mx-1 text-[var(--border)]">•</span> Google Pay</p><PaymentChoiceButton method="ONLINE" disabled={actionPending || Boolean(paymentOpeningMethod)} onSelect={continueWithPaymentMethod} className="btn-primary mt-5 min-h-12 w-full disabled:cursor-wait disabled:opacity-60"><IconQrcode size={18} />{paymentOpeningMethod === "ONLINE" ? (locale === "it" ? "Apertura..." : "Opening...") : locale === "it" ? "Mostra QR di pagamento" : "Show payment QR"}</PaymentChoiceButton></article><article className="flex flex-col rounded-[1.6rem] border border-[var(--border)] bg-white p-5 sm:p-6"><div className="flex items-center justify-between"><span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(128,110,85,0.1)] text-[#806e55]"><IconCashBanknote size={23} /></span></div><h2 className="mt-5 font-serif text-2xl text-[var(--foreground)]">{locale === "it" ? "Paga con bonifico" : "Pay by bank transfer"}</h2><p className="mt-2 text-sm leading-6 text-[var(--muted)]">{locale === "it" ? "Usa questa opzione se il titolare preferisce fare un bonifico." : "Use this if the owner prefers to make a transfer."}</p><div className="mt-5 grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-1 rounded-2xl bg-[rgba(247,244,239,0.65)] p-3 text-center text-[0.7rem] font-semibold text-[var(--foreground)] sm:gap-2 sm:p-4"><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[#806e55]">1</b>{locale === "it" ? "Mostra QR" : "Show QR"}</span><span className="text-[var(--muted)]">→</span><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[#806e55]">2</b>{locale === "it" ? "Scansiona" : "Owner scans"}</span><span className="text-[var(--muted)]">→</span><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[#806e55]">3</b>{locale === "it" ? "Segui le istruzioni" : "Follow instructions"}</span></div><div className="mt-4 flex items-start gap-2 text-xs leading-5 text-[var(--muted)]"><IconReceipt2 size={17} className="mt-0.5 shrink-0 text-[var(--accent)]" />{locale === "it" ? "La scheda va online dopo la ricezione del bonifico." : "The listing goes live after the transfer is received."}</div><PaymentChoiceButton method="BANK_TRANSFER" disabled={actionPending || Boolean(paymentOpeningMethod)} onSelect={continueWithPaymentMethod} className="btn-secondary mt-5 min-h-12 w-full disabled:cursor-wait disabled:opacity-60"><IconQrcode size={18} />{paymentOpeningMethod === "BANK_TRANSFER" ? (locale === "it" ? "Apertura..." : "Opening...") : locale === "it" ? "Mostra QR del bonifico" : "Show bank transfer QR"}</PaymentChoiceButton></article></div>}</div> : null}
+        {wizardStep === "payment" ? <div className="grid gap-6"><div><p className="section-kicker">{locale === "it" ? "Pagamento" : "Payment"}</p><h1 className="mt-2 font-serif text-4xl text-[var(--foreground)]">{locale === "it" ? (isOwnerFlow ? "Come preferisci pagare?" : "Come preferiscono pagare?") : (isOwnerFlow ? "How would you like to pay?" : "How would they like to pay?")}</h1><p className="mt-3 text-[var(--muted)]">{locale === "it" ? (isOwnerFlow ? "Scegli il metodo di pagamento per la tua scheda." : "Chiedi al titolare quale opzione preferisce.") : (isOwnerFlow ? "Choose how to pay for your listing." : "Ask the business owner which option they prefer.")}</p></div>{!adminMode ? <section className="rounded-[1.6rem] border border-[rgba(42,98,87,0.28)] bg-[rgba(237,248,242,0.52)] p-5 sm:p-6"><p className="text-sm font-bold uppercase tracking-[0.14em] text-[var(--primary)]">{locale === "it" ? "Rinnovo" : "Renewal"}</p><div className="mt-4 grid gap-3">{ownerEmail.trim() ? <label className={effectiveRenewalPreference === "AUTO" ? "block cursor-pointer rounded-[1.3rem] border border-[var(--primary)] bg-white p-4 shadow-[0_0_0_2px_rgba(42,98,87,0.12)] transition-colors sm:p-5" : "block cursor-pointer rounded-[1.3rem] border border-[var(--border)] bg-white p-4 transition-colors hover:border-[rgba(42,98,87,0.48)] sm:p-5"}><span className="flex items-start gap-3"><input type="radio" name="renewalChoice" value="AUTO" checked={renewalPreference === "AUTO"} onChange={() => setRenewalPreference("AUTO")} className="mt-1 h-5 w-5 shrink-0 accent-[var(--primary)]" /><span><span className="font-semibold text-[var(--foreground)]">{locale === "it" ? "Rinnovo automatico — Consigliato" : "Automatic renewal — Recommended"}</span><span className="mt-2 block text-sm leading-6 text-[var(--muted)]">{locale === "it" ? "€100/anno. Si rinnova automaticamente ogni anno. Puoi disattivare il rinnovo automatico in qualsiasi momento dal tuo account." : "€100/year. Renews automatically every year. Cancel automatic renewal anytime from your account."}</span></span></span></label> : null}<label className={effectiveRenewalPreference === "MANUAL" ? "block cursor-pointer rounded-[1.3rem] border border-[var(--primary)] bg-white p-4 shadow-[0_0_0_2px_rgba(42,98,87,0.12)] transition-colors sm:p-5" : "block cursor-pointer rounded-[1.3rem] border border-[var(--border)] bg-white p-4 transition-colors hover:border-[rgba(42,98,87,0.48)] sm:p-5"}><span className="flex items-start gap-3"><input type="radio" name="renewalChoice" value="MANUAL" checked={effectiveRenewalPreference === "MANUAL"} onChange={() => setRenewalPreference("MANUAL")} className="mt-1 h-5 w-5 shrink-0 accent-[var(--primary)]" /><span><span className="font-semibold text-[var(--foreground)]">{locale === "it" ? "Rinnovo manuale" : "Manual renewal"}</span><span className="mt-2 block text-sm leading-6 text-[var(--muted)]">{locale === "it" ? "€100/anno. Ti ricorderemo prima della scadenza. Dovrai rinnovare manualmente ogni anno." : "€100/year. We’ll remind you before your membership expires. You’ll need to renew manually each year."}</span></span></span></label></div></section> : null}{paymentOpeningError ? <p role="alert" className="rounded-2xl border border-[rgba(191,91,42,0.25)] bg-[rgba(255,248,243,0.96)] px-4 py-3 text-sm font-medium text-[var(--accent)]">{paymentOpeningError}</p> : null}{adminMode ? <div className="rounded-2xl bg-[rgba(42,98,87,0.08)] p-4 text-sm">{locale === "it" ? "Modalita admin: la pubblicazione non richiede il pagamento." : "Admin mode: publication does not require payment."}</div> : <div className="grid gap-5 lg:grid-cols-2"><article className="flex flex-col rounded-[1.6rem] border-[1.5px] border-[rgba(42,98,87,0.42)] bg-white p-5 shadow-[0_12px_30px_rgba(42,98,87,0.08)] sm:p-6"><div className="flex items-center justify-between gap-3"><span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(42,98,87,0.1)] text-[var(--primary)]"><IconQrcode size={23} /></span><span className="rounded-full bg-[rgba(42,98,87,0.1)] px-3 py-1.5 text-[0.68rem] font-bold tracking-[0.12em] text-[var(--primary)]">{locale === "it" ? "CONSIGLIATO" : "RECOMMENDED"}</span></div><h2 className="mt-5 font-serif text-2xl text-[var(--foreground)]">{locale === "it" ? "Paga ora dal telefono" : "Pay now by phone"}</h2><p className="mt-2 text-sm leading-6 text-[var(--muted)]">{locale === "it" ? (isOwnerFlow ? "Paga in sicurezza dal tuo telefono." : "Il titolare paga in sicurezza dal proprio telefono.") : (isOwnerFlow ? "Pay securely on your phone." : "The owner pays securely on their own phone.")}</p><div className="mt-5 grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-1 rounded-2xl bg-[rgba(247,244,239,0.65)] p-3 text-center text-[0.7rem] font-semibold text-[var(--foreground)] sm:gap-2 sm:p-4"><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[var(--primary)]">1</b>{locale === "it" ? "Mostra QR" : "Show QR"}</span><span className="text-[var(--muted)]">→</span><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[var(--primary)]">2</b>{locale === "it" ? "Scansiona" : (isOwnerFlow ? "Scan" : "Owner scans")}</span><span className="text-[var(--muted)]">→</span><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[var(--primary)]">3</b>{locale === "it" ? "Paga" : (isOwnerFlow ? "Pay" : "Owner pays")}</span></div><p className="mt-4 text-center text-xs text-[var(--muted)]">Card <span className="mx-1 text-[var(--border)]">•</span> Apple Pay <span className="mx-1 text-[var(--border)]">•</span> Google Pay</p><PaymentChoiceButton method="ONLINE" disabled={actionPending || Boolean(paymentOpeningMethod)} onSelect={continueWithPaymentMethod} className="btn-primary mt-5 min-h-12 w-full disabled:cursor-wait disabled:opacity-60"><IconQrcode size={18} />{paymentOpeningMethod === "ONLINE" ? (locale === "it" ? "Apertura..." : "Opening...") : locale === "it" ? "Mostra QR di pagamento" : "Show payment QR"}</PaymentChoiceButton></article><article className="flex flex-col rounded-[1.6rem] border border-[var(--border)] bg-white p-5 sm:p-6"><div className="flex items-center justify-between"><span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(128,110,85,0.1)] text-[#806e55]"><IconCashBanknote size={23} /></span></div><h2 className="mt-5 font-serif text-2xl text-[var(--foreground)]">{locale === "it" ? "Paga con bonifico" : "Pay by bank transfer"}</h2><p className="mt-2 text-sm leading-6 text-[var(--muted)]">{locale === "it" ? (isOwnerFlow ? "Usa questa opzione se preferisci fare un bonifico." : "Usa questa opzione se il titolare preferisce fare un bonifico.") : (isOwnerFlow ? "Use this if you prefer to make a transfer." : "Use this if the owner prefers to make a transfer.")}</p><div className="mt-5 grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-1 rounded-2xl bg-[rgba(247,244,239,0.65)] p-3 text-center text-[0.7rem] font-semibold text-[var(--foreground)] sm:gap-2 sm:p-4"><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[#806e55]">1</b>{locale === "it" ? "Mostra QR" : "Show QR"}</span><span className="text-[var(--muted)]">→</span><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[#806e55]">2</b>{locale === "it" ? "Scansiona" : (isOwnerFlow ? "Scan" : "Owner scans")}</span><span className="text-[var(--muted)]">→</span><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[#806e55]">3</b>{locale === "it" ? "Segui le istruzioni" : "Follow instructions"}</span></div><div className="mt-4 flex items-start gap-2 text-xs leading-5 text-[var(--muted)]"><IconReceipt2 size={17} className="mt-0.5 shrink-0 text-[var(--accent)]" />{locale === "it" ? "La scheda va online dopo la ricezione del bonifico." : "The listing goes live after the transfer is received."}</div><PaymentChoiceButton method="BANK_TRANSFER" disabled={actionPending || Boolean(paymentOpeningMethod)} onSelect={continueWithPaymentMethod} className="btn-secondary mt-5 min-h-12 w-full disabled:cursor-wait disabled:opacity-60"><IconQrcode size={18} />{paymentOpeningMethod === "BANK_TRANSFER" ? (locale === "it" ? "Apertura..." : "Opening...") : locale === "it" ? "Mostra QR del bonifico" : "Show bank transfer QR"}</PaymentChoiceButton></article></div>}</div> : null}
       </section>
 
       {showWizardFooter ? <div className={`publish-form-footer flex flex-wrap justify-end gap-3 border-t border-[rgba(42,98,87,0.12)] bg-[rgba(255,255,255,0.72)] p-3 sm:p-4 ${collectionIndex >= 0 ? `collection-wizard-footer ${previousWizardStep ? "collection-wizard-footer--with-back" : "collection-wizard-footer--without-back"}` : ""} ${specialFooterStep ? "special-wizard-footer" : ""}`}>
@@ -2818,7 +2667,7 @@ export function PublishForm({
         {previousWizardStep ? <button type="button" disabled={draftSavePending || actionPending} onClick={goToPreviousStep} className="btn-secondary disabled:cursor-wait disabled:opacity-50">{showFooterButtonIcons ? <IconArrowLeft size={18} aria-hidden="true" /> : null}{locale === "it" ? "Indietro" : "Back"}</button> : null}
         {!(isEditMode && wizardStep === "photos") ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => requestDraftSave("manual", true)} className="btn-secondary disabled:cursor-wait disabled:opacity-50">{showFooterButtonIcons && !(draftSavePending || actionPending) ? <IconDeviceFloppy size={18} aria-hidden="true" /> : null}{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : locale === "it" ? "Salva ed esci" : "Save & exit"}</button> : null}
         {wizardStep === "business" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep("contact")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
-        {wizardStep === "contact" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep("owner")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
+        {wizardStep === "contact" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep(skipOwnerStep ? "about" : "owner")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
         {wizardStep === "owner" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep("about")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
         {wizardStep === "about" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep("hours")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
         {wizardStep === "hours" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep("photos")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}

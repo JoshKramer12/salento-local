@@ -91,12 +91,12 @@ export function BusinessClaimVerifyForm({
         <label className="field-label">
           <span>{copy.code}</span>
           <input name="code" type="hidden" value={digits.join("")} />
-          <span className="grid grid-cols-6 gap-2 sm:gap-3" role="group" aria-label={copy.code}>
+          <span className="verification-code-grid" role="group" aria-label={copy.code}>
             {digits.map((digit, index) => (
               <input
                 aria-label={`${copy.code} ${index + 1}`}
                 autoComplete={index === 0 ? "one-time-code" : "off"}
-                className="input-field min-w-0 px-0 text-center text-xl font-semibold sm:text-2xl"
+                className="input-field verification-code-input"
                 inputMode="numeric"
                 key={index}
                 maxLength={codeLength}

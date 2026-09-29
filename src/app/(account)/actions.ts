@@ -29,8 +29,6 @@ import {
   buildAddressSelectionStorage,
   buildGoogleMapsSearchUrl,
   buildSelectedAddressFromStoredFields,
-  buildStreetAddressLine,
-  normalizeAddressSelectionValue,
 } from "@/lib/address-selection";
 import { signIn } from "@/lib/auth";
 import { canManageBusiness, findUserByNormalizedEmail } from "@/lib/business-owner-access";
@@ -50,15 +48,6 @@ import {
   normalizeSubmissionSocialValue,
 } from "@/lib/business-links";
 import { mergeBusinessPhotoUrls } from "@/lib/business-photos";
-import {
-  getBusinessNameCandidateSearchTerms,
-  getBusinessNameMatchStrength,
-  isBusinessNameDuplicateSignal,
-  isBlockingDuplicateBusinessMatch,
-  normalizeDuplicateBusinessName,
-  normalizeDuplicatePhone,
-  normalizedAddressValuesMatch,
-} from "@/lib/duplicate-business-matching";
 import { sendVerificationCode } from "@/lib/claim-delivery";
 import type { Locale } from "@/lib/i18n";
 import {
@@ -174,20 +163,7 @@ export type SubmissionFormValues = {
   whatsapp: string;
 };
 
-export type DuplicateBusinessMatch = {
-  address: string;
-  categoryName: string;
-  id: string;
-  matchReasons: Array<"address" | "name" | "phone">;
-  name: string;
-  phone: string | null;
-  slug: string;
-  townName: string;
-};
-
 export type FormState = {
-  duplicateCheckMessage?: string;
-  duplicateMatches?: DuplicateBusinessMatch[];
   error?: string;
   fieldErrors?: Record<string, string>;
   invalidFields?: string[];
@@ -373,42 +349,56 @@ function buildFieldErrors(
   );
 }
 
-function buildSubmissionFieldErrors(fields: string[], locale: Locale) {
+function getSubmissionCopy(locale: Locale, role?: string) {
+  const copy = formCopy[locale];
+  if (role !== "BUSINESS_OWNER") return copy;
+  return {
+    ...copy,
+    missingAgreement: locale === "it" ? "Conferma di approvare la tua scheda e il prezzo." : "Confirm that you approve your listing and price.",
+    missingSignature: locale === "it" ? "Aggiungi la tua firma prima di inviare." : "Add your signature before submitting.",
+    missingPaymentMethod: locale === "it" ? "Scegli come pagare la tua scheda." : "Choose how to pay for your listing.",
+    missingSignerName: locale === "it" ? "Inserisci il tuo nome completo." : "Enter your full name.",
+    missingSignerRole: locale === "it" ? "Scegli il tuo ruolo nell'attività." : "Choose your role in the business.",
+  };
+}
+
+function buildSubmissionFieldErrors(fields: string[], locale: Locale, role?: string) {
+  const copy = getSubmissionCopy(locale, role);
   const map: Record<string, string> = {
-    address: formCopy[locale].invalidForm,
-    addressCountry: formCopy[locale].missingAddressSelection,
-    addressCountryCode: formCopy[locale].missingAddressSelection,
-    addressLatitude: formCopy[locale].missingAddressSelection,
-    addressLocality: formCopy[locale].missingAddressSelection,
-    addressLongitude: formCopy[locale].missingAddressSelection,
-    addressPlaceId: formCopy[locale].missingAddressSelection,
-    addressPostalCode: formCopy[locale].missingAddressSelection,
-    addressProvince: formCopy[locale].missingAddressSelection,
-    addressRegion: formCopy[locale].missingAddressSelection,
-    addressRoute: formCopy[locale].missingAddressSelection,
-    addressStreetNumber: formCopy[locale].missingAddressSelection,
-    businessName: formCopy[locale].invalidForm,
-    businessTermsAccepted: formCopy[locale].missingBusinessTerms,
-    categoryId: formCopy[locale].unknownTown,
-    email: formCopy[locale].invalidForm,
-    longDescription: formCopy[locale].missingOfferItems,
-    openingHours: formCopy[locale].invalidForm,
-    ownerEmail: formCopy[locale].invalidForm,
-    agreementSignature: formCopy[locale].missingSignature,
-    ownerName: formCopy[locale].invalidForm,
-    ownerPhone: formCopy[locale].invalidForm,
-    signerFullName: formCopy[locale].missingSignerName,
-    signerRole: formCopy[locale].missingSignerRole,
-    signerRoleOther: formCopy[locale].missingSignerRoleOther,
-    paymentMethod: formCopy[locale].missingPaymentMethod,
-    phone: formCopy[locale].invalidForm,
-    photoUrls: formCopy[locale].missingPhotos,
-    shortDescription: formCopy[locale].invalidForm,
-    townId: formCopy[locale].unknownTown,
-    whatsapp: formCopy[locale].invalidForm,
+    address: copy.invalidForm,
+    addressCountry: copy.missingAddressSelection,
+    addressCountryCode: copy.missingAddressSelection,
+    addressLatitude: copy.missingAddressSelection,
+    addressLocality: copy.missingAddressSelection,
+    addressLongitude: copy.missingAddressSelection,
+    addressPlaceId: copy.missingAddressSelection,
+    addressPostalCode: copy.missingAddressSelection,
+    addressProvince: copy.missingAddressSelection,
+    addressRegion: copy.missingAddressSelection,
+    addressRoute: copy.missingAddressSelection,
+    addressStreetNumber: copy.missingAddressSelection,
+    businessName: copy.invalidForm,
+    businessTermsAccepted: copy.missingBusinessTerms,
+    categoryId: copy.unknownTown,
+    email: copy.invalidForm,
+    longDescription: copy.missingOfferItems,
+    openingHours: copy.invalidForm,
+    ownerEmail: copy.invalidForm,
+    agreementSignature: copy.missingSignature,
+    ownerName: copy.invalidForm,
+    ownerPhone: copy.invalidForm,
+    signerFullName: copy.missingSignerName,
+    signerRole: copy.missingSignerRole,
+    signerRoleOther: copy.missingSignerRoleOther,
+    paymentMethod: copy.missingPaymentMethod,
+    phone: copy.invalidForm,
+    photoUrls: copy.missingPhotos,
+    shortDescription: copy.invalidForm,
+    townId: copy.unknownTown,
+    whatsapp: copy.invalidForm,
   };
 
-  return Object.fromEntries(fields.map((field) => [field, map[field] ?? formCopy[locale].invalidForm]));
+  return Object.fromEntries(fields.map((field) => [field, map[field] ?? copy.invalidForm]));
 }
 
 function resolveVerificationDeliveryErrorMessage(error: unknown, locale: Locale) {
@@ -436,220 +426,6 @@ function slugify(value: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .replace(/-{2,}/g, "-");
-}
-
-async function findPotentialDuplicateBusinesses(input: {
-  address: string;
-  addressPlaceId?: string | null;
-  businessName: string;
-  existingBusinessId?: string | null;
-  phone?: string | null;
-  route?: string | null;
-  streetNumber?: string | null;
-  townId: string;
-}) {
-  const normalizedName = normalizeDuplicateBusinessName(input.businessName);
-  const normalizedAddress = normalizeAddressSelectionValue(input.address);
-  const normalizedPhone = normalizeDuplicatePhone(input.phone);
-  const nameCandidateSearchTerms = getBusinessNameCandidateSearchTerms(input.businessName);
-  const streetAddress = buildStreetAddressLine({
-    formattedAddress: input.address,
-    route: input.route ?? null,
-    streetNumber: input.streetNumber ?? null,
-  });
-  const normalizedStreetAddress = normalizeAddressSelectionValue(streetAddress);
-  const localClauses: Prisma.BusinessWhereInput[] = [];
-  const clauses: Prisma.BusinessWhereInput[] = [];
-
-  if (input.addressPlaceId) {
-    localClauses.push({
-      addressPlaceId: input.addressPlaceId,
-    });
-  }
-
-  if (normalizedName) {
-    localClauses.push({
-      name: {
-        equals: input.businessName.trim(),
-      },
-    });
-  }
-
-  for (const token of nameCandidateSearchTerms) {
-    localClauses.push({
-      name: {
-        contains: token,
-      },
-    });
-  }
-
-  if (input.address.trim()) {
-    localClauses.push({
-      address: {
-        equals: input.address.trim(),
-      },
-    });
-  }
-
-  if (input.route?.trim() && input.streetNumber?.trim()) {
-    localClauses.push({
-      AND: [
-        {
-          addressRoute: {
-            equals: input.route.trim(),
-          },
-        },
-        {
-          addressStreetNumber: {
-            equals: input.streetNumber.trim(),
-          },
-        },
-      ],
-    });
-    localClauses.push({
-      AND: [
-        {
-          address: {
-            contains: input.route.trim(),
-          },
-        },
-        {
-          address: {
-            contains: input.streetNumber.trim(),
-          },
-        },
-      ],
-    });
-  }
-
-  if (normalizedPhone.length >= 6) {
-    clauses.push({
-      phone: {
-        contains: normalizedPhone.slice(-6),
-      },
-    });
-  }
-
-  if (localClauses.length) {
-    clauses.push({
-      AND: [
-        {
-          townId: input.townId,
-        },
-        {
-          OR: localClauses,
-        },
-      ],
-    });
-  }
-
-  if (!clauses.length) {
-    return [];
-  }
-
-  const businesses = await prisma.business.findMany({
-    where: {
-      id: input.existingBusinessId
-        ? {
-            not: input.existingBusinessId,
-          }
-        : undefined,
-      isLikelyClosed: false,
-      OR: clauses,
-    },
-    select: {
-      address: true,
-      addressPlaceId: true,
-      addressRoute: true,
-      addressStreetNumber: true,
-      category: {
-        select: {
-          name: true,
-        },
-      },
-      id: true,
-      name: true,
-      phone: true,
-      slug: true,
-      townId: true,
-      town: {
-        select: {
-          name: true,
-        },
-      },
-    },
-    take: 32,
-  });
-
-  return businesses
-    .map((business) => {
-      const businessAddressNormalized = normalizeAddressSelectionValue(business.address);
-      const businessStreetAddressNormalized = normalizeAddressSelectionValue(
-        buildStreetAddressLine({
-          formattedAddress: business.address,
-          route: business.addressRoute,
-          streetNumber: business.addressStreetNumber,
-        }),
-      );
-
-      const addressMatches =
-        (input.addressPlaceId && business.addressPlaceId === input.addressPlaceId) ||
-        normalizedAddressValuesMatch(
-          [normalizedAddress, normalizedStreetAddress],
-          [businessAddressNormalized, businessStreetAddressNormalized],
-        );
-
-      const phoneMatches = Boolean(
-        normalizedPhone &&
-        business.phone &&
-        normalizeDuplicatePhone(business.phone) === normalizedPhone
-      );
-      const nameMatchStrength = getBusinessNameMatchStrength(input.businessName, business.name);
-      const matchReasons: DuplicateBusinessMatch["matchReasons"] = [];
-
-      if (
-        isBusinessNameDuplicateSignal({
-          addressMatches,
-          matchStrength: nameMatchStrength,
-          phoneMatches,
-          sameTown: business.townId === input.townId,
-        })
-      ) {
-        matchReasons.push("name");
-      }
-
-      if (addressMatches) {
-        matchReasons.push("address");
-      }
-
-      if (phoneMatches) {
-        matchReasons.push("phone");
-      }
-
-      if (!matchReasons.length) {
-        return null;
-      }
-
-      return {
-        address: business.address,
-        categoryName: business.category.name,
-        id: business.id,
-        matchReasons,
-        name: business.name,
-        phone: business.phone,
-        slug: business.slug,
-        townName: business.town.name,
-      } satisfies DuplicateBusinessMatch;
-    })
-    .filter((business): business is DuplicateBusinessMatch => Boolean(business))
-    .filter((business) =>
-      isBlockingDuplicateBusinessMatch({
-        candidateName: business.name,
-        matchReasons: business.matchReasons,
-        submittedName: input.businessName,
-      }),
-    )
-    .sort((left, right) => right.matchReasons.length - left.matchReasons.length);
 }
 
 function buildBusinessDescription(shortDescription: string, longDescription: string) {
@@ -1353,7 +1129,6 @@ export async function saveBusinessSubmissionAction(
       locale,
       onInvalidResult: (reason) => {
         console.error("[publish:payment-action-contract]", {
-          duplicateMatchCount: result.duplicateMatches?.length ?? 0,
           paymentMethod: requestedPaymentMethod,
           reason,
           submissionId: getStringValue(formData.get("submissionId")),
@@ -1432,11 +1207,11 @@ async function saveBusinessSubmission(
 ): Promise<FormState> {
   const locale = getLocaleFromForm(formData);
   const viewer = await requireCompletedViewer();
+  const submissionCopy = getSubmissionCopy(locale, viewer.role);
   const adminMode =
     getStringValue(formData.get("adminMode")) === "true" && viewer.role === "ADMIN";
   const requestedIntent = getStringValue(formData.get("intent"));
   const intent = requestedIntent === "submit" ? "submit" : "draft";
-  const isDuplicateCheck = requestedIntent === "check";
   const exitAfterDraftSave = getStringValue(formData.get("exitAfterDraftSave")) === "true";
   const submissionId = getStringValue(formData.get("submissionId")).trim();
   const rawSubmission = {
@@ -1501,7 +1276,7 @@ async function saveBusinessSubmission(
 
     return {
       error: formCopy[locale].invalidForm,
-      fieldErrors: buildSubmissionFieldErrors(invalidFields, locale),
+      fieldErrors: buildSubmissionFieldErrors(invalidFields, locale, viewer.role),
       invalidFields,
       submission: rawSubmission,
     };
@@ -1521,17 +1296,17 @@ async function saveBusinessSubmission(
     getStringValue(formData.get("renewalPreference")) !== "MANUAL") {
     return {
       error: locale === "it"
-        ? "Per un titolare senza email scegli il rinnovo manuale."
-        : "Choose manual renewal for an owner without email.",
+        ? (viewer.role === "BUSINESS_OWNER" ? "Scegli il rinnovo manuale se non hai un’email." : "Per un titolare senza email scegli il rinnovo manuale.")
+        : (viewer.role === "BUSINESS_OWNER" ? "Choose manual renewal if you do not have an email." : "Choose manual renewal for an owner without email."),
       submission: rawSubmission,
     };
   }
 
   if (wantsPaymentStep && getStringValue(formData.get("agreement")) !== "on") {
     return {
-      error: formCopy[locale].missingAgreement,
+      error: submissionCopy.missingAgreement,
       fieldErrors: {
-        agreement: formCopy[locale].missingAgreement,
+        agreement: submissionCopy.missingAgreement,
       },
       invalidFields: ["agreement"],
       submission: rawSubmission,
@@ -1616,30 +1391,6 @@ async function saveBusinessSubmission(
     ? buildAddressSelectionStorage(selectedAddress)
     : null;
 
-  // The guided form checks for an existing listing as soon as the business and
-  // address are known.  It deliberately does not write a record: the regular
-  // submit path below remains the single authority for creating a submission.
-  if (isDuplicateCheck) {
-    const duplicateMatches = await findPotentialDuplicateBusinesses({
-      address: parsed.data.address,
-      addressPlaceId: selectedAddressStorage?.addressPlaceId,
-      businessName: parsed.data.businessName,
-      phone: parsed.data.phone,
-      route: selectedAddressStorage?.addressRoute,
-      streetNumber: selectedAddressStorage?.addressStreetNumber,
-      townId: parsed.data.townId,
-    });
-
-    return {
-      duplicateCheckMessage: duplicateMatches.length
-        ? locale === "it"
-          ? "Abbiamo trovato una scheda simile. Aprila per controllare i dettagli."
-          : "We found a similar listing. Open it to review the details."
-        : "",
-      duplicateMatches,
-      submission: rawSubmission,
-    };
-  }
   let existingSubmission: {
     createdBusinessId: string | null;
     id: string;
@@ -1832,44 +1583,6 @@ async function saveBusinessSubmission(
       revalidatePath(`/towns/${business.town.slug}`);
 
       redirect(`/businesses/${business.slug}`);
-    }
-  }
-
-  const draftDuplicateMatches =
-    intent === "draft"
-      ? await findPotentialDuplicateBusinesses({
-          address: parsed.data.address,
-          addressPlaceId: selectedAddressStorage?.addressPlaceId,
-          businessName: parsed.data.businessName,
-          existingBusinessId: existingSubmission?.createdBusinessId ?? null,
-          phone: parsed.data.phone,
-          route: selectedAddressStorage?.addressRoute,
-          streetNumber: selectedAddressStorage?.addressStreetNumber,
-          townId: parsed.data.townId,
-        })
-      : [];
-
-  if (intent === "submit") {
-    const duplicateMatches = await findPotentialDuplicateBusinesses({
-      address: parsed.data.address,
-      addressPlaceId: selectedAddressStorage?.addressPlaceId,
-      businessName: parsed.data.businessName,
-      existingBusinessId: existingSubmission?.createdBusinessId ?? null,
-      phone: parsed.data.phone,
-      route: selectedAddressStorage?.addressRoute,
-      streetNumber: selectedAddressStorage?.addressStreetNumber,
-      townId: parsed.data.townId,
-    });
-
-    if (duplicateMatches.length) {
-      return {
-        duplicateCheckMessage:
-          locale === "it"
-            ? "Abbiamo trovato una scheda simile. Aprila per controllare i dettagli."
-            : "We found a similar listing. Open it to review the details.",
-        duplicateMatches,
-        submission: rawSubmission,
-      };
     }
   }
 
@@ -2146,12 +1859,6 @@ async function saveBusinessSubmission(
     }
 
     return {
-      duplicateCheckMessage: draftDuplicateMatches.length
-        ? locale === "it"
-          ? "Abbiamo trovato una scheda simile. Aprila per controllare i dettagli."
-          : "We found a similar listing. Open it to review the details."
-        : "",
-      duplicateMatches: draftDuplicateMatches,
       notice:
         locale === "it"
           ? "Bozza salvata. Puoi continuare da qui oppure ritrovarla nelle tue bozze."
@@ -2202,12 +1909,6 @@ async function saveBusinessSubmission(
     }
 
     return {
-      duplicateCheckMessage: draftDuplicateMatches.length
-        ? locale === "it"
-          ? "Abbiamo trovato una scheda simile. Aprila per controllare i dettagli."
-          : "We found a similar listing. Open it to review the details."
-        : "",
-      duplicateMatches: draftDuplicateMatches,
       notice:
         locale === "it"
           ? "Bozza salvata. Puoi continuare da qui oppure ritrovarla nelle tue bozze."

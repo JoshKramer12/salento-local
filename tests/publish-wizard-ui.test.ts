@@ -4,7 +4,7 @@ import test from "node:test";
 
 const publishForm = readFileSync("src/components/account/publish-form.tsx", "utf8");
 
-test("the collection wizard retains the six real steps and marks the active step", () => {
+test("the collection wizard keeps Partner and edit steps and omits the standalone Owner step", () => {
   for (const step of ["business", "contact", "owner", "about", "hours", "photos"]) {
     assert.match(publishForm, new RegExp(`key: "${step}"`));
   }
@@ -52,11 +52,13 @@ test("partner review uses larger, undistorted submitted photo previews and keeps
   assert.match(publishForm, /flex flex-wrap justify-end gap-3[\s\S]*Hand phone to owner/);
 });
 
-test("a duplicate result stops the guided flow before owner approval and payment", () => {
-  assert.match(publishForm, /wizardStep === "duplicate-blocked"/);
-  assert.match(publishForm, /showWizardFooter = wizardStep !== "duplicate-blocked"/);
-  assert.match(publishForm, /duplicateReviewSection/);
-  assert.doesNotMatch(publishForm, /copy\.duplicateNewBusiness|copy\.duplicateSameBusiness/);
+test("Owner navigation skips the standalone private-contact page in both directions", () => {
+  assert.match(publishForm, /skipOwnerStep = isOwnerFlow && !isEditMode/);
+  assert.match(publishForm, /goToNextStep\(skipOwnerStep \? "about" : "owner"\)/);
+  assert.match(publishForm, /case "about":\s*return skipOwnerStep \? "contact" : "owner"/);
+  assert.match(publishForm, /wizardStep === "contact" && skipOwnerStep/);
+  assert.match(publishForm, /Your private contact information/);
+  assert.doesNotMatch(publishForm, /duplicate-blocked/);
 });
 
 test("add another photo uses the full available width without changing photo input behavior", () => {

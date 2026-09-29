@@ -20,6 +20,11 @@ export function getOwnerPhoneStepError(params: {
     : isPossiblePhoneNumber(params.ownerPhone);
   if (valid) return "";
 
+  if (params.submitterRole === "BUSINESS_OWNER") {
+    return params.locale === "it"
+      ? (!params.ownerPhone.trim() ? "Inserisci il tuo numero WhatsApp." : "Controlla il tuo numero WhatsApp e il prefisso internazionale.")
+      : (!params.ownerPhone.trim() ? "Enter your WhatsApp number." : "Check your WhatsApp number and country code.");
+  }
   if (!params.ownerPhone.trim()) {
     return params.locale === "it"
       ? "Inserisci il numero WhatsApp del titolare o responsabile."
@@ -41,6 +46,11 @@ export function getOwnerStepError(params: {
   const phoneError = getOwnerPhoneStepError(params);
   if (phoneError) return phoneError;
   if (params.ownerName.trim() && (params.ownerHasNoEmail || ownerEmailPattern.test(params.ownerEmail))) return "";
+  if (params.submitterRole === "BUSINESS_OWNER") {
+    return params.locale === "it"
+      ? "Completa i tuoi dati privati, oppure conferma che non hai un’email."
+      : "Complete your private details, or confirm you do not have an email.";
+  }
   return params.locale === "it"
     ? "Completa i dati privati del titolare, oppure conferma che non ha email."
     : "Complete the owner's private details, or confirm they do not have an email.";

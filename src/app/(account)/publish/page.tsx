@@ -13,6 +13,7 @@ import {
 } from "@/lib/partner-onboarding";
 import { getPartnerPayoutSetupSummary } from "@/lib/partner-connect";
 import { buildPhoneCountryOptions } from "@/lib/phone-country-options";
+import { getPublishOwnerContactDefaults } from "@/lib/publish-owner-contact";
 import { prisma } from "@/lib/prisma";
 import { getSingleParam } from "@/lib/site";
 import { buildDraftLikeSubmissionWhere } from "@/lib/submission-drafts";
@@ -74,6 +75,7 @@ export default async function PublishPage({ searchParams }: PublishPageProps) {
     submission,
     draftCount,
     successfulSubmissionCount,
+    ownerContactDefaults,
   ] = await Promise.all([
     prisma.town.findMany({
       select: {
@@ -114,6 +116,9 @@ export default async function PublishPage({ searchParams }: PublishPageProps) {
         status: "PUBLISHED",
       },
     }),
+    viewer.role === "BUSINESS_OWNER" && !adminMode
+      ? getPublishOwnerContactDefaults(viewer.id)
+      : Promise.resolve(undefined),
   ]);
 
   if (submission && submission.userId !== viewer.id) {
@@ -135,6 +140,9 @@ export default async function PublishPage({ searchParams }: PublishPageProps) {
 
       <PublishForm
         adminMode={adminMode}
+        ownerContactDefaults={ownerContactDefaults}
+        viewerId={viewer.id}
+        submissionUpdatedAt={submission?.updatedAt.toISOString()}
         categories={categories}
         googlePlacesApiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() ?? ""}
         locale={locale}

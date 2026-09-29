@@ -156,10 +156,14 @@ test("Delete draft opens an accessible confirmation and Cancel leaves the draft 
     await harness.click(harness.getDraftTrigger("plain-draft"));
     assert.equal(harness.dom.window.document.querySelector("[role=alertdialog]")?.textContent?.includes("Are you sure you want to delete this draft?"), true);
     assert.equal(harness.dom.window.document.activeElement?.textContent, "Cancel");
+    assert.equal(harness.dom.window.document.querySelector("[role=presentation]")?.parentElement, harness.dom.window.document.body);
+    assert.equal(harness.dom.window.document.body.style.overflow, "hidden");
 
     await harness.click(harness.getDialogButton("Cancel"));
     assert.equal(harness.dom.window.document.querySelector("[role=alertdialog]"), null);
     assert.equal(harness.count(), "1");
+    assert.equal(harness.dom.window.document.body.style.overflow, "");
+    assert.equal(harness.dom.window.document.activeElement, harness.getDraftTrigger("plain-draft"));
     assert.deepEqual(deleted, []);
 
     await harness.click(harness.getDraftTrigger("plain-draft"));

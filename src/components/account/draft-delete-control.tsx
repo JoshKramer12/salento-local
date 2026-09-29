@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import type { Locale } from "@/lib/i18n";
 
@@ -58,6 +59,13 @@ export function DraftDeleteControl({
     } else if (hasOpenedRef.current) {
       triggerRef.current?.focus();
     }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previousOverflow; };
   }, [isOpen]);
 
   function close() {
@@ -123,9 +131,9 @@ export function DraftDeleteControl({
       >
         {copy.trigger}
       </button>
-      {isOpen ? (
+      {isOpen ? createPortal(
         <div
-          className="fixed inset-0 z-50 grid place-items-center bg-[rgba(36,50,58,0.45)] p-4"
+          className="fixed inset-0 z-[100] grid place-items-center overscroll-contain bg-[rgba(36,50,58,0.45)] p-4"
           role="presentation"
         >
           <div
@@ -134,7 +142,7 @@ export function DraftDeleteControl({
             aria-modal="true"
             aria-labelledby={dialogTitleId}
             aria-describedby={dialogDescriptionId}
-            className="w-full max-w-md rounded-[1.75rem] border border-[var(--border)] bg-white p-5 shadow-[0_24px_46px_rgba(36,50,58,0.22)] sm:p-6"
+            className="max-h-[calc(100dvh-2rem)] w-full min-w-0 max-w-md overflow-y-auto rounded-[1.75rem] border border-[var(--border)] bg-white p-5 shadow-[0_24px_46px_rgba(36,50,58,0.22)] sm:p-6"
             onKeyDown={handleDialogKeyDown}
           >
             <h2 id={dialogTitleId} className="font-serif text-2xl text-[var(--foreground)]">
@@ -143,17 +151,17 @@ export function DraftDeleteControl({
             <p id={dialogDescriptionId} className="mt-3 text-sm leading-6 text-[var(--muted)]">
               {copy.description}
             </p>
-            <p className="mt-2 text-sm font-medium text-[var(--foreground)]">{businessName}</p>
+            <p className="mt-2 break-words text-sm font-medium text-[var(--foreground)]">{businessName}</p>
             {error ? (
               <p role="alert" className="mt-4 rounded-xl bg-[rgba(191,91,42,0.1)] p-3 text-sm text-[var(--foreground)]">
                 {error}
               </p>
             ) : null}
-            <div className="mt-6 flex flex-wrap justify-end gap-3">
+            <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <button
                 ref={cancelButtonRef}
                 type="button"
-                className="btn-secondary"
+                className="btn-secondary min-h-12 w-full"
                 disabled={isDeleting}
                 onClick={close}
               >
@@ -161,7 +169,7 @@ export function DraftDeleteControl({
               </button>
               <button
                 type="button"
-                className="btn-primary"
+                className="btn-primary min-h-12 w-full"
                 disabled={isDeleting}
                 onClick={() => void confirmDeletion()}
               >
@@ -169,7 +177,8 @@ export function DraftDeleteControl({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </>
   );
