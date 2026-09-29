@@ -33,7 +33,7 @@ test("business-card layouts collapse safely for mobile without changing membersh
   assert.match(dashboard, /lg:grid lg:grid-cols-\[/);
   assert.match(dashboard, /grid w-full gap-2 sm:w-auto sm:grid-cols-2/);
   assert.match(dashboard, /if \(!membership\) return "LEGACY"/);
-  assert.match(dashboard, /state === "EXPIRED" \|\| state === "REFUNDED"\s*\? c\.hidden/);
+  assert.match(dashboard, /state === "EXPIRED"\s*\? c\.hidden/);
   assert.match(dashboard, /state === "GRACE"\s*\? `\$\{c\.graceEnd\}/);
 });
 

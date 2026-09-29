@@ -315,7 +315,14 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     const firstName = displayName.split(/\s+/)[0] || viewer.username;
     const businessesWithRefund = await Promise.all(businesses.map(async (business) => {
       const refund = await findInitialRefundForBusiness(business.id);
-      return { ...business, refundState: refund.state, refundDeadline: refund.deadline, refundMethod: refund.payment?.method ?? null };
+      return {
+        ...business,
+        refundState: refund.state,
+        refundDeadline: refund.deadline,
+        refundMethod: refund.payment?.method ?? null,
+        refundAmountCents: refund.payment?.amountCents ?? null,
+        refundCurrency: refund.payment?.currency ?? null,
+      };
     }));
 
     return (

@@ -85,8 +85,8 @@ export function BusinessHero({
         <div className="mt-6 grid gap-2.5 min-[360px]:grid-cols-2">
           {phone && callHref ? <a href={callHref} className="btn-primary min-h-12 px-5"><IconPhone size={17} />{copy.call}</a> : null}
           {directionsHref ? <a href={directionsHref} target="_blank" rel="noreferrer" className="btn-secondary min-h-12 border-[var(--primary)] px-5 !text-[var(--primary)]"><IconRoute size={17} />{copy.directions}</a> : null}
+          {claimHref ? <Link href={claimHref} className="btn-secondary min-h-12 justify-center px-5">{copy.claim}</Link> : null}
         </div>
-        {claimHref ? <Link href={claimHref} className="mt-5 inline-flex w-fit max-w-full items-center text-sm font-medium text-[var(--muted-strong)] underline decoration-[var(--border)] underline-offset-4 transition hover:text-[var(--primary)] hover:decoration-[var(--primary)]">{copy.claim}</Link> : null}
         {websiteHref && websiteLabel ? <a href={websiteHref} target="_blank" rel="noreferrer" className="mt-5 inline-flex max-w-full items-center gap-1.5 text-sm text-[var(--primary)] hover:underline"><span className="font-medium">{copy.website}</span><span className="truncate">{websiteLabel}</span><IconExternalLink size={13} className="shrink-0" /></a> : null}
       </div>
     </section>

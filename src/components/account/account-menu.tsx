@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import {
+  IconHelp,
   IconLayoutDashboard,
   IconLogout,
   IconPlus,
@@ -57,12 +58,14 @@ export function AccountMenu({ locale, user }: AccountMenuProps) {
           dashboard: "Dashboard",
           logout: "Esci",
           settings: "Impostazioni",
+          support: "Assistenza",
         }
       : {
           addBusiness: "Add a new business",
           dashboard: "Dashboard",
           logout: "Log out",
           settings: "Settings",
+          support: "Support",
         };
 
   useEffect(() => {
@@ -138,6 +141,17 @@ export function AccountMenu({ locale, user }: AccountMenuProps) {
               <IconSettings size={18} className="text-[var(--primary)]" />
               <span>{copy.settings}</span>
             </HardNavigationLink>
+
+            {user.role === "BUSINESS_OWNER" || user.role === "GETTER" ? (
+              <HardNavigationLink
+                href="/dashboard/support"
+                className="flex items-center gap-3 rounded-[1rem] px-4 py-3 text-sm text-[var(--foreground)] transition hover:bg-[color:rgba(247,244,239,0.72)]"
+                onClick={() => setOpen(false)}
+              >
+                <IconHelp size={18} className="text-[var(--primary)]" />
+                <span>{copy.support}</span>
+              </HardNavigationLink>
+            ) : null}
 
             <form action={signOutAction}>
               <LogoutButton locale={locale} label={copy.logout} />

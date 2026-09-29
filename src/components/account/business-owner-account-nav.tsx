@@ -19,13 +19,13 @@ function getAriaLabel(locale: Locale) {
 
 export function BusinessOwnerWorkspaceNav({ active, locale }: BusinessOwnerAccountNavProps) {
   return (
-    <><AccountWorkspaceNav
+    <AccountWorkspaceNav
       active={active}
       ariaLabel={getAriaLabel(locale)}
       columns={2}
       scrollable
       items={getBusinessOwnerNavigationItems(locale)}
-    /><div className="shell hidden px-4 py-3 text-right sm:px-6 md:block"><HardNavigationLink className="text-sm font-semibold text-[var(--primary)] underline" href="/dashboard/support">{locale === "it" ? "Assistenza" : "Support"}</HardNavigationLink></div></>
+    />
   );
 }
 
