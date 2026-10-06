@@ -129,11 +129,12 @@ function createRenewalStore(refunded: boolean) {
   const created: unknown[] = [];
   const membership = {
     id: "membership-1", businessId: "business-1", currentPeriodEnd: addUtcDays(paidAt, 365), graceEndsAt: addUtcDays(paidAt, 379), entitlementRevokedAt: refunded ? addUtcDays(paidAt, 7) : null,
-    business: { submissions: [{ id: "submission-1", userId: "owner-1" }] },
+    business: { name: "Test business", submissions: [{ id: "submission-1", userId: "owner-1" }] },
   };
   const db = {
     businessMembership: { findFirst: async () => membership, update: async (args: unknown) => { updates.push(args); return args; } },
     businessSubmission: { update: async (args: unknown) => { updates.push(args); return args; } },
+    membershipPaymentOutcomeDelivery: { create: async () => ({ id: "outcome-1" }) },
     payment: {
       findMany: async () => [{ id: "initial-1", status: refunded ? "REFUNDED" : "PAID", selfServiceRefundedAt: refunded ? addUtcDays(paidAt, 7) : null }],
       findFirst: async () => null,

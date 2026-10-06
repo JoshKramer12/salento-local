@@ -447,6 +447,7 @@ model BusinessMembership {
   entitlementRevokedAt     DateTime?
   business                 Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   reminders                MembershipReminder[]
+  paymentOutcomeDeliveries MembershipPaymentOutcomeDelivery[]
   originatingPartnerUser   User?    @relation("OriginatingPartner", fields: [originatingPartnerUserId], references: [id], onDelete: SetNull)
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
@@ -477,6 +478,32 @@ model MembershipReminder {
   @@index([membershipId, cycleEndsAt])
   @@index([sentAt])
   @@index([acceptedAt])
+}
+
+// Created only when a new renewal/reactivation payment is finalized. Historical
+// paid rows are deliberately not backfilled into customer notifications.
+model MembershipPaymentOutcomeDelivery {
+  id                String   @id @default(cuid())
+  paymentId         String   @unique
+  membershipId      String
+  periodEnd         DateTime
+  businessName      String
+  recipientEmail    String?
+  locale            String?
+  attemptedAt       DateTime?
+  nextAttemptAt     DateTime @default(now())
+  acceptedAt        DateTime?
+  attemptCount      Int      @default(0)
+  provider          String?
+  providerMessageId String?
+  failureMessage    String?
+  payment           Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  membership        BusinessMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([acceptedAt, nextAttemptAt])
+  @@index([membershipId])
 }
 
 // A verified business-owner email is retained independently from the account
@@ -691,6 +718,7 @@ model Payment {
   user                   User                @relation("SubmissionPayer", fields: [userId], references: [id], onDelete: Cascade)
   partnerUser            User?               @relation("SubmissionPartner", fields: [partnerUserId], references: [id], onDelete: SetNull)
   partnerCommissions     PartnerCommission[]
+  membershipPaymentOutcomeDelivery MembershipPaymentOutcomeDelivery?
   createdAt              DateTime            @default(now())
   updatedAt              DateTime            @updatedAt
 

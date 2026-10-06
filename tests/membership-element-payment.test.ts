@@ -10,6 +10,8 @@ import { ensureMembershipElementPayment, getMembershipElementSnapshot, reconcile
 import { ensurePartnerRefundRepurchaseCommissionForPayment, ensurePartnerRenewalCommissionForPayment } from "@/lib/partner-ledger";
 import { prisma } from "@/lib/prisma";
 import { finalizeMembershipRenewalPayment } from "@/lib/membership-renewal";
+import { attemptMembershipPaymentOutcomeDelivery } from "@/lib/membership-payment-outcomes";
+import { retryPendingMembershipPaymentOutcomes } from "@/lib/membership-payment-outcomes";
 import { createRefundFixture } from "./helpers/refund-fixture";
 import { membershipStripeHarness } from "./helpers/membership-stripe-harness";
 
@@ -22,20 +24,25 @@ let sequence = 0;
 async function fixture() {
   const f = await createRefundFixture(prisma, `element-${++sequence}`);
   const h = membershipStripeHarness();
+  const messages: Array<{ idempotencyKey?: string; to: string }> = [];
+  const attemptOutcome = (paymentId: string) => attemptMembershipPaymentOutcomeDelivery(paymentId, {
+    sendEmail: async (message) => {
+      messages.push(message);
+      return { messageId: `message-${messages.length}`, provider: "resend" as const, success: true };
+    },
+  });
   const dependencies = { stripe: h.stripe,
     renewalCommission: (args: Parameters<typeof ensurePartnerRenewalCommissionForPayment>[0]) => ensurePartnerRenewalCommissionForPayment(args, { revalidatePaths: () => {} }),
     repurchaseCommission: (args: Parameters<typeof ensurePartnerRefundRepurchaseCommissionForPayment>[0]) => ensurePartnerRefundRepurchaseCommissionForPayment(args, { revalidatePaths: () => {} }),
-    notify: async () => true,
+    attemptOutcome,
   };
   const prepare = (automaticRenewal = false) => ensureMembershipElementPayment({ businessId: f.business.id, userId: f.owner.id, automaticRenewal }, dependencies);
-  return { f, h, dependencies, prepare };
+  return { f, h, dependencies, prepare, messages };
 }
 
 for (const delivery of ["return first", "webhook first", "concurrent return and webhook"]) {
   test(`manual renewal converges once: ${delivery}`, async () => {
-    const { f, h, dependencies, prepare } = await fixture();
-    let notifications = 0;
-    dependencies.notify = async () => { notifications++; return true; };
+    const { f, h, dependencies, prepare, messages } = await fixture();
     const payment = (await prepare())!;
     assert.equal(payment.purpose, "ANNUAL_RENEWAL"); assert.equal(payment.businessId, f.business.id);
     assert.equal(payment.stripeCheckoutSessionId, null);
@@ -56,7 +63,8 @@ for (const delivery of ["return first", "webhook first", "concurrent return and 
     assert.equal(commissions.filter((c) => c.amountCents === 5000).length, 1);
     assert.equal(commissions.filter((c) => c.amountCents === 1500).length, 1);
     assert.equal(await prisma.business.count({ where: { id: f.business.id } }), 1);
-    assert.equal(notifications, 1);
+    assert.equal(messages.length, 1);
+    assert.equal(await prisma.membershipPaymentOutcomeDelivery.count({ where: { paymentId: payment.id } }), 1);
   });
 }
 
@@ -86,6 +94,34 @@ test("completed self-service refund repurchase is classified only by the existin
   assert.equal(await prisma.partnerCommission.count({ where: { paymentId: payment.id, amountCents: 5000 } }), 1);
   assert.equal(await prisma.partnerCommission.count({ where: { paymentId: payment.id, amountCents: 1500 } }), 0);
   assert.equal((await prisma.business.findUniqueOrThrow({ where: { id: f.business.id } })).ownerUserId, f.owner.id);
+  assert.equal(await prisma.membershipPaymentOutcomeDelivery.count({ where: { paymentId: payment.id } }), 1);
+});
+
+test("an embedded paid return stays confirmed when email fails, then retries without a second term or commission", async () => {
+  const { f, h, dependencies, prepare } = await fixture();
+  const payment = (await prepare())!;
+  h.succeed(payment);
+  const keys: string[] = [];
+  const failing = { ...dependencies, attemptOutcome: (paymentId: string) => attemptMembershipPaymentOutcomeDelivery(paymentId, {
+    sendEmail: async (message) => { keys.push(message.idempotencyKey!); throw new Error("synthetic_provider_failure"); },
+  }) };
+  const result = await syncMembershipElementPayment(payment.id, failing);
+  assert.ok(result);
+  assert.equal(Boolean(result), true); // The return page uses this to show confirmation.
+  assert.equal((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).status, "PAID");
+  assert.equal((await prisma.businessMembership.findUniqueOrThrow({ where: { id: f.membership.id } })).currentPeriodEnd.toISOString(), addUtcDays(f.membership.currentPeriodEnd, 365).toISOString());
+  assert.equal(await prisma.partnerCommission.count({ where: { paymentId: payment.id, amountCents: 1500 } }), 1);
+  const pending = await prisma.membershipPaymentOutcomeDelivery.findUniqueOrThrow({ where: { paymentId: payment.id } });
+  assert.equal(pending.acceptedAt, null);
+  await syncMembershipElementPayment(payment.id, failing);
+  assert.equal(await prisma.membershipPaymentOutcomeDelivery.count({ where: { paymentId: payment.id } }), 1);
+  assert.equal(await prisma.partnerCommission.count({ where: { paymentId: payment.id, amountCents: 1500 } }), 1);
+  assert.equal(keys.length, 1); // The duplicate sees the pending lease, then the job retries.
+  const accepted = await retryPendingMembershipPaymentOutcomes({ now: new Date(pending.nextAttemptAt.getTime() + 1),
+    sendEmail: async (message) => { keys.push(message.idempotencyKey!); return { messageId: "resend-retry", provider: "resend", success: true }; } });
+  assert.deepEqual(accepted, { accepted: 1, due: 1 });
+  assert.equal(keys[0], keys[1]);
+  assert.ok((await prisma.membershipPaymentOutcomeDelivery.findUniqueOrThrow({ where: { paymentId: payment.id } })).acceptedAt);
 });
 
 test("automatic renewal keeps exact subscription/invoice identity, one term, and recurring readiness", async () => {

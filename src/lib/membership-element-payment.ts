@@ -4,7 +4,7 @@ import type Stripe from "stripe";
 import { beginEmbeddedPaymentOperation, ensureEmbeddedPaymentSubscription, finishEmbeddedPaymentOperation, matchesAnnualPrice, MEMBERSHIP_SUBSCRIPTION_FLOW } from "@/lib/embedded-subscription";
 import { LISTING_OFFER } from "@/lib/listing-offer";
 import { finalizeMembershipRenewalPayment, getMembershipPaymentPurpose } from "@/lib/membership-renewal";
-import { sendMembershipPaymentOutcomeEmail } from "@/lib/membership-reminders";
+import { attemptMembershipPaymentOutcomeDelivery } from "@/lib/membership-payment-outcomes";
 import { matchesManualElementPaymentIntent } from "@/lib/no-email-payment";
 import { ensurePartnerRefundRepurchaseCommissionForPayment, ensurePartnerRenewalCommissionForPayment } from "@/lib/partner-ledger";
 import { prisma } from "@/lib/prisma";
@@ -169,7 +169,7 @@ export async function syncMembershipElementPayment(paymentId: string, dependenci
   eventId?: string; eventType?: string;
   renewalCommission?: typeof ensurePartnerRenewalCommissionForPayment;
   repurchaseCommission?: typeof ensurePartnerRefundRepurchaseCommissionForPayment;
-  notify?: typeof sendMembershipPaymentOutcomeEmail;
+  attemptOutcome?: typeof attemptMembershipPaymentOutcomeDelivery;
 } = {}) {
   const db = dependencies.db ?? prisma;
   const payment = await db.payment.findUnique({ where: { id: paymentId } });
@@ -201,7 +201,7 @@ export async function syncMembershipElementPayment(paymentId: string, dependenci
     const args = { paymentId: result.paymentId, sourceEventId: dependencies.eventId, sourceEventType: dependencies.eventType || "payment_element.sync" };
     await (dependencies.renewalCommission ?? ensurePartnerRenewalCommissionForPayment)(args);
     await (dependencies.repurchaseCommission ?? ensurePartnerRefundRepurchaseCommissionForPayment)(args);
-    if (!result.duplicate) await (dependencies.notify ?? sendMembershipPaymentOutcomeEmail)({ membershipId: result.membership.id });
+    await (dependencies.attemptOutcome ?? attemptMembershipPaymentOutcomeDelivery)(result.paymentId);
   }
   return result;
 }

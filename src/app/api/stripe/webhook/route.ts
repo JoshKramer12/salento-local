@@ -5,6 +5,7 @@ import { markStripePaymentRefunded } from "@/lib/stripe-payment-sync";
 import { finalizeMembershipRenewalPayment } from "@/lib/membership-renewal";
 import { prisma } from "@/lib/prisma";
 import { sendMembershipPaymentOutcomeEmail } from "@/lib/membership-reminders";
+import { attemptMembershipPaymentOutcomeDelivery } from "@/lib/membership-payment-outcomes";
 import { processPaidSubmissionWebhook } from "@/lib/stripe-payment-webhook";
 import {
   beginStripeWebhookProcessing,
@@ -78,7 +79,7 @@ export async function POST(request: Request) {
         if (result?.paymentId) {
           await ensurePartnerRenewalCommissionForPayment({ paymentId: result.paymentId, sourceEventId: event.id, sourceEventType: event.type });
           await ensurePartnerRefundRepurchaseCommissionForPayment({ paymentId: result.paymentId, sourceEventId: event.id, sourceEventType: event.type });
-          if (!result.duplicate) await sendMembershipPaymentOutcomeEmail({ membershipId: result.membership.id });
+          await attemptMembershipPaymentOutcomeDelivery(result.paymentId);
         }
         await completeStripeWebhookProcessing({ id: webhookLog.id, status: result ? "PROCESSED" : "FAILED" });
         return NextResponse.json({ received: true });
@@ -196,7 +197,7 @@ export async function POST(request: Request) {
       if (result?.paymentId) {
         await ensurePartnerRenewalCommissionForPayment({ paymentId: result.paymentId, sourceEventId: event.id, sourceEventType: event.type });
         await ensurePartnerRefundRepurchaseCommissionForPayment({ paymentId: result.paymentId, sourceEventId: event.id, sourceEventType: event.type });
-        if (!result.duplicate) await sendMembershipPaymentOutcomeEmail({ membershipId: result.membership.id });
+        await attemptMembershipPaymentOutcomeDelivery(result.paymentId);
       }
       await completeStripeWebhookProcessing({ id: webhookLog.id, status: "PROCESSED" });
       return NextResponse.json({ received: true });
@@ -266,7 +267,7 @@ export async function POST(request: Request) {
         if (result?.paymentId) {
           await ensurePartnerRenewalCommissionForPayment({ paymentId: result.paymentId, sourceEventId: event.id, sourceEventType: event.type });
           await ensurePartnerRefundRepurchaseCommissionForPayment({ paymentId: result.paymentId, sourceEventId: event.id, sourceEventType: event.type });
-          if (!result.duplicate) await sendMembershipPaymentOutcomeEmail({ membershipId: result.membership.id });
+          await attemptMembershipPaymentOutcomeDelivery(result.paymentId);
         }
         await completeStripeWebhookProcessing({ id: webhookLog.id, status: result ? "PROCESSED" : "FAILED" });
         return NextResponse.json({ received: true });

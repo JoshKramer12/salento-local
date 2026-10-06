@@ -1,5 +1,5 @@
 import nodemailer from "nodemailer";
-import { Resend } from "resend";
+import { Resend, type CreateEmailRequestOptions } from "resend";
 
 import { normalizeEnvValue } from "@/lib/env";
 
@@ -102,6 +102,7 @@ type TransactionalEmailParams = {
   headers?: Record<string, string>;
   html: string;
   idempotencyKey?: string;
+  signal?: AbortSignal;
   subject: string;
   text: string;
   to: string;
@@ -138,6 +139,11 @@ export async function sendTransactionalEmail(
       },
       env,
     );
+    // This SDK version forwards request options to fetch but does not yet type
+    // the supported signal option. Only callers that supply a signal use it.
+    const requestOptions: (CreateEmailRequestOptions & { signal?: AbortSignal }) | undefined = params.signal
+      ? { idempotencyKey: params.idempotencyKey, signal: params.signal }
+      : params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : undefined;
     const result = await resend.emails.send(
       {
         attachments: params.attachments?.map((attachment) => ({
@@ -155,7 +161,7 @@ export async function sendTransactionalEmail(
         text: params.text,
         to: [params.to],
       },
-      params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : undefined,
+      requestOptions,
     );
 
     if (result.error) {

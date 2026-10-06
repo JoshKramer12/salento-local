@@ -41,9 +41,8 @@ export async function beginStripeWebhookProcessing(params: BeginWebhookParams) {
     };
   }
 
-  // A failed delivery must be retried. In particular, payment publication is
-  // committed before transactional email is sent, so a temporary mail-provider
-  // error must not make Stripe's retry of this event a permanent no-op.
+  // Financial or publication failures still retry through Stripe. Membership
+  // outcome email retries are tracked separately after a paid transaction.
   if (existing && shouldRetryStripeWebhook(existing.status)) {
     const resumed = await prisma.stripeWebhookEvent.updateMany({
       where: {

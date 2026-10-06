@@ -44,6 +44,7 @@ export async function finalizeMembershipRenewalPayment(params: {
       business: {
         select: {
           id: true,
+          name: true,
           submissions: {
             orderBy: { createdAt: "asc" },
             select: { id: true, userId: true },
@@ -175,6 +176,17 @@ export async function finalizeMembershipRenewalPayment(params: {
       data: { paymentStatus: "PAID" },
     });
   }
+
+  // Keep the notification obligation in the same transaction as the paid term.
+  // Duplicate and historical payments return above and cannot create old mail.
+  await params.db.membershipPaymentOutcomeDelivery.create({
+    data: {
+      paymentId: finalizedPaymentId!,
+      membershipId: membership.id,
+      periodEnd: period.currentPeriodEnd,
+      businessName: membership.business.name,
+    },
+  });
 
   return { duplicate: false, membership, paymentId: finalizedPaymentId, purpose };
 }
