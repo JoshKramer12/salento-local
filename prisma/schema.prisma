@@ -448,6 +448,7 @@ model BusinessMembership {
   business                 Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   reminders                MembershipReminder[]
   paymentOutcomeDeliveries MembershipPaymentOutcomeDelivery[]
+  failedPaymentDeliveries MembershipFailedPaymentDelivery[]
   originatingPartnerUser   User?    @relation("OriginatingPartner", fields: [originatingPartnerUserId], references: [id], onDelete: SetNull)
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
@@ -503,6 +504,34 @@ model MembershipPaymentOutcomeDelivery {
   updatedAt         DateTime @updatedAt
 
   @@index([acceptedAt, nextAttemptAt])
+  @@index([membershipId])
+}
+
+// Created only for a current failed Stripe invoice. Existing invoices are not
+// backfilled, so a migration cannot schedule historical failure notices.
+model MembershipFailedPaymentDelivery {
+  id                String   @id @default(cuid())
+  membershipId      String
+  stripeInvoiceId   String   @unique
+  stripeSubscriptionId String
+  businessName      String
+  graceEndsAt       DateTime
+  recipientEmail    String?
+  locale            String?
+  attemptedAt       DateTime?
+  nextAttemptAt     DateTime @default(now())
+  acceptedAt        DateTime?
+  canceledAt        DateTime?
+  cancelReason      String?
+  attemptCount      Int      @default(0)
+  provider          String?
+  providerMessageId String?
+  failureMessage    String?
+  membership        BusinessMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([acceptedAt, canceledAt, nextAttemptAt])
   @@index([membershipId])
 }
 

@@ -4,8 +4,8 @@ import { getStripe } from "@/lib/stripe";
 import { markStripePaymentRefunded } from "@/lib/stripe-payment-sync";
 import { finalizeMembershipRenewalPayment } from "@/lib/membership-renewal";
 import { prisma } from "@/lib/prisma";
-import { sendMembershipPaymentOutcomeEmail } from "@/lib/membership-reminders";
 import { attemptMembershipPaymentOutcomeDelivery } from "@/lib/membership-payment-outcomes";
+import { attemptMembershipFailedPaymentDelivery, recordMembershipInvoiceFailure } from "@/lib/membership-failed-payments";
 import { processPaidSubmissionWebhook } from "@/lib/stripe-payment-webhook";
 import {
   beginStripeWebhookProcessing,
@@ -208,12 +208,8 @@ export async function POST(request: Request) {
       const rawSubscription = invoice.parent?.subscription_details?.subscription;
       const subscriptionId = typeof rawSubscription === "string" ? rawSubscription : null;
       if (subscriptionId) {
-        await prisma.businessMembership.updateMany({
-          where: { stripeSubscriptionId: subscriptionId },
-          data: { stripeSubscriptionStatus: "past_due" },
-        });
-        const membership = await prisma.businessMembership.findFirst({ where: { stripeSubscriptionId: subscriptionId }, select: { id: true } });
-        if (membership) await sendMembershipPaymentOutcomeEmail({ failed: true, membershipId: membership.id });
+        const result = await recordMembershipInvoiceFailure(invoice.id, subscriptionId);
+        if (result === "recorded") await attemptMembershipFailedPaymentDelivery(invoice.id);
       }
       await completeStripeWebhookProcessing({ id: webhookLog.id, status: "PROCESSED" });
       return NextResponse.json({ received: true });

@@ -135,6 +135,7 @@ function createRenewalStore(refunded: boolean) {
     businessMembership: { findFirst: async () => membership, update: async (args: unknown) => { updates.push(args); return args; } },
     businessSubmission: { update: async (args: unknown) => { updates.push(args); return args; } },
     membershipPaymentOutcomeDelivery: { create: async () => ({ id: "outcome-1" }) },
+    membershipFailedPaymentDelivery: { updateMany: async () => ({ count: 0 }) },
     payment: {
       findMany: async () => [{ id: "initial-1", status: refunded ? "REFUNDED" : "PAID", selfServiceRefundedAt: refunded ? addUtcDays(paidAt, 7) : null }],
       findFirst: async () => null,

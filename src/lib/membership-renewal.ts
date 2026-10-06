@@ -72,7 +72,13 @@ export async function finalizeMembershipRenewalPayment(params: {
     const existingPayment = await params.db.payment.findUnique({
       where: { id: existing.id }, select: { status: true, purpose: true, refundRequestedAt: true },
     });
-    if (existingPayment?.status === "PAID") return { duplicate: true, membership, paymentId: existing.id, purpose: existingPayment.purpose };
+    if (existingPayment?.status === "PAID" && !existingPayment.refundRequestedAt) {
+      await params.db.membershipFailedPaymentDelivery.updateMany({
+        where: { membershipId: membership.id, acceptedAt: null, canceledAt: null },
+        data: { canceledAt: new Date(), cancelReason: "membership_payment_succeeded" },
+      });
+      return { duplicate: true, membership, paymentId: existing.id, purpose: existingPayment.purpose };
+    }
     if (existingPayment?.status === "REFUNDED" || existingPayment?.refundRequestedAt) {
       return { duplicate: true, membership, paymentId: existing.id, purpose: existingPayment.purpose };
     }
@@ -168,6 +174,13 @@ export async function finalizeMembershipRenewalPayment(params: {
       stripeCancelAtPeriodEnd: params.subscriptionId
         ? params.stripeCancelAtPeriodEnd ?? (params.automaticRenewal !== undefined ? false : undefined) : undefined,
     },
+  });
+
+  // A successful paid term makes any pending failure notice for this
+  // membership obsolete, including one from an older invoice.
+  await params.db.membershipFailedPaymentDelivery.updateMany({
+    where: { membershipId: membership.id, acceptedAt: null, canceledAt: null },
+    data: { canceledAt: new Date(), cancelReason: "membership_payment_succeeded" },
   });
 
   if (refundedRepurchase) {
