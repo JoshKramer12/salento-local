@@ -29,6 +29,8 @@ export async function GET(request: Request, context: RouteContext) {
     headers: {
       "Content-Disposition": `${attachment ? "attachment" : "inline"}; filename="${agreement.agreementFileName}"`,
       "Content-Type": "application/pdf",
+      "X-Robots-Tag": "noindex",
+      "Referrer-Policy": "no-referrer",
     },
   });
 }

@@ -4,11 +4,15 @@ import { TownsLiveSearch } from "@/components/towns-live-search";
 import { getCurrentLocale } from "@/lib/locale";
 import { getTownsIndexData } from "@/lib/public-data";
 import { getSingleParam } from "@/lib/site";
+import { discoveryMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
-  title: "Comuni | Salento Local",
-  description: "Esplora il Salento comune per comune.",
-};
+export async function generateMetadata({ searchParams }: TownsPageProps): Promise<Metadata> {
+  return {
+    title: "Comuni | Salento Local",
+    description: "Esplora il Salento comune per comune.",
+    ...discoveryMetadata("/towns", await searchParams),
+  };
+}
 
 type TownsPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;

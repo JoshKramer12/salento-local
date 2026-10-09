@@ -18,6 +18,7 @@ import { getLocaleTag } from "@/lib/i18n";
 import { getCurrentLocale } from "@/lib/locale";
 import { getPublicBusinessMembershipWhere } from "@/lib/business-membership";
 import { prisma } from "@/lib/prisma";
+import { discoveryMetadata } from "@/lib/seo";
 import {
   buildTownImage,
   getCategoryLabel,
@@ -134,10 +135,13 @@ function scoreCategory(slug: string) {
 
 export async function generateMetadata({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }): Promise<Metadata> {
   const { slug } = await params;
+  let canonicalSlug = slug;
   let town = await prisma.town.findUnique({
     where: { slug },
     select: { name: true, shortDescription: true },
@@ -151,12 +155,14 @@ export async function generateMetadata({
           select: {
             name: true,
             shortDescription: true,
+            slug: true,
           },
         },
       },
     });
 
     town = alias?.town ?? null;
+    if (alias?.town) canonicalSlug = alias.town.slug;
   }
 
   if (!town) {
@@ -168,6 +174,7 @@ export async function generateMetadata({
   return {
     title: `${town.name} | Salento Local`,
     description: town.shortDescription,
+    ...discoveryMetadata(`/towns/${encodeURIComponent(canonicalSlug)}`, await searchParams),
   };
 }
 

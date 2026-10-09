@@ -15,6 +15,8 @@ export async function GET(_request: Request, context: RouteContext) {
   if (destination.status === "ready") {
     const response = NextResponse.redirect(destination.url, 307);
     response.headers.set("Cache-Control", "no-store");
+    response.headers.set("X-Robots-Tag", "noindex");
+    response.headers.set("Referrer-Policy", "no-referrer");
     return response;
   }
 
@@ -22,7 +24,7 @@ export async function GET(_request: Request, context: RouteContext) {
   return NextResponse.json(
     { error: "stripe_checkout_not_available" },
     {
-      headers: { "Cache-Control": "no-store" },
+      headers: { "Cache-Control": "no-store", "X-Robots-Tag": "noindex", "Referrer-Policy": "no-referrer" },
       status,
     },
   );

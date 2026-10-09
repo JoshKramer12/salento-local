@@ -38,6 +38,8 @@ export async function GET(request: Request, context: RouteContext) {
     headers: {
       "Content-Disposition": `${attachment ? "attachment" : "inline"}; filename="${receipt.receiptFileName}"`,
       "Content-Type": "application/pdf",
+      "X-Robots-Tag": "noindex",
+      "Referrer-Policy": "no-referrer",
     },
   });
 }

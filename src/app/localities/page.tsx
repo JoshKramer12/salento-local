@@ -4,12 +4,15 @@ import { TownsLiveSearch } from "@/components/towns-live-search";
 import { getCurrentLocale } from "@/lib/locale";
 import { getLocalitiesIndexData } from "@/lib/public-data";
 import { getSingleParam } from "@/lib/site";
+import { discoveryMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
-  title: "Frazioni | Salento Local",
-  description:
-    "Esplora frazioni, marine e localita piu piccole in tutto il Salento.",
-};
+export async function generateMetadata({ searchParams }: LocalitiesPageProps): Promise<Metadata> {
+  return {
+    title: "Frazioni | Salento Local",
+    description: "Esplora frazioni, marine e localita piu piccole in tutto il Salento.",
+    ...discoveryMetadata("/localities", await searchParams),
+  };
+}
 
 type LocalitiesPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;

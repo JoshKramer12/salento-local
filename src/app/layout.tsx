@@ -7,10 +7,12 @@ import { getViewer } from "@/lib/auth-guards";
 import { getCurrentLocale } from "@/lib/locale";
 import { prisma } from "@/lib/prisma";
 import { buildDraftLikeSubmissionWhere } from "@/lib/submission-drafts";
+import { PUBLIC_SITE_URL } from "@/lib/seo";
 
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(PUBLIC_SITE_URL),
   title: "Salento Local",
   description:
     "Trova comuni, spiagge, ristoranti, servizi e luoghi utili in tutto il Salento.",

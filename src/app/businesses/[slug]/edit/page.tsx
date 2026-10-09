@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import type { Metadata } from "next";
 
 import { OwnedBusinessEditForm } from "@/components/account/owned-business-edit-form";
 import { PublishForm, type OwnerEditStep } from "@/components/account/publish-form";
@@ -9,6 +10,10 @@ import { getCurrentLocale } from "@/lib/locale";
 import { buildPhoneCountryOptions } from "@/lib/phone-country-options";
 import { prisma } from "@/lib/prisma";
 import { getSingleParam } from "@/lib/site";
+
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 type EditBusinessPageProps = {
   params: Promise<{ slug: string }>;

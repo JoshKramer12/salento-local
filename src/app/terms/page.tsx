@@ -1,6 +1,10 @@
+import type { Metadata } from "next";
 import { LegalDocumentPage } from "@/components/legal/legal-document-page";
 import { getTermsDocument, LEGAL_DOCUMENTS, formatLegalDate } from "@/lib/legal";
 import { getCurrentLocale } from "@/lib/locale";
+import { publicUrl } from "@/lib/seo";
+
+export const metadata: Metadata = { alternates: { canonical: publicUrl("/terms") } };
 
 export default async function TermsPage() {
   const locale = await getCurrentLocale();

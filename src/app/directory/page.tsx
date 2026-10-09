@@ -4,12 +4,15 @@ import { BusinessExplorer } from "@/components/business-explorer";
 import { getCurrentLocale } from "@/lib/locale";
 import { getDirectoryCatalog, getDirectoryPage } from "@/lib/public-data";
 import { getMultiParam, getSingleParam } from "@/lib/site";
+import { discoveryMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
-  title: "Directory | Salento Local",
-  description:
-    "Cerca attivita, spiagge, servizi e luoghi utili in tutto il Salento.",
-};
+export async function generateMetadata({ searchParams }: DirectoryPageProps): Promise<Metadata> {
+  return {
+    title: "Directory | Salento Local",
+    description: "Cerca attivita, spiagge, servizi e luoghi utili in tutto il Salento.",
+    ...discoveryMetadata("/directory", await searchParams),
+  };
+}
 
 type DirectoryPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;

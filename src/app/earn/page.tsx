@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import {
   IconArrowDown,
   IconArrowRight,
@@ -15,6 +16,9 @@ import {
 
 import { HardNavigationLink } from "@/components/hard-navigation-link";
 import { getCurrentLocale } from "@/lib/locale";
+import { publicUrl } from "@/lib/seo";
+
+export const metadata: Metadata = { alternates: { canonical: publicUrl("/earn") } };
 
 const partnerJoinHref = "/partner/join";
 const partnerLoginHref = "/login?redirectTo=%2Fpartner%2Fstart";

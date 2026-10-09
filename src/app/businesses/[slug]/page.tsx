@@ -26,6 +26,7 @@ import { getBusinessHoursStatus, getBusinessHoursStatusDetail, resolveBusinessHo
 import { getCurrentLocale } from "@/lib/locale";
 import { getPublicBusinessMembershipWhere } from "@/lib/business-membership";
 import { prisma } from "@/lib/prisma";
+import { publicUrl } from "@/lib/seo";
 import {
   buildBusinessImage,
   buildBusinessPhoto,
@@ -235,6 +236,7 @@ export async function generateMetadata({
   return {
     title: `${business.name} | Salento Local`,
     description: business.shortDescription,
+    alternates: { canonical: publicUrl(`/businesses/${encodeURIComponent(slug)}`) },
   };
 }
 

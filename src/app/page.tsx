@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { IconArrowRight, IconBuildingStore, IconChevronRight, IconUsersGroup } from "@tabler/icons-react";
 
 import { CategoryIconGlyph } from "@/components/category-icon-glyph";
@@ -7,6 +8,9 @@ import { SearchAutocomplete } from "@/components/search-autocomplete";
 import { getCurrentLocale } from "@/lib/locale";
 import { getHomePageData } from "@/lib/public-data";
 import { buildBusinessImage, buildBusinessPhoto, buildLocalityImage, buildTownImage, getCategoryLabel, homeCategorySlugs } from "@/lib/site";
+import { publicUrl } from "@/lib/seo";
+
+export const metadata: Metadata = { alternates: { canonical: publicUrl("/") } };
 
 export default async function HomePage() {
   const locale = await getCurrentLocale();

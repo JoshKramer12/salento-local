@@ -1,6 +1,10 @@
+import type { Metadata } from "next";
 import { LegalDocumentPage } from "@/components/legal/legal-document-page";
 import { getCookieDocument, LEGAL_DOCUMENTS, formatLegalDate } from "@/lib/legal";
 import { getCurrentLocale } from "@/lib/locale";
+import { publicUrl } from "@/lib/seo";
+
+export const metadata: Metadata = { alternates: { canonical: publicUrl("/cookies") } };
 
 export default async function CookiesPage() {
   const locale = await getCurrentLocale();

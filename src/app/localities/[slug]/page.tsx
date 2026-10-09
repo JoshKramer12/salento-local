@@ -12,6 +12,7 @@ import { BusinessCard } from "@/components/business-card";
 import { getCurrentLocale } from "@/lib/locale";
 import { getPublicBusinessMembershipWhere } from "@/lib/business-membership";
 import { prisma } from "@/lib/prisma";
+import { discoveryMetadata } from "@/lib/seo";
 import {
   buildLocalityImage,
   buildTownImage,
@@ -28,8 +29,10 @@ type LocalityPageProps = {
 
 export async function generateMetadata({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }): Promise<Metadata> {
   const { slug } = await params;
   const locality = await prisma.locality.findUnique({
@@ -52,6 +55,7 @@ export async function generateMetadata({
   return {
     title: `${locality.name} | Salento Local`,
     description: `${locality.shortDescription} Comune di riferimento: ${locality.town.name}.`,
+    ...discoveryMetadata(`/localities/${encodeURIComponent(slug)}`, await searchParams),
   };
 }
 
