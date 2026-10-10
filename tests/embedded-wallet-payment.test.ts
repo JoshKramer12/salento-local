@@ -25,6 +25,8 @@ async function harness(locale: "en" | "it" = "en", subscription = false, ownerEm
   let submitResult: object = {};
   let confirmResult: object = { error: { message: "Declined" } };
   let confirmImplementation: (() => Promise<object>) | null = null;
+  let retrieveResult: object = { paymentIntent: { status: "requires_payment_method" } };
+  let retrieveImplementation: (() => Promise<object>) | null = null;
   const elements = {
     create(type: string, options: Record<string, unknown>) {
       const handlers = new Map<string, Handler>();
@@ -39,11 +41,12 @@ async function harness(locale: "en" | "it" = "en", subscription = false, ownerEm
   };
   const stripe = { elements: () => elements, createToken: () => {}, createPaymentMethod: () => {}, confirmCardPayment: () => {},
     confirmPayment: async (params: Record<string, unknown>) => { confirms.push(params); return confirmImplementation ? confirmImplementation() : confirmResult; },
+    retrievePaymentIntent: async () => retrieveImplementation ? retrieveImplementation() : retrieveResult,
   };
   const root = createRoot(dom.window.document.getElementById("root")!);
   const returnUrl = "https://salento.example.test/payment-status";
   await act(async () => root.render(createElement(Elements, { stripe: stripe as never, options: { clientSecret: "pi_test_secret_synthetic" } },
-    createElement(PaymentForm, { amount: "€100", locale, ownerEmail, returnUrl,
+    createElement(PaymentForm, { amount: "€100", clientSecret: "pi_test_secret_synthetic", locale, ownerEmail, returnUrl,
       subscription: subscription ? { amountCents: 10000, managementUrl: "https://salento.example.test/dashboard" } : undefined,
     }))));
   const failed: unknown[] = [];
@@ -53,6 +56,8 @@ async function harness(locale: "en" | "it" = "en", subscription = false, ownerEm
     setSubmit: (value: object) => { submitResult = value; },
     setConfirm: (value: object) => { confirmResult = value; },
     setConfirmImplementation: (value: () => Promise<object>) => { confirmImplementation = value; },
+    setRetrieve: (value: object) => { retrieveResult = value; },
+    setRetrieveImplementation: (value: () => Promise<object>) => { retrieveImplementation = value; },
     emit: async (name: string, value?: unknown) => { await act(async () => { await mounted.expressCheckout.emit(name, value); }); },
     confirm: async () => { await act(async () => { await mounted.expressCheckout.emit("confirm", wallet()); }); },
     card: async () => { await act(async () => { dom.window.document.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })); }); },
@@ -139,6 +144,49 @@ for (const stage of ["submit", "confirm", "throw"] as const) {
     } finally { await h.teardown(); }
   });
 }
+
+test("a lost confirmation response checks Stripe and opens the confirmed payment page", async () => {
+  const h = await harness();
+  try {
+    h.setConfirm({ error: { message: "We are experiencing issues connecting to our payments provider." } });
+    h.setRetrieve({ paymentIntent: { status: "succeeded" } });
+    await h.card();
+    assert.deepEqual(h.destinations, [h.returnUrl]);
+    assert.equal(h.dom.window.document.querySelector('[role="alert"]'), null);
+  } finally { await h.teardown(); }
+});
+
+test("a second confirmation error after success still opens the confirmed payment page", async () => {
+  const h = await harness();
+  try {
+    h.setConfirm({ error: { message: "A processing error occurred." } });
+    h.setRetrieve({ paymentIntent: { status: "succeeded" } });
+    await h.card();
+    assert.deepEqual(h.destinations, [h.returnUrl]);
+  } finally { await h.teardown(); }
+});
+
+test("an unresolved Stripe status opens server verification instead of inviting a retry", async () => {
+  const h = await harness();
+  try {
+    h.setConfirmImplementation(async () => { throw new Error("Network failure"); });
+    h.setRetrieveImplementation(async () => { throw new Error("Network failure"); });
+    await h.card();
+    assert.deepEqual(h.destinations, [h.returnUrl]);
+    assert.equal(h.dom.window.document.querySelector('[role="alert"]'), null);
+  } finally { await h.teardown(); }
+});
+
+test("a declined card remains retryable when Stripe confirms no payment was made", async () => {
+  const h = await harness();
+  try {
+    h.setConfirm({ error: { message: "Your card was declined." } });
+    await h.card();
+    assert.deepEqual(h.destinations, []);
+    assert.equal(h.button().disabled, false);
+    assert.match(h.dom.window.document.querySelector('[role="alert"]')!.textContent!, /card was declined/);
+  } finally { await h.teardown(); }
+});
 
 test("wallet/card competing confirms and cancel during confirmation do not submit twice", async () => {
   const h = await harness();

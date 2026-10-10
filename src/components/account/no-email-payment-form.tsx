@@ -16,7 +16,7 @@ function getStripePromise(key: string) {
   return promise;
 }
 
-export function PaymentForm({ amount, locale, ownerEmail, returnUrl, subscription }: { amount: string; locale: "en" | "it"; ownerEmail: string; returnUrl: string; subscription?: SubscriptionPayment }) {
+export function PaymentForm({ amount, clientSecret, locale, ownerEmail, returnUrl, subscription }: { amount: string; clientSecret: string; locale: "en" | "it"; ownerEmail: string; returnUrl: string; subscription?: SubscriptionPayment }) {
   const stripe = useStripe();
   const elements = useElements();
   const [busy, setBusy] = useState(false);
@@ -49,6 +49,7 @@ export function PaymentForm({ amount, locale, ownerEmail, returnUrl, subscriptio
       releasePayment();
       return;
     }
+    const readyStripe = stripe;
     submitting.current = true;
     setBusy(true);
     setSlow(false);
@@ -62,6 +63,17 @@ export function PaymentForm({ amount, locale, ownerEmail, returnUrl, subscriptio
       releasePayment();
       walletEvent?.paymentFailed({ reason: "fail", message: localized });
     };
+    async function paymentMayHaveCompleted() {
+      try {
+        const { paymentIntent } = await readyStripe.retrievePaymentIntent(clientSecret);
+        if (paymentIntent && !["succeeded", "processing"].includes(paymentIntent.status)) return false;
+      } catch {
+        // A lost confirmation response can also prevent Stripe.js from reading
+        // the intent. Let the server verify payment before offering a retry.
+      }
+      window.location.assign(returnUrl);
+      return true;
+    }
     try {
       // Submit from Express Checkout's confirm event so Stripe collects the
       // wallet details, rather than requiring entry in the card Element.
@@ -69,7 +81,7 @@ export function PaymentForm({ amount, locale, ownerEmail, returnUrl, subscriptio
         const submitted = await elements.submit();
         if (submitted.error) { fail(submitted.error.message); return; }
       }
-      const result = await stripe.confirmPayment({
+      const result = await readyStripe.confirmPayment({
         elements,
         confirmParams: { return_url: returnUrl,
           ...(ownerEmail ? { payment_method_data: { billing_details: { email: ownerEmail } } } : {}),
@@ -77,11 +89,13 @@ export function PaymentForm({ amount, locale, ownerEmail, returnUrl, subscriptio
         redirect: "if_required",
       });
       if (result.error) {
+        if (await paymentMayHaveCompleted()) return;
         fail(result.error.message);
       } else {
         window.location.assign(returnUrl);
       }
     } catch {
+      if (await paymentMayHaveCompleted()) return;
       fail();
     }
   }
@@ -171,6 +185,6 @@ export function NoEmailPaymentForm({ amount, clientSecret, locale, ownerEmail = 
     locale,
     appearance: { theme: "stripe", variables: { colorPrimary: "#2a6257", borderRadius: "12px" } },
   }}>
-    <PaymentForm amount={amount} locale={locale} ownerEmail={ownerEmail} returnUrl={returnUrl} subscription={subscription} />
+    <PaymentForm amount={amount} clientSecret={clientSecret} locale={locale} ownerEmail={ownerEmail} returnUrl={returnUrl} subscription={subscription} />
   </Elements>;
 }
