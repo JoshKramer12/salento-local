@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { IconLock, IconShieldCheck } from "@tabler/icons-react";
 
 import { NoEmailPaymentForm } from "@/components/account/no-email-payment-form";
+import { InitialPaymentRefundPolicy } from "@/components/account/initial-payment-refund-policy";
 import { formatCurrencyFromCents } from "@/lib/account";
 import { getCurrentLocale } from "@/lib/locale";
 import { EMAIL_MANUAL_PAYMENT_FLOW, findInitialElementTokenPayment, matchesManualElementPaymentIntent, NO_EMAIL_PAYMENT_FLOW } from "@/lib/no-email-payment";
@@ -68,11 +69,12 @@ export default async function NoEmailPaymentPage({ params }: Props) {
       <p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--primary)]">Salento Local</p>
       <h1 className="mt-4 font-serif text-4xl leading-tight text-[var(--foreground)]">{locale === "it" ? "Completa il pagamento" : "Complete your payment"}</h1>
       <p className="mt-3 text-lg text-[var(--foreground)]">{payment.businessSubmission.businessName}</p>
-      <div className="mt-6 flex min-w-0 items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-white p-4">
+      <div className="mt-6 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 rounded-2xl border border-[var(--border)] bg-white p-4">
         <span className="min-w-0 text-sm font-medium leading-5 text-[var(--foreground)]">{locale === "it" ? "Adesione annuale Salento Local" : "Salento Local annual membership"}</span>
         <strong className="shrink-0 text-xl text-[var(--primary)]">{amount}</strong>
+        <span className="col-span-2 flex items-start gap-2 text-sm leading-5 text-[var(--muted)]"><IconLock aria-hidden="true" size={18} className="shrink-0 text-[var(--primary)]" />{locale === "it" ? "Pagamento sicuro direttamente a Salento Local" : "Secure payment directly to Salento Local"}</span>
       </div>
-      <div className="mt-6 flex items-center gap-2 text-sm font-semibold text-[var(--primary)]"><IconLock size={19} />{locale === "it" ? "Pagamento sicuro" : "Secure payment"}</div>
+      <InitialPaymentRefundPolicy amount={amount} locale={locale} />
       <NoEmailPaymentForm amount={amount} clientSecret={intent.client_secret} locale={locale} ownerEmail={payment.businessSubmission.ownerEmail.trim()} publishableKey={publishableKey} returnUrl={returnUrl}
         subscription={payment.stripeSubscriptionId ? { amountCents: payment.amountCents, managementUrl: `${getOriginFromHeaders(await headers())}/dashboard` } : undefined} />
       <p className="mt-5 flex items-center justify-center gap-2 text-center text-xs leading-5 text-[var(--muted)]"><IconShieldCheck size={18} />{locale === "it" ? "Pagamenti elaborati in modo sicuro da Stripe." : "Payments are securely processed by Stripe."}</p>
