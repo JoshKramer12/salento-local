@@ -6,11 +6,9 @@ import {
   IconBrandWhatsapp,
   IconCheck,
   IconCircleCheck,
-  IconClock,
   IconDeviceMobile,
   IconDownload,
   IconInfoCircle,
-  IconLock,
   IconQrcode,
   IconReceipt2,
   IconShieldCheck,
@@ -19,6 +17,7 @@ import QRCode from "qrcode";
 
 import { simulateStripeBankTransferAction } from "@/app/(account)/payment-actions";
 import { CheckoutStatusWatcher } from "@/components/account/checkout-status-watcher";
+import { InitialPaymentQrView } from "@/components/account/initial-payment-qr-view";
 import { FormSubmitButton } from "@/components/form-submit-button";
 import { formatCurrencyFromCents } from "@/lib/account";
 import { requireCompletedViewer } from "@/lib/auth-guards";
@@ -107,7 +106,8 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
   const copy = locale === "it"
     ? {
         amountDue: "Importo dovuto", amountPaid: "Importo pagato", bankTitle: "Bonifico bancario", beneficiary: "Beneficiario",
-        cardFallback: "Apri Stripe Checkout", cardIntro: (amount: string) => `Inquadra il QR qui sotto per pagare ${amount} e pubblicare la tua scheda su Salento Local.`, cardPolling: "Stiamo verificando automaticamente il pagamento.", cardQrHint: "Apri l'app della tua banca, inquadra il codice e completa il pagamento.", cardQrTitle: "Inquadra questo codice QR con il tuo telefono", cardWaiting: "Tieni aperta questa pagina fino alla conferma del pagamento.",
+        cardFallback: "Apri Stripe Checkout", cardIntro: (amount: string) => `Inquadra il codice QR con l'app della tua banca per pagare ${amount} e pubblicare la tua scheda.`, cardPolling: "In attesa della conferma del pagamento.", cardQrHint: "Apri l'app della tua banca, inquadra questo codice e completa il pagamento.", cardQrTitle: "Inquadra per pagare", cardWaiting: "Tieni aperta questa pagina fino alla conferma del pagamento.",
+        membershipLabel: "Adesione annuale Salento Local", secureDirect: "Pagamento sicuro direttamente a Salento Local", confirmationNotice: "Verificheremo automaticamente il pagamento. Una volta confermato, la tua scheda sarà pubblicata.", refundSummary: (amount: string) => `La tua adesione iniziale di ${amount} può essere rimborsata integralmente entro 14 giorni dal pagamento riuscito.`, refundTerms: "Leggi tutti i termini di rimborso",
         date: "Data pagamento", emailSent: "Ricevuta inviata", emailSentHint: viewer.role === "BUSINESS_OWNER" ? "Una ricevuta è stata inviata alla tua email." : "Una ricevuta è stata inviata all'email del titolare.", failed: "Il pagamento non è stato completato. Puoi riprovare quando sei pronto.",
         iban: "IBAN", next: "Cosa succede ora?", nextPending: "Verificheremo automaticamente il pagamento. Quando Stripe lo confermerà, la scheda verrà pubblicata.", nextSuccess: "Il pagamento è stato confermato e la tua scheda è ora pubblicata.",
         paymentConfirmed: "Pagamento confermato!", paymentStep: "Passaggio pagamento", paymentSuccess: "Grazie! Il tuo pagamento è stato ricevuto correttamente.", pendingReference: "Riferimento in attesa",
@@ -120,7 +120,8 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
       }
     : {
         amountDue: "Amount due", amountPaid: "Amount paid", bankTitle: "Bank transfer", beneficiary: "Beneficiary",
-        cardFallback: "Open Stripe Checkout", cardIntro: (amount: string) => `Scan the QR code below to pay ${amount} and publish your listing on Salento Local.`, cardPolling: "We're automatically checking for your payment.", cardQrHint: "Open your banking app, scan the code, and complete the payment.", cardQrTitle: "Scan this QR code with your phone", cardWaiting: "Keep this page open until the payment is confirmed.",
+        cardFallback: "Open Stripe Checkout", cardIntro: (amount: string) => `Scan the QR code with your banking app to pay ${amount} and publish your listing.`, cardPolling: "Waiting for payment confirmation.", cardQrHint: "Open your banking app, scan this code, and complete the payment.", cardQrTitle: "Scan to pay", cardWaiting: "Keep this page open until the payment is confirmed.",
+        membershipLabel: "Salento Local annual membership", secureDirect: "Secure payment directly to Salento Local", confirmationNotice: "We'll automatically check for your payment. Once it's confirmed, your listing will be published.", refundSummary: (amount: string) => `Your initial ${amount} membership is eligible for a full refund within 14 days of successful payment.`, refundTerms: "View full refund terms",
         date: "Payment date", emailSent: "Receipt sent", emailSentHint: viewer.role === "BUSINESS_OWNER" ? "A receipt has been sent to your email." : "A receipt has been sent to the business owner's email.", failed: "The payment was not completed. You can try again whenever you are ready.",
         iban: "IBAN", next: "What happens next?", nextPending: "We'll automatically check for your payment. Once Stripe confirms it, your listing will be published.", nextSuccess: "Your payment is confirmed and your listing is now published.",
         paymentConfirmed: "Payment confirmed!", paymentStep: "Payment step", paymentSuccess: "Thank you! Your payment has been received successfully.", pendingReference: "Pending reference",
@@ -223,7 +224,7 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
   });
 
   return (
-    <main className="shell px-4 py-9 sm:px-6 sm:py-12">
+    <main className={submission.paymentMethod !== "BANK_TRANSFER" && !isPaid ? "mx-auto w-full max-w-[1180px] px-5 py-7 sm:px-6 sm:py-12" : "shell px-4 py-9 sm:px-6 sm:py-12"}>
       <div className="mx-auto max-w-3xl">
         {isPaid ? (
           <section className="card overflow-hidden p-5 sm:p-8">
@@ -246,25 +247,23 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
             {shouldContinueHandoffPolling ? <CheckoutStatusWatcher copy={{ paid: copy.handoffPreparing, pending: copy.handoffPreparing }} submissionId={submission.id} /> : null}
             <Link href="/dashboard" className="btn-primary mt-8 flex w-full py-4 text-base">{copy.returnDashboard}</Link>
           </section>
+        ) : submission.paymentMethod !== "BANK_TRANSFER" ? (
+          <InitialPaymentQrView amount={amountDue} copy={copy} failed={isFailed} locale={locale}
+            paymentUrl={elementPaymentUrl} qrCodeDataUrl={qrCodeDataUrl} submissionId={submission.id}
+            warning={getPendingPaymentCopy(locale)} />
         ) : (
           <>
-            <div className="mb-5 sm:mb-8"><p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--accent)] sm:section-kicker sm:mb-4">{copy.paymentStep}</p><h1 className="mt-2 max-w-xl font-serif text-[2.55rem] leading-[0.98] text-[var(--foreground)] sm:mt-0 sm:text-5xl sm:leading-tight">{submission.paymentMethod === "BANK_TRANSFER" ? copy.titleBank : copy.titleCard}</h1><p className="mt-3 max-w-2xl text-base leading-6 text-[var(--muted)] sm:mt-4 sm:text-lg sm:leading-8">{submission.paymentMethod === "BANK_TRANSFER" ? copy.nextPending : copy.cardIntro(amountDue)}</p>{submission.paymentMethod === "ONLINE" ? <p className="mt-3 max-w-2xl text-xs leading-5 text-[var(--muted)] sm:text-sm">{getPendingPaymentCopy(locale)}</p> : null}</div>
+            <div className="mb-5 sm:mb-8"><p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--accent)] sm:section-kicker sm:mb-4">{copy.paymentStep}</p><h1 className="mt-2 max-w-xl font-serif text-[2.55rem] leading-[0.98] text-[var(--foreground)] sm:mt-0 sm:text-5xl sm:leading-tight">{copy.titleBank}</h1><p className="mt-3 max-w-2xl text-base leading-6 text-[var(--muted)] sm:mt-4 sm:text-lg sm:leading-8">{copy.nextPending}</p></div>
             <p className="mb-5 max-w-2xl border-l-2 border-[var(--primary)] pl-4 text-sm leading-6 text-[var(--muted-strong)]"><strong className="text-[var(--foreground)]">{locale === "it" ? "Rimborso entro 14 giorni. " : "14-day refund policy. "}</strong>{locale === "it" ? "Richiedi dal tuo account il rimborso completo del pagamento iniziale entro 14 giorni dal pagamento riuscito. Le carte vengono elaborate online; per i bonifici l’assistenza completa la restituzione e la data della richiesta preserva l’idoneità. La scheda si disattiva solo dopo il rimborso confermato; i dati restano salvati." : "Request a full initial-payment refund from your account within 14 days of successful payment. Cards are processed online; support helps return bank transfers, with eligibility preserved by your request date. Your listing becomes inactive only after confirmed refund completion; business information stays saved."} <Link className="font-semibold text-[var(--primary)] underline" href="/terms#refunds">{locale === "it" ? "Leggi i termini" : "View refund terms"}</Link></p>
             <section className="card overflow-hidden p-5 sm:p-8">
-              {submission.paymentMethod === "BANK_TRANSFER" ? (
                 <div><div className="flex items-start gap-4"><span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[rgba(191,91,42,0.09)] text-[var(--accent)]"><IconBuildingBank size={29} /></span><div><h2 className="text-2xl font-bold text-[var(--foreground)]">{copy.bankTitle}</h2><p className="mt-2 leading-7 text-[var(--foreground)]">{copy.transferIntro}</p></div></div>
                   {bankTransferIban && bankTransferAccountHolderName ? <><div className="mt-6 overflow-hidden rounded-[1.35rem] border border-[var(--border)] bg-white"><SummaryRow label={copy.beneficiary}>{bankTransferAccountHolderName}</SummaryRow><SummaryRow label={copy.iban}>{bankTransferIban}</SummaryRow><SummaryRow label="BIC">{bankTransferBic || "—"}</SummaryRow><SummaryRow label={copy.reference}>{bankTransferReference || copy.pendingReference}</SummaryRow><SummaryRow label={copy.transferAmount} last><span className="text-lg text-[var(--accent)]">{formatCurrencyFromCents(bankTransferAmountRemainingCents ?? submission.amountOwedCents, locale)}</span></SummaryRow></div>
                     <div className="mt-6 grid items-center gap-5 rounded-[1.4rem] bg-[rgba(42,98,87,0.055)] p-4 sm:grid-cols-[auto_1fr] sm:p-5">{bankTransferQrDataUrl ? <div className="mx-auto rounded-2xl bg-white p-3 shadow-sm sm:mx-0"><img src={bankTransferQrDataUrl} alt={locale === "it" ? "QR delle istruzioni per il bonifico" : "QR code for bank transfer instructions"} className="h-36 w-36 rounded-xl" /></div> : null}<div><div className="flex items-center gap-2 text-[var(--primary)]"><IconQrcode size={20} /><h3 className="text-lg font-bold">{locale === "it" ? "Scansiona per le istruzioni" : "Scan to view instructions"}</h3></div><p className="mt-2 leading-7 text-[var(--foreground)]">{copy.transferHint}</p></div></div>
                     {bankTransferInstructionsUrl ? <a href={bankTransferInstructionsUrl} target="_blank" rel="noreferrer" className="btn-primary mt-6 flex w-full py-4 text-base"><IconDeviceMobile size={21} /> {copy.transferAction}</a> : null}</> : <p className="mt-6 rounded-[1.25rem] border border-[rgba(191,91,42,0.18)] bg-[rgba(191,91,42,0.05)] px-4 py-4 leading-7 text-[var(--foreground)]">{copy.transferUnavailable}</p>}
                   <div className="mt-6 rounded-[1.25rem] border border-[rgba(42,98,87,0.14)] bg-[rgba(42,98,87,0.05)] p-4 sm:p-5"><div className="flex items-start gap-3"><IconInfoCircle size={24} className="mt-0.5 shrink-0 text-[var(--primary)]" /><p className="leading-7 text-[var(--foreground)]">{copy.transferWaiting}</p></div></div>
                 </div>
-              ) : (
-                <div><div className="rounded-[1.35rem] border border-[rgba(42,98,87,0.13)] bg-[linear-gradient(135deg,rgba(243,248,242,0.98),rgba(247,244,239,0.92))] p-5 sm:rounded-none sm:border-x-0 sm:border-t-0 sm:border-dashed sm:border-[var(--border)] sm:bg-transparent sm:px-0 sm:pb-6"><p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--primary)]">{copy.amountDue}</p><div className="mt-2 flex items-end justify-between gap-4"><p className="font-serif text-5xl leading-none text-[var(--foreground)] sm:text-6xl">{amountDue}</p><p className="mb-0.5 inline-flex shrink-0 items-center gap-2 text-sm font-semibold text-[var(--primary)]"><IconLock size={19} /> <span className="max-w-20 leading-5 sm:max-w-none">{copy.secure}</span></p></div></div>
-                  {qrCodeDataUrl ? <div className="mt-4 rounded-[1.4rem] border border-[var(--border)] bg-white p-4 text-center sm:mt-6 sm:p-6"><h2 className="text-xl font-bold leading-7 text-[var(--foreground)] sm:text-2xl">{copy.cardQrTitle}</h2><p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--muted)] sm:text-base sm:leading-7">{copy.cardQrHint} <strong className="font-semibold text-[var(--foreground)]">{amountDue}</strong></p><div className="mx-auto mt-4 w-full max-w-[16.5rem] rounded-[1.25rem] border border-[var(--border)] bg-white p-3 shadow-sm sm:mt-5 sm:p-4"><img src={qrCodeDataUrl} alt={locale === "it" ? "QR del pagamento Stripe" : "QR code for Stripe payment"} className="aspect-square h-auto w-full" /></div><div className="mt-4 rounded-[1.15rem] bg-[rgba(42,98,87,0.06)] px-4 py-4 text-left sm:mt-5 sm:flex sm:items-start sm:gap-4"><IconDeviceMobile size={25} className="mb-2 shrink-0 text-[var(--primary)] sm:mb-0" /><div><h3 className="font-bold text-[var(--foreground)]">{copy.useBankingApp}</h3><p className="mt-1 text-sm leading-6 text-[var(--muted)]">{copy.cardQrHint} <strong className="font-semibold text-[var(--primary)]">{amountDue}</strong></p></div></div><div className="mt-4 border-t border-[var(--border)] pt-4 text-left sm:mt-5 sm:pt-5"><div className="flex items-start gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[rgba(191,91,42,0.1)] text-[var(--accent)]"><IconClock size={20} /></span><div><h3 className="font-bold text-[var(--foreground)]">{copy.next}</h3><p className="mt-1 text-sm leading-6 text-[var(--muted)]">{copy.nextPending}</p><p className="mt-2 text-sm font-medium text-[var(--foreground)]">{copy.cardWaiting}</p></div></div></div>{elementPaymentUrl ? <Link href={elementPaymentUrl} className="btn-secondary mt-4 flex min-h-12 w-full">{locale === "it" ? "Apri pagamento" : "Open payment"}</Link> : null}</div> : <p className="mt-6 text-sm text-[var(--accent)]">{locale === "it" ? "Pagamento non disponibile. Verifica i dati del titolare e riprova." : "Payment unavailable. Check the owner details and try again."}</p>}
-                </div>
-              )}
               {isFailed ? <p className="mt-6 rounded-[1.2rem] bg-[rgba(191,91,42,0.08)] px-4 py-3 text-sm leading-6 text-[var(--foreground)]">{copy.failed}</p> : null}
-              <CheckoutStatusWatcher copy={{ paid: locale === "it" ? "Pagamento ricevuto. Stiamo aggiornando questa pagina." : "Payment received. We are updating this page.", pending: submission.paymentMethod === "BANK_TRANSFER" ? copy.transferWaiting : copy.cardPolling }} submissionId={submission.id} />
+              <CheckoutStatusWatcher copy={{ paid: locale === "it" ? "Pagamento ricevuto. Stiamo aggiornando questa pagina." : "Payment received. We are updating this page.", pending: copy.transferWaiting }} submissionId={submission.id} />
             </section>
             {showBankTransferSandboxTools ? <aside className="mt-5 rounded-[1.35rem] border border-dashed border-[var(--border)] bg-white/65 p-5"><p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--accent)]">{copy.sandboxTitle}</p><p className="mt-2 text-sm leading-7 text-[var(--muted)]">{copy.sandboxBody}</p>{bankTransferTestNotice ? <p className="mt-3 text-sm font-medium text-[var(--primary)]">{bankTransferTestNotice}</p> : null}<form action={simulateStripeBankTransferAction} className="mt-4"><input type="hidden" name="submissionId" value={submission.id} /><FormSubmitButton className="btn-secondary w-full sm:w-auto">{copy.sandboxCta}</FormSubmitButton></form></aside> : null}
           </>
