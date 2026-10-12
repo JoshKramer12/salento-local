@@ -289,7 +289,10 @@ export function payableCommissionWhere(now: Date): Prisma.PartnerCommissionWhere
     type: "COMMISSION",
     // Both the batch selection and its reservation transaction use this
     // predicate. A debt anywhere on the Partner ledger blocks disbursement.
-    partnerUser: { is: { partnerCommissions: { none: { status: "DEBT", amountCents: { lt: 0 } } } } },
+    partnerUser: { is: { partnerCommissions: { none: { amountCents: { lt: 0 }, OR: [
+      { status: "DEBT" },
+      { type: "REVERSAL", status: "REVERSED", payoutId: { not: null } },
+    ] } } } },
     payment: { is: {
       status: "PAID",
       paidAt: { not: null },
@@ -534,7 +537,8 @@ export async function getPartnerBalanceSummary(userId: string) {
     }),
   ]);
   const payableIds = new Set(payableRows.map((row) => row.id));
-  const hasDebt = commissions.some((row) => row.status === "DEBT" && row.amountCents < 0);
+  const hasDebt = commissions.some((row) => row.amountCents < 0 &&
+    (row.status === "DEBT" || row.type === "REVERSAL" && row.status === "REVERSED" && row.payoutId));
   return commissions.reduce(
     (summary, commission) => {
       if (commission.status === "DEBT") {
@@ -1012,6 +1016,7 @@ export async function reversePartnerCommissionForPayment(params: {
       orderBy: {
         createdAt: "desc",
       },
+      include: { payout: { include: { withdrawalRequest: true } } },
     });
 
     if (!original) {
@@ -1034,10 +1039,12 @@ export async function reversePartnerCommissionForPayment(params: {
       return;
     }
 
-    const reversalStatus =
-      original.status === "PAID" ? ("DEBT" as const) : ("REVERSED" as const);
+    const withdrawal = original.payout?.withdrawalRequest;
+    const withdrawalInFlight = original.status === "RESERVED" && withdrawal &&
+      (Boolean(withdrawal.dispatchStartedAt) || Boolean(withdrawal.manualTransferInitiatedAt));
+    const reversalStatus = original.status === "PAID" ? ("DEBT" as const) : ("REVERSED" as const);
 
-    if (original.status !== "PAID") {
+    if (original.status !== "PAID" && !withdrawalInFlight) {
       await tx.partnerCommission.update({
         where: {
           id: original.id,
@@ -1057,6 +1064,7 @@ export async function reversePartnerCommissionForPayment(params: {
         currency: original.currency,
         partnerUserId: original.partnerUserId,
         paymentId: original.paymentId,
+        payoutId: withdrawalInFlight ? original.payoutId : null,
         reversedAt: new Date(),
         reversalReason: params.reason,
         sourceEventId: params.sourceEventId,
@@ -1069,6 +1077,11 @@ export async function reversePartnerCommissionForPayment(params: {
         type: "REVERSAL",
       },
     });
+    if (withdrawalInFlight && withdrawal.status === "PROCESSING") {
+      await tx.partnerWithdrawalRequest.update({ where: { id: withdrawal.id }, data: { status: "ACTION_REQUIRED", failureReason: "commission_reversed_during_dispatch" } });
+      await tx.partnerPayout.update({ where: { id: original.payoutId! }, data: { status: "ACTION_REQUIRED", actionRequiredAt: new Date(), failureMessage: "commission_reversed_during_dispatch" } });
+      await tx.partnerWithdrawalAuditEvent.create({ data: { withdrawalRequestId: withdrawal.id, fromStatus: "PROCESSING", toStatus: "ACTION_REQUIRED", provider: "FINANCIAL_HOLD", reason: "commission_reversed_during_dispatch" } });
+    }
   });
 
   (dependencies.revalidatePaths ?? revalidatePartnerLedgerPaths)();
@@ -1328,7 +1341,7 @@ async function settleInFlightSandboxPayouts() {
 async function syncPendingPaypalPayouts() {
   if (!isPaypalPayoutConfigured()) return;
   const payouts = await prisma.partnerPayout.findMany({
-    where: { payoutMethod: "PAYPAL", providerBatchId: { not: null }, status: "PROCESSING" },
+    where: { payoutMethod: "PAYPAL", providerBatchId: { not: null }, status: "PROCESSING", withdrawalRequest: null },
     select: { id: true, providerBatchId: true },
   });
   for (const payout of payouts) {

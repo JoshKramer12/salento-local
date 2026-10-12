@@ -18,9 +18,9 @@ export function assertWithdrawalTransition(from: PartnerWithdrawalStatus, to: Pa
 } = {}) {
   const allowed: Record<PartnerWithdrawalStatus, PartnerWithdrawalStatus[]> = {
     REQUESTED: ["PROCESSING", "CANCELED", "ACTION_REQUIRED"],
-    PROCESSING: ["PAID", "FAILED", "ACTION_REQUIRED"],
+    PROCESSING: ["PAID", "FAILED", "ACTION_REQUIRED", "CANCELED"],
     FAILED: ["PROCESSING", "CANCELED"],
-    ACTION_REQUIRED: ["PROCESSING", "CANCELED"],
+    ACTION_REQUIRED: ["PROCESSING", "PAID", "CANCELED"],
     PAID: [],
     CANCELED: [],
   };

@@ -932,6 +932,14 @@ model PartnerWithdrawalRequest {
   destinationSnapshotEncrypted String
   status                       PartnerWithdrawalStatus @default(REQUESTED)
   failureReason                String?
+  dispatchStartedAt            DateTime?
+  manualTransferInitiatedAt    DateTime?
+  manualTransferReference      String?
+  manualBankName               String?
+  manualInitiatedByUserId      String?
+  settlementVerifiedAt         DateTime?
+  settlementVerifiedByUserId   String?
+  settlementEvidenceEncrypted String?
   createdAt                    DateTime @default(now())
   updatedAt                    DateTime @updatedAt
   partnerUser                  User @relation(fields: [partnerUserId], references: [id], onDelete: Restrict)
@@ -948,6 +956,10 @@ model PartnerWithdrawalAuditEvent {
   fromStatus          PartnerWithdrawalStatus?
   toStatus            PartnerWithdrawalStatus
   reason              String?
+  actorUserId         String?
+  provider            String?
+  providerReference   String?
+  evidenceEncrypted   String?
   createdAt           DateTime @default(now())
   withdrawalRequest   PartnerWithdrawalRequest @relation(fields: [withdrawalRequestId], references: [id], onDelete: Restrict)
 

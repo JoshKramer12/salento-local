@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { handleConnectedPayoutEvent } from "@/lib/partner-ledger";
+import { reconcileWithdrawalStripePayoutEvent } from "@/lib/partner-withdrawal-processing";
 import {
   syncPartnerStripeAccountStatusByConnectedAccountId,
 } from "@/lib/partner-connect";
@@ -66,10 +67,10 @@ export async function POST(request: Request) {
       event.type === "payout.canceled"
     ) {
       const payout = event.data.object;
-      await handleConnectedPayoutEvent({
-        eventType: event.type,
-        payoutId: payout.id,
-      });
+      const withdrawalHandled = await reconcileWithdrawalStripePayoutEvent(payout.id, stripe, event.type, typeof event.account === "string" ? event.account : null);
+      if (!withdrawalHandled) {
+        await handleConnectedPayoutEvent({ eventType: event.type, payoutId: payout.id });
+      }
       await completeStripeWebhookProcessing({
         id: webhookLog.id,
         status: "PROCESSED",
