@@ -6,6 +6,7 @@ import { requireAdminViewer } from "@/lib/auth-guards";
 import { getCurrentLocale } from "@/lib/locale";
 import { getWithdrawalAdminReview } from "@/lib/partner-withdrawal-processing";
 import { withdrawalProcessingEnabled } from "@/lib/partner-withdrawal-dashboard";
+import { partnerCashoutReconciliationEnabled } from "@/lib/partner-payout-mode";
 import { commissionRecordLabel, payoutMethodLabel, withdrawalAuditReason, withdrawalStatusLabel } from "@/lib/partner-withdrawal-view";
 import { prisma } from "@/lib/prisma";
 
@@ -42,12 +43,14 @@ export default async function AdminWithdrawalDetailPage({ params }: Props) {
           <div className="flex justify-between gap-3"><dt>{it ? "Richiesto" : "Requested"}</dt><dd>{date(request.createdAt)}</dd></div>
           {request.settlementVerifiedAt ? <div className="flex justify-between gap-3"><dt>{it ? "Regolamento verificato" : "Settlement verified"}</dt><dd>{date(request.settlementVerifiedAt)}</dd></div> : null}
           {request.manualTransferInitiatedAt ? <div className="flex justify-between gap-3"><dt>{it ? "Bonifico registrato" : "Transfer recorded"}</dt><dd>{date(request.manualTransferInitiatedAt)}</dd></div> : null}
+          {review.bankReturn ? <div className="flex justify-between gap-3"><dt>{it ? "Restituzione verificata" : "Return verified"}</dt><dd>{date(review.bankReturn.verifiedAt)}</dd></div> : null}
         </dl>
         {reference ? <p className="mt-5 break-all text-sm text-[var(--muted)]">{it ? "Riferimento provider" : "Provider reference"}: {reference}</p> : null}
         {request.payout.stripeTransferId && request.payout.stripePayoutId ? <p className="mt-2 break-all text-xs text-[var(--muted)]">Stripe transfer: {request.payout.stripeTransferId} · Stripe payout: {request.payout.stripePayoutId}</p> : null}
         {request.failureReason ? <p className="mt-5 rounded-xl bg-amber-50 p-3 text-sm text-amber-900" role="status">{it ? "Questa richiesta richiede la verifica dell'esito esterno prima di ulteriori azioni." : "This request needs external outcome review before further action."}</p> : null}
+        {review.bankReturn ? <p className="mt-5 rounded-xl bg-amber-50 p-3 text-sm text-amber-900" role="status">{it ? "Restituzione bancaria registrata. La rettifica contabile resta in sospeso; lo storico pagato è conservato." : "Bank return recorded. Accounting correction remains pending; paid history is preserved."}</p> : null}
       </section>
-      <AdminWithdrawalActions id={id} locale={locale} method={request.payoutMethod} status={request.status} dispatchStarted={Boolean(request.dispatchStartedAt)} manualInitiated={Boolean(request.manualTransferInitiatedAt)} enabled={withdrawalProcessingEnabled()} />
+      <AdminWithdrawalActions id={id} locale={locale} method={request.payoutMethod} status={request.status} dispatchStarted={Boolean(request.dispatchStartedAt)} manualInitiated={Boolean(request.manualTransferInitiatedAt)} processingEnabled={withdrawalProcessingEnabled()} reconciliationEnabled={partnerCashoutReconciliationEnabled()} canContinueStripe={request.payoutMethod === "STRIPE" && request.status === "ACTION_REQUIRED" && Boolean(request.payout.stripeTransferId && request.stripeTransferRecordedAt) && !request.payout.stripePayoutId && !request.payoutDispatchStartedAt} needsPaypalBatch={request.payoutMethod === "PAYPAL" && Boolean(request.dispatchStartedAt) && !request.payout.providerBatchId && (request.status === "PROCESSING" || request.status === "ACTION_REQUIRED")} returnRecorded={Boolean(review.bankReturn)} amountCents={request.amountCents} />
     </div>
     <div className="mt-5 grid gap-5 lg:grid-cols-2">
       <section className="card min-w-0 p-5 sm:p-7"><h2 className="font-serif text-2xl">{it ? "Commissioni associate" : "Associated commissions"}</h2><div className="mt-4 grid gap-3">{request.payout.commissions.map((row) => <div key={row.id} className="flex flex-wrap justify-between gap-2 rounded-xl border border-[var(--border)] p-3 text-sm"><div><p className="font-medium">{row.business?.name ?? (it ? "Commissione partner" : "Partner commission")}</p><p className="text-xs text-[var(--muted)]">{commissionRecordLabel(row.type, row.status, locale)} · {date(row.createdAt)}</p></div><p className="font-semibold">{formatCurrencyFromCents(row.amountCents, locale)}</p></div>)}{!request.payout.commissions.length ? <p className="text-sm text-[var(--muted)]">{it ? "Nessuna commissione associata." : "No associated commissions."}</p> : null}</div></section>

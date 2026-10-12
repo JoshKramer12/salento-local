@@ -1338,28 +1338,50 @@ async function settleInFlightSandboxPayouts() {
   }
 }
 
-async function syncPendingPaypalPayouts() {
+/** Provider polling only: never creates a new payout. May run while weekly
+ * initiation is disabled so older PayPal batches remain observable. */
+export async function syncPendingPaypalPayouts(lookup: typeof getPaypalPayoutBatch = getPaypalPayoutBatch) {
   if (!isPaypalPayoutConfigured()) return;
   const payouts = await prisma.partnerPayout.findMany({
     where: { payoutMethod: "PAYPAL", providerBatchId: { not: null }, status: "PROCESSING", withdrawalRequest: null },
-    select: { id: true, providerBatchId: true },
+    select: { id: true, providerBatchId: true, providerReference: true, amountCents: true, currency: true },
   });
   for (const payout of payouts) {
     try {
-      const paypal = await getPaypalPayoutBatch(payout.providerBatchId!);
+      const paypal = await lookup(payout.providerBatchId!);
+      if (getPartnerPayoutMode() === "cashout") {
+        const cents = paypal.amountValue && /^\d+\.\d{2}$/.test(paypal.amountValue)
+          ? Number(paypal.amountValue.replace(".", "")) : null;
+        const expectedSender = payout.providerReference ?? `salento-${payout.id}`.slice(0, 36);
+        if (paypal.batchId !== payout.providerBatchId || paypal.senderBatchId !== expectedSender ||
+            paypal.totalItems !== 1 || paypal.senderItemId !== payout.id ||
+            cents !== payout.amountCents || paypal.currency?.toLowerCase() !== payout.currency.toLowerCase()) {
+          await prisma.partnerPayout.updateMany({ where: { id: payout.id, status: "PROCESSING" }, data: {
+            status: "ACTION_REQUIRED", actionRequiredAt: new Date(), failureMessage: "PayPal payout attribution requires review.",
+          } });
+          continue;
+        }
+      }
       if (paypal.itemStatus === "SUCCESS") {
         await prisma.$transaction(async (tx) => {
           await tx.partnerPayout.update({ where: { id: payout.id }, data: { paidAt: new Date(), providerPayoutId: paypal.itemId, status: "PAID" } });
           await tx.partnerCommission.updateMany({ where: { payoutId: payout.id, status: "RESERVED" }, data: { paidAt: new Date(), status: "PAID" } });
+          if (getPartnerPayoutMode() === "cashout") {
+            await tx.partnerCommission.updateMany({ where: { payoutId: payout.id, type: "REVERSAL", status: "REVERSED", amountCents: { lt: 0 } }, data: { status: "DEBT" } });
+          }
         });
       } else if (["FAILED", "RETURNED", "DENIED", "BLOCKED"].includes(paypal.itemStatus)) {
         await prisma.$transaction(async (tx) => {
           await tx.partnerPayout.update({ where: { id: payout.id }, data: { actionRequiredAt: new Date(), failureMessage: "PayPal could not complete this payout.", providerPayoutId: paypal.itemId, status: "ACTION_REQUIRED" } });
-          await tx.partnerCommission.updateMany({ where: { payoutId: payout.id, status: "RESERVED" }, data: { payoutId: null, status: "AVAILABLE" } });
+          // Cash-out mode keeps historical reservations until an operator
+          // verifies the complete provider outcome and any later conflict.
+          if (getPartnerPayoutMode() !== "cashout") {
+            await tx.partnerCommission.updateMany({ where: { payoutId: payout.id, status: "RESERVED" }, data: { payoutId: null, status: "AVAILABLE" } });
+          }
         });
       }
-    } catch (error) {
-      console.error("[partner-payout:paypal-sync]", { error, payoutId: payout.id });
+    } catch {
+      console.error("[partner-payout:paypal-sync]", { reason: "provider_lookup_failed", payoutId: payout.id });
     }
   }
 }

@@ -933,6 +933,8 @@ model PartnerWithdrawalRequest {
   status                       PartnerWithdrawalStatus @default(REQUESTED)
   failureReason                String?
   dispatchStartedAt            DateTime?
+  stripeTransferRecordedAt     DateTime?
+  payoutDispatchStartedAt      DateTime?
   manualTransferInitiatedAt    DateTime?
   manualTransferReference      String?
   manualBankName               String?
@@ -945,6 +947,7 @@ model PartnerWithdrawalRequest {
   partnerUser                  User @relation(fields: [partnerUserId], references: [id], onDelete: Restrict)
   payout                       PartnerPayout @relation(fields: [payoutId], references: [id], onDelete: Restrict)
   auditEvents                  PartnerWithdrawalAuditEvent[]
+  manualBankReturn             PartnerManualBankReturn?
 
   @@unique([partnerUserId, idempotencyKey])
   @@index([partnerUserId, status, createdAt])
@@ -964,6 +967,18 @@ model PartnerWithdrawalAuditEvent {
   withdrawalRequest   PartnerWithdrawalRequest @relation(fields: [withdrawalRequestId], references: [id], onDelete: Restrict)
 
   @@index([withdrawalRequestId, createdAt])
+}
+
+/** A bank return is a new event after settlement, never a rewrite of PAID. */
+model PartnerManualBankReturn {
+  id                     String   @id @default(cuid())
+  withdrawalRequestId    String   @unique
+  bankReturnReference    String
+  amountCents            Int
+  evidenceEncrypted      String
+  verifiedByUserId       String
+  verifiedAt             DateTime @default(now())
+  withdrawalRequest      PartnerWithdrawalRequest @relation(fields: [withdrawalRequestId], references: [id], onDelete: Restrict)
 }
 
 model StripeWebhookEvent {

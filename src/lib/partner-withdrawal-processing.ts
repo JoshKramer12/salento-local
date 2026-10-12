@@ -2,9 +2,9 @@ import type Stripe from "stripe";
 import type { PartnerWithdrawalStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
-import { createPaypalPayout, decryptPayoutDestination, encryptPayoutDestination, getPaypalPayoutBatch, isPaypalPayoutConfigured, isValidItalianIban } from "@/lib/partner-payout-methods";
+import { createPaypalPayout, decryptPayoutDestination, encryptPayoutDestination, getPaypalPayoutBatch, isPaypalPayoutConfigured, isValidItalianIban, type PaypalPayoutBatchEvidence } from "@/lib/partner-payout-methods";
 import { hasValidPartnerCommissionAttribution } from "@/lib/partner-ledger";
-import { partnerCashoutRequestsEnabled } from "@/lib/partner-payout-mode";
+import { partnerCashoutReconciliationEnabled, partnerCashoutRequestsEnabled } from "@/lib/partner-payout-mode";
 import { assertWithdrawalTransition, PartnerWithdrawalError } from "@/lib/partner-withdrawals";
 
 type Db = Prisma.TransactionClient;
@@ -28,6 +28,10 @@ function requireProcessingEnabled() {
   if (!partnerCashoutRequestsEnabled() || process.env.PARTNER_CASHOUT_PROCESSING_ENABLED !== "true") {
     throw new PartnerWithdrawalError("withdrawal_processing_disabled");
   }
+}
+
+function requireReconciliationEnabled() {
+  if (!partnerCashoutReconciliationEnabled()) throw new PartnerWithdrawalError("withdrawal_reconciliation_disabled");
 }
 
 async function assertReservedAndSafe(tx: Db, request: Withdrawal) {
@@ -64,6 +68,16 @@ function destination(request: Withdrawal) {
     throw new PartnerWithdrawalError("withdrawal_destination_mismatch");
   }
   return value;
+}
+
+function paypalEvidenceMatches(request: Withdrawal, batchId: string, evidence: PaypalPayoutBatchEvidence) {
+  const amountCents = evidence.amountValue && /^\d+\.\d{2}$/.test(evidence.amountValue)
+    ? Number(evidence.amountValue.replace(".", "")) : null;
+  return evidence.batchId === batchId &&
+    evidence.senderBatchId === `salento-${request.payoutId}`.slice(0, 36) &&
+    evidence.totalItems === 1 && evidence.receiver === destination(request) &&
+    evidence.senderItemId === request.payoutId && amountCents === request.amountCents &&
+    evidence.currency?.toLowerCase() === request.payout.currency.toLowerCase();
 }
 
 async function audit(tx: Db, request: Withdrawal, toStatus: PartnerWithdrawalStatus, details: {
@@ -118,6 +132,19 @@ async function providerFailed(id: string, reason: string, provider: string, refe
   });
 }
 
+async function recordTerminalConflict(id: string, status: PartnerWithdrawalStatus, provider: string, reference: string, reason: string) {
+  await prisma.$transaction(async (tx) => {
+    const changed = await tx.partnerWithdrawalRequest.updateMany({
+      where: { id, status, OR: [{ failureReason: null }, { failureReason: { not: reason } }] }, data: { failureReason: reason },
+    });
+    if (!changed.count) return;
+    await tx.partnerWithdrawalAuditEvent.create({ data: {
+      withdrawalRequestId: id, fromStatus: status, toStatus: status,
+      provider, providerReference: reference, reason,
+    } });
+  });
+}
+
 async function verifiedPaid(id: string, provider: string, reference: string, actorUserId?: string, evidence?: string) {
   return prisma.$transaction(async (tx) => {
     const request = await loadWithdrawal(tx, id);
@@ -141,17 +168,44 @@ async function verifiedPaid(id: string, provider: string, reference: string, act
   });
 }
 
-async function saveProviderReference(id: string, provider: "STRIPE" | "PAYPAL", data: { transferId?: string; payoutId?: string; batchId?: string; senderBatchId?: string }) {
+async function saveProviderReference(id: string, provider: "STRIPE" | "PAYPAL", data: { transferId?: string; payoutId?: string; batchId?: string; senderBatchId?: string; confirmedDuringDispatch?: boolean }) {
   await prisma.$transaction(async (tx) => {
     const request = await loadWithdrawal(tx, id);
     if (!request || !["PROCESSING", "ACTION_REQUIRED"].includes(request.status)) throw new PartnerWithdrawalError("withdrawal_state_conflict");
+    if (data.transferId && request.payout.stripeTransferId && request.payout.stripeTransferId !== data.transferId ||
+        data.payoutId && request.payout.stripePayoutId && request.payout.stripePayoutId !== data.payoutId ||
+        data.batchId && request.payout.providerBatchId && request.payout.providerBatchId !== data.batchId ||
+        data.senderBatchId && request.payout.providerReference && request.payout.providerReference !== data.senderBatchId) {
+      throw new PartnerWithdrawalError("provider_reference_conflict");
+    }
     await tx.partnerPayout.update({ where: { id: request.payoutId }, data: {
       ...(data.transferId ? { stripeTransferId: data.transferId } : {}),
       ...(data.payoutId ? { stripePayoutId: data.payoutId } : {}),
       ...(data.batchId ? { providerBatchId: data.batchId } : {}),
       ...(data.senderBatchId ? { providerReference: data.senderBatchId } : {}),
     } });
+    if (data.transferId && data.confirmedDuringDispatch) {
+      await tx.partnerWithdrawalRequest.update({ where: { id }, data: { stripeTransferRecordedAt: new Date() } });
+    }
     await audit(tx, request, request.status, { provider, providerReference: data.payoutId ?? data.batchId ?? data.transferId, reason: "provider_reference_recorded" });
+  });
+}
+
+async function markStripePayoutDispatchStarted(id: string) {
+  await prisma.$transaction(async (tx) => {
+    const request = await loadWithdrawal(tx, id);
+    if (!request || request.status !== "PROCESSING" || request.payoutMethod !== "STRIPE" ||
+        !request.payout.stripeTransferId || !request.stripeTransferRecordedAt ||
+        request.payout.stripePayoutId || request.payoutDispatchStartedAt) {
+      throw new PartnerWithdrawalError("stripe_payout_dispatch_conflict");
+    }
+    await assertReservedAndSafe(tx, request);
+    const changed = await tx.partnerWithdrawalRequest.updateMany({
+      where: { id, status: "PROCESSING", payoutDispatchStartedAt: null },
+      data: { payoutDispatchStartedAt: new Date() },
+    });
+    if (changed.count !== 1) throw new PartnerWithdrawalError("withdrawal_state_changed");
+    await audit(tx, request, "PROCESSING", { provider: "STRIPE", reason: "stripe_payout_dispatch_started" });
   });
 }
 
@@ -174,7 +228,9 @@ async function markProviderDispatchStarted(id: string, provider: "STRIPE" | "PAY
     await assertReservedAndSafe(tx, request);
     const changed = await tx.partnerWithdrawalRequest.updateMany({ where: { id, status: "PROCESSING", dispatchStartedAt: null }, data: { dispatchStartedAt: new Date() } });
     if (changed.count !== 1) throw new PartnerWithdrawalError("withdrawal_state_changed");
-    await audit(tx, request, "PROCESSING", { provider, reason: "provider_dispatch_started" });
+    const senderBatchId = provider === "PAYPAL" ? `salento-${request.payoutId}`.slice(0, 36) : undefined;
+    if (senderBatchId) await tx.partnerPayout.update({ where: { id: request.payoutId }, data: { providerReference: senderBatchId } });
+    await audit(tx, request, "PROCESSING", { provider, providerReference: senderBatchId, reason: "provider_dispatch_started" });
   });
 }
 
@@ -221,8 +277,9 @@ export async function processPartnerWithdrawal(params: { actorUserId: string; re
         destination: value, transfer_group: request.id,
         metadata: { partnerPayoutId: request.payoutId, withdrawalRequestId: request.id } },
       { idempotencyKey: `withdrawal-transfer-${request.id}` });
-      await saveProviderReference(request.id, "STRIPE", { transferId: transfer.id });
+      await saveProviderReference(request.id, "STRIPE", { transferId: transfer.id, confirmedDuringDispatch: true });
       await assertStillSafe(request.id);
+      await markStripePayoutDispatchStarted(request.id);
       const payout = await stripe.payouts.create({ amount: request.amountCents, currency: request.payout.currency,
         metadata: { partnerPayoutId: request.payoutId, withdrawalRequestId: request.id } },
       { idempotencyKey: `withdrawal-payout-${request.id}`, stripeAccount: value });
@@ -244,16 +301,104 @@ export async function processPartnerWithdrawal(params: { actorUserId: string; re
   }
 }
 
-export async function reconcilePartnerWithdrawal(params: { actorUserId: string; requestId: string }, providers: Providers = {}) {
+/** Complete only a newly recorded transfer for which this version of the
+ * dispatcher has durable proof that no payout call was started. Legacy rows
+ * deliberately remain in manual reconciliation. */
+export async function continueStripeWithdrawalPayout(params: { actorUserId: string; requestId: string }, providers: Providers = {}) {
   await requireAdmin(params.actorUserId);
   requireProcessingEnabled();
+  requireReconciliationEnabled();
+  const request = await prisma.partnerWithdrawalRequest.findUnique({ where: { id: params.requestId }, include: { payout: true } });
+  if (!request || request.payoutMethod !== "STRIPE" || request.status !== "ACTION_REQUIRED" ||
+      !request.payout.stripeTransferId || !request.stripeTransferRecordedAt ||
+      request.payout.stripePayoutId || request.payoutDispatchStartedAt) {
+    throw new PartnerWithdrawalError("stripe_continuation_not_safe");
+  }
+  const account = destination(request);
+  const stripe = providers.stripe ?? getStripe();
+  const [transfer, payouts, connectedAccount] = await Promise.all([
+    stripe.transfers.retrieve(request.payout.stripeTransferId),
+    stripe.payouts.list({ limit: 100 }, { stripeAccount: account }),
+    stripe.accounts.retrieve(account),
+  ]);
+  if (!connectedAccount.payouts_enabled || transfer.id !== request.payout.stripeTransferId ||
+      transfer.destination !== account || transfer.transfer_group !== request.id ||
+      transfer.amount !== request.amountCents || transfer.currency.toLowerCase() !== request.payout.currency.toLowerCase() ||
+      transfer.metadata?.withdrawalRequestId !== request.id || transfer.reversed || transfer.amount_reversed !== 0 ||
+      payouts.has_more || payouts.data.some((row) => row.metadata?.withdrawalRequestId === request.id)) {
+    throw new PartnerWithdrawalError("stripe_continuation_not_safe");
+  }
+  await prisma.$transaction(async (tx) => {
+    const current = await loadWithdrawal(tx, request.id);
+    if (!current || current.status !== "ACTION_REQUIRED" || current.payoutMethod !== "STRIPE" ||
+        current.payout.stripeTransferId !== transfer.id || !current.stripeTransferRecordedAt ||
+        current.payout.stripePayoutId || current.payoutDispatchStartedAt) {
+      throw new PartnerWithdrawalError("stripe_continuation_not_safe");
+    }
+    await assertReservedAndSafe(tx, current);
+    await transition(tx, current, "PROCESSING", { actorUserId: params.actorUserId, provider: "STRIPE", providerReference: transfer.id, reason: "existing_transfer_payout_continuation" });
+    await tx.partnerWithdrawalRequest.update({ where: { id: current.id }, data: { payoutDispatchStartedAt: new Date() } });
+    await tx.partnerPayout.update({ where: { id: current.payoutId }, data: { status: "PROCESSING", failureMessage: null } });
+  });
+  try {
+    const payout = await stripe.payouts.create({ amount: request.amountCents, currency: request.payout.currency,
+      metadata: { partnerPayoutId: request.payoutId, withdrawalRequestId: request.id } },
+    { idempotencyKey: `withdrawal-payout-${request.id}`, stripeAccount: account });
+    await saveProviderReference(request.id, "STRIPE", { payoutId: payout.id });
+    return { id: request.id, status: "PROCESSING" as const };
+  } catch {
+    return { id: request.id, status: await actionRequired(request.id, "stripe_payout_outcome_requires_reconciliation", "STRIPE") };
+  }
+}
+
+/** Recover a PayPal batch ID found through provider records after a timeout.
+ * This only attaches a fully matched existing batch; it never sends a payout. */
+export async function attachVerifiedPaypalBatch(params: { actorUserId: string; requestId: string; batchId: string }, providers: Providers = {}) {
+  await requireAdmin(params.actorUserId);
+  requireReconciliationEnabled();
+  const batchId = params.batchId.trim();
+  if (!/^[A-Za-z0-9_-]{6,128}$/.test(batchId)) throw new PartnerWithdrawalError("paypal_batch_reference_invalid");
+  const request = await prisma.partnerWithdrawalRequest.findUnique({ where: { id: params.requestId }, include: { payout: true } });
+  if (!request || request.payoutMethod !== "PAYPAL" || !["PROCESSING", "ACTION_REQUIRED"].includes(request.status) ||
+      !request.dispatchStartedAt || request.payout.providerBatchId) throw new PartnerWithdrawalError("paypal_batch_attach_conflict");
+  const evidence = await (providers.paypalLookup ?? getPaypalPayoutBatch)(batchId);
+  if (!paypalEvidenceMatches(request, batchId, evidence)) {
+    throw new PartnerWithdrawalError("paypal_batch_attribution_conflict");
+  }
+  await saveProviderReference(request.id, "PAYPAL", { batchId, senderBatchId: `salento-${request.payoutId}`.slice(0, 36) });
+  return { id: request.id, status: request.status, batchAttached: true };
+}
+
+export async function reconcilePartnerWithdrawal(params: { actorUserId: string; requestId: string }, providers: Providers = {}) {
+  await requireAdmin(params.actorUserId);
+  requireReconciliationEnabled();
   const request = await prisma.partnerWithdrawalRequest.findUnique({ where: { id: params.requestId }, include: { payout: true } });
   if (!request) throw new PartnerWithdrawalError("withdrawal_missing");
-  if (request.status === "PAID" || request.status === "CANCELED" || request.status === "FAILED") return { id: request.id, status: request.status };
+  if (request.status === "REQUESTED" || request.status === "CANCELED") return { id: request.id, status: request.status };
+  if (request.status === "PAID" || request.status === "FAILED") {
+    if (request.payoutMethod === "STRIPE" && request.payout.stripePayoutId) {
+      await reconcileStripeProviderEvent(request.id, providers.stripe);
+    } else if (request.payoutMethod === "PAYPAL" && request.payout.providerBatchId) {
+      const item = await (providers.paypalLookup ?? getPaypalPayoutBatch)(request.payout.providerBatchId);
+      if (!paypalEvidenceMatches(request, request.payout.providerBatchId, item)) {
+        await recordTerminalConflict(request.id, request.status, "PAYPAL", request.payout.providerBatchId,
+          "paypal_batch_attribution_requires_review");
+        return { id: request.id, status: request.status };
+      }
+      const conflict = request.status === "FAILED" && item.itemStatus === "SUCCESS" ||
+        request.status === "PAID" && ["FAILED", "RETURNED", "DENIED", "BLOCKED"].includes(item.itemStatus);
+      if (conflict) await recordTerminalConflict(request.id, request.status, "PAYPAL", item.itemId ?? request.payout.providerBatchId,
+        `late_paypal_${item.itemStatus.toLowerCase()}_requires_review`);
+    }
+    return { id: request.id, status: request.status };
+  }
   if (request.payoutMethod === "POSTEPAY" || request.payoutMethod === "HYPE") return { id: request.id, status: request.status };
   if (request.payoutMethod === "PAYPAL") {
     if (!request.payout.providerBatchId) return { id: request.id, status: await actionRequired(request.id, "paypal_batch_reference_missing", "PAYPAL") };
     const item = await (providers.paypalLookup ?? getPaypalPayoutBatch)(request.payout.providerBatchId);
+    if (!paypalEvidenceMatches(request, request.payout.providerBatchId, item)) {
+      return { id: request.id, status: await actionRequired(request.id, "paypal_batch_attribution_requires_review", "PAYPAL") };
+    }
     if (item.itemStatus === "SUCCESS") return { id: request.id, status: await verifiedPaid(request.id, "PAYPAL", item.itemId ?? request.payout.providerBatchId) };
     if (["FAILED", "RETURNED", "DENIED", "BLOCKED"].includes(item.itemStatus)) return { id: request.id, status: await providerFailed(request.id, `paypal_${item.itemStatus.toLowerCase()}`, "PAYPAL", item.itemId ?? request.payout.providerBatchId) };
     return { id: request.id, status: request.status };
@@ -309,10 +454,7 @@ async function reconcileStripeProviderEvent(id: string, providedStripe?: Stripe,
   if (terminal) {
     const conflicting = request.status === "PAID" && payout.status !== "paid" ||
       request.status === "FAILED" && payout.status === "paid" || request.status === "CANCELED";
-    if (conflicting) await prisma.$transaction(async (tx) => {
-      await tx.partnerWithdrawalRequest.update({ where: { id }, data: { failureReason: `late_stripe_${payout.status}_requires_review` } });
-      await tx.partnerWithdrawalAuditEvent.create({ data: { withdrawalRequestId: id, fromStatus: request.status, toStatus: request.status, provider: "STRIPE", providerReference: payout.id, reason: `late_stripe_${payout.status}_requires_review` } });
-    });
+    if (conflicting) await recordTerminalConflict(id, request.status, "STRIPE", payout.id, `late_stripe_${payout.status}_requires_review`);
     return request.status;
   }
   if (payout.status === "paid") return verifiedPaid(id, "STRIPE", payout.id);
@@ -322,7 +464,7 @@ async function reconcileStripeProviderEvent(id: string, providedStripe?: Stripe,
 
 export async function getWithdrawalAdminReview(actorUserId: string, id: string) {
   await requireAdmin(actorUserId);
-  const request = await prisma.partnerWithdrawalRequest.findUnique({ where: { id }, include: { payout: true } });
+  const request = await prisma.partnerWithdrawalRequest.findUnique({ where: { id }, include: { payout: true, manualBankReturn: { select: { bankReturnReference: true, amountCents: true, verifiedAt: true } } } });
   if (!request) throw new PartnerWithdrawalError("withdrawal_missing");
   const value = destination(request);
   return { id: request.id, status: request.status, amountCents: request.amountCents,
@@ -330,6 +472,7 @@ export async function getWithdrawalAdminReview(actorUserId: string, id: string) 
       request.payoutMethod === "PAYPAL" ? `${value.slice(0, 2)}••••@${value.split("@")[1]}` : `••••${value.slice(-4)}`,
     manualTransferInitiatedAt: request.manualTransferInitiatedAt,
     manualTransferReference: request.manualTransferReference,
+    bankReturn: request.manualBankReturn,
   };
 }
 
@@ -344,7 +487,7 @@ export async function revealManualWithdrawalDestination(actorUserId: string, id:
 
 export async function recordManualTransferInitiated(params: { actorUserId: string; requestId: string; reference: string; bankName: string }) {
   await requireAdmin(params.actorUserId);
-  requireProcessingEnabled();
+  requireReconciliationEnabled();
   if (params.reference.trim().length < 6 || params.reference.length > 160 || params.bankName.trim().length < 2 || params.bankName.length > 120) throw new PartnerWithdrawalError("manual_reference_required");
   return prisma.$transaction(async (tx) => {
     const request = await loadWithdrawal(tx, params.requestId);
@@ -360,7 +503,7 @@ export async function recordManualTransferInitiated(params: { actorUserId: strin
 
 export async function confirmManualWithdrawalSettlement(params: { actorUserId: string; requestId: string; evidence: string; confirmedReceived: boolean }) {
   await requireAdmin(params.actorUserId);
-  requireProcessingEnabled();
+  requireReconciliationEnabled();
   if (!params.confirmedReceived || params.evidence.trim().length < 20 || params.evidence.length > 2000) throw new PartnerWithdrawalError("settlement_evidence_required");
   const request = await prisma.partnerWithdrawalRequest.findUnique({ where: { id: params.requestId } });
   if (!request || !["POSTEPAY", "HYPE"].includes(request.payoutMethod) || !request.manualTransferInitiatedAt || !request.manualTransferReference) throw new PartnerWithdrawalError("manual_transfer_state_conflict");
@@ -369,19 +512,13 @@ export async function confirmManualWithdrawalSettlement(params: { actorUserId: s
 
 export async function recordManualWithdrawalException(params: { actorUserId: string; requestId: string; outcome: "FAILED" | "RETURNED" | "UNCERTAIN"; evidence: string }) {
   await requireAdmin(params.actorUserId);
-  requireProcessingEnabled();
+  requireReconciliationEnabled();
   if (params.evidence.trim().length < 20 || params.evidence.length > 2000) throw new PartnerWithdrawalError("manual_exception_evidence_required");
   const request = await prisma.partnerWithdrawalRequest.findUnique({ where: { id: params.requestId } });
   if (!request || !["POSTEPAY", "HYPE"].includes(request.payoutMethod) || !request.manualTransferInitiatedAt) throw new PartnerWithdrawalError("manual_transfer_state_conflict");
   const reason = `manual_${params.outcome.toLowerCase()}`;
   if (request.status === "PAID") {
-    // A bank return after confirmed settlement is a new financial incident.
-    // Keep paid history intact and require an explicit reconciliation.
-    await prisma.$transaction(async (tx) => {
-      await tx.partnerWithdrawalRequest.update({ where: { id: request.id }, data: { failureReason: `${reason}_after_settlement` } });
-      await tx.partnerWithdrawalAuditEvent.create({ data: { withdrawalRequestId: request.id, fromStatus: "PAID", toStatus: "PAID", actorUserId: params.actorUserId, provider: "BANK", providerReference: request.manualTransferReference, reason: `${reason}_after_settlement`, evidenceEncrypted: encryptPayoutDestination(params.evidence.trim()) } });
-    });
-    return { id: request.id, status: "PAID" as const, reviewRequired: true };
+    throw new PartnerWithdrawalError(params.outcome === "RETURNED" ? "verified_bank_return_required" : "manual_transfer_state_conflict");
   }
   const status = params.outcome === "UNCERTAIN"
     ? await actionRequired(request.id, reason, "BANK")
@@ -390,9 +527,49 @@ export async function recordManualWithdrawalException(params: { actorUserId: str
   return { id: request.id, status };
 }
 
+/** Records a verified return as a separate immutable incident. Accounting
+ * correction remains blocked until a reviewed ledger design is approved. */
+export async function recordVerifiedManualBankReturn(params: {
+  actorUserId: string; requestId: string; bankReturnReference: string;
+  amountCents: number; evidence: string; verifiedReturned: boolean;
+}) {
+  await requireAdmin(params.actorUserId);
+  requireReconciliationEnabled();
+  const reference = params.bankReturnReference.trim();
+  const evidence = params.evidence.trim();
+  if (!params.verifiedReturned || reference.length < 6 || reference.length > 160 ||
+      evidence.length < 20 || evidence.length > 2000 || !Number.isSafeInteger(params.amountCents) || params.amountCents <= 0) {
+    throw new PartnerWithdrawalError("bank_return_evidence_required");
+  }
+  return prisma.$transaction(async (tx) => {
+    const request = await loadWithdrawal(tx, params.requestId);
+    if (!request || !["POSTEPAY", "HYPE"].includes(request.payoutMethod) ||
+        request.status !== "PAID" || request.payout.status !== "PAID" || !request.manualTransferReference ||
+        params.amountCents !== request.amountCents) {
+      throw new PartnerWithdrawalError("bank_return_state_conflict");
+    }
+    const prior = await tx.partnerManualBankReturn.findUnique({ where: { withdrawalRequestId: request.id } });
+    if (prior) {
+      if (prior.bankReturnReference !== reference || prior.amountCents !== params.amountCents) throw new PartnerWithdrawalError("bank_return_conflict");
+      return { id: request.id, status: "PAID" as const, reviewRequired: true, alreadyRecorded: true };
+    }
+    await tx.partnerManualBankReturn.create({ data: {
+      withdrawalRequestId: request.id, bankReturnReference: reference,
+      amountCents: params.amountCents, evidenceEncrypted: encryptPayoutDestination(evidence),
+      verifiedByUserId: params.actorUserId,
+    } });
+    await tx.partnerWithdrawalAuditEvent.create({ data: {
+      withdrawalRequestId: request.id, fromStatus: "PAID", toStatus: "PAID",
+      actorUserId: params.actorUserId, provider: "BANK", providerReference: reference,
+      reason: "verified_bank_return_pending_accounting", evidenceEncrypted: encryptPayoutDestination(evidence),
+    } });
+    return { id: request.id, status: "PAID" as const, reviewRequired: true, alreadyRecorded: false };
+  });
+}
+
 export async function cancelUnsentManualWithdrawal(params: { actorUserId: string; requestId: string; confirmation: string }) {
   await requireAdmin(params.actorUserId);
-  requireProcessingEnabled();
+  requireReconciliationEnabled();
   if (params.confirmation.trim().length < 20 || params.confirmation.length > 2000) throw new PartnerWithdrawalError("no_transfer_evidence_required");
   return prisma.$transaction(async (tx) => {
     const request = await loadWithdrawal(tx, params.requestId);

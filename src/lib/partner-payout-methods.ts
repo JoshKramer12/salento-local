@@ -151,7 +151,13 @@ export async function createPaypalPayout(params: {
   };
 }
 
-export async function getPaypalPayoutBatch(batchId: string) {
+export type PaypalPayoutBatchEvidence = {
+  batchStatus: string; itemId: string | null; itemStatus: string;
+  batchId?: string | null; senderBatchId?: string | null; totalItems?: number | null;
+  receiver?: string | null; senderItemId?: string | null; amountValue?: string | null; currency?: string | null;
+};
+
+export async function getPaypalPayoutBatch(batchId: string): Promise<PaypalPayoutBatchEvidence> {
   const token = await getPaypalAccessToken();
   const response = await fetch(`${getPaypalApiBaseUrl()}/v1/payments/payouts/${encodeURIComponent(batchId)}`, {
     cache: "no-store",
@@ -159,12 +165,22 @@ export async function getPaypalPayoutBatch(batchId: string) {
   });
   if (!response.ok) throw new Error(`paypal_payout_lookup_failed:${response.status}`);
   const body = (await response.json()) as {
-    batch_header?: { batch_status?: string };
-    items?: Array<{ payout_item_id?: string; transaction_status?: string }>;
+    total_items?: number;
+    batch_header?: { payout_batch_id?: string; batch_status?: string; sender_batch_header?: { sender_batch_id?: string } };
+    items?: Array<{ payout_item_id?: string; transaction_status?: string; payout_item?: {
+      receiver?: string; sender_item_id?: string; amount?: { currency?: string; value?: string };
+    } }>;
   };
   return {
     batchStatus: body.batch_header?.batch_status ?? "PENDING",
     itemId: body.items?.[0]?.payout_item_id ?? null,
     itemStatus: body.items?.[0]?.transaction_status ?? "PENDING",
+    batchId: body.batch_header?.payout_batch_id ?? null,
+    senderBatchId: body.batch_header?.sender_batch_header?.sender_batch_id ?? null,
+    totalItems: body.total_items ?? null,
+    receiver: body.items?.[0]?.payout_item?.receiver ?? null,
+    senderItemId: body.items?.[0]?.payout_item?.sender_item_id ?? null,
+    amountValue: body.items?.[0]?.payout_item?.amount?.value ?? null,
+    currency: body.items?.[0]?.payout_item?.amount?.currency ?? null,
   };
 }

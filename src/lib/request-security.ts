@@ -18,3 +18,14 @@ export function hasSameOriginOrNoOrigin(request: Request) {
     return false;
   }
 }
+
+/** Cookie-authenticated financial mutations require an explicit browser Origin. */
+export function hasSameOrigin(request: Request) {
+  const origin = request.headers.get("origin")?.trim();
+  if (!origin) return false;
+  try {
+    return new URL(origin).origin === getRequestOrigin(request);
+  } catch {
+    return false;
+  }
+}

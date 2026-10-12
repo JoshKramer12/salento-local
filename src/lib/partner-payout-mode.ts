@@ -6,3 +6,9 @@ export function getPartnerPayoutMode() {
 export function partnerCashoutRequestsEnabled() {
   return process.env.PARTNER_CASHOUT_REQUESTS_ENABLED === "true" && getPartnerPayoutMode() === "cashout";
 }
+
+/** Allows settlement of existing dispatches during a payout pause.
+ * This never authorizes a new provider payout. Absent/false is disabled. */
+export function partnerCashoutReconciliationEnabled() {
+  return process.env.PARTNER_CASHOUT_RECONCILIATION_ENABLED === "true";
+}
