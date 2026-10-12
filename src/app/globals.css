@@ -1053,6 +1053,11 @@ button {
   border-color: rgba(30, 111, 140, 0.18);
 }
 
+.withdrawal-actions :is(button, a, input, textarea, select):focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+
 .nav-link {
   border-radius: 9999px;
   padding: 0.55rem 0.7rem;

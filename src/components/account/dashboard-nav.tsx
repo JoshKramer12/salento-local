@@ -6,6 +6,7 @@ type DashboardNavProps = {
   active:
     | "adminBusinesses"
     | "adminUsers"
+    | "adminWithdrawals"
     | "businesses"
     | "claim"
     | "dashboard"
@@ -74,6 +75,9 @@ export function DashboardNav({
             className={`nav-link ${active === "adminUsers" ? "nav-link-active" : ""}`}
           >
             {locale === "it" ? "Utenti" : "Users"}
+          </HardNavigationLink>
+          <HardNavigationLink href="/dashboard/admin/withdrawals" className={`nav-link ${active === "adminWithdrawals" ? "nav-link-active" : ""}`}>
+            {locale === "it" ? "Prelievi" : "Withdrawals"}
           </HardNavigationLink>
         </>
       ) : null}

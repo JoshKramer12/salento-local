@@ -181,9 +181,12 @@ test("manual IBAN review masks by default, reveal is audited, and verified settl
   const review = await getWithdrawalAdminReview(admin.id, f.withdrawal.id);
   assert.equal(review.destinationMasked, "••••3456");
   assert.equal(JSON.stringify(review).includes("IT60"), false);
+  await assert.rejects(() => revealManualWithdrawalDestination(f.partner.id, f.withdrawal.id), (error: unknown) => error instanceof PartnerWithdrawalError && error.code === "admin_required");
   assert.equal((await revealManualWithdrawalDestination(admin.id, f.withdrawal.id)).iban, "IT60X0542811101000000123456");
   assert.equal((await processPartnerWithdrawal({ actorUserId: admin.id, requestId: f.withdrawal.id })).status, "PROCESSING");
+  await assert.rejects(() => confirmManualWithdrawalSettlement({ actorUserId: admin.id, requestId: f.withdrawal.id, evidence: "Too short", confirmedReceived: true }), (error: unknown) => error instanceof PartnerWithdrawalError && error.code === "settlement_evidence_required");
   await recordManualTransferInitiated({ actorUserId: admin.id, requestId: f.withdrawal.id, reference: "bank-ref-123456", bankName: "Test Bank" });
+  await assert.rejects(() => confirmManualWithdrawalSettlement({ actorUserId: admin.id, requestId: f.withdrawal.id, evidence: "Bank statement confirms receipt on test date", confirmedReceived: false }), (error: unknown) => error instanceof PartnerWithdrawalError && error.code === "settlement_evidence_required");
   assert.equal((await confirmManualWithdrawalSettlement({ actorUserId: admin.id, requestId: f.withdrawal.id, evidence: "Bank statement confirms receipt on test date", confirmedReceived: true })).status, "PAID");
   const settled = await prisma.partnerWithdrawalRequest.findUniqueOrThrow({ where: { id: f.withdrawal.id } });
   assert.equal(settled.settlementEvidenceEncrypted?.startsWith("v1."), true);
@@ -234,6 +237,10 @@ test("non-Admin and disabled processing cannot call providers", async () => {
   await assert.rejects(() => processPartnerWithdrawal({ actorUserId: f.partner.id, requestId: f.withdrawal.id }, { stripe: h.stripe }), (error: unknown) => error instanceof PartnerWithdrawalError && error.code === "admin_required");
   process.env.PARTNER_CASHOUT_PROCESSING_ENABLED = "false";
   await assert.rejects(() => processPartnerWithdrawal({ actorUserId: admin.id, requestId: f.withdrawal.id }, { stripe: h.stripe }), (error: unknown) => error instanceof PartnerWithdrawalError && error.code === "withdrawal_processing_disabled");
+  await assert.rejects(() => reconcilePartnerWithdrawal({ actorUserId: admin.id, requestId: f.withdrawal.id }, { stripe: h.stripe }), (error: unknown) => error instanceof PartnerWithdrawalError && error.code === "withdrawal_processing_disabled");
+  await assert.rejects(() => cancelUnsentManualWithdrawal({ actorUserId: admin.id, requestId: f.withdrawal.id, confirmation: "No bank transfer was sent or initiated" }), (error: unknown) => error instanceof PartnerWithdrawalError && error.code === "withdrawal_processing_disabled");
+  await assert.rejects(() => confirmManualWithdrawalSettlement({ actorUserId: admin.id, requestId: f.withdrawal.id, evidence: "Bank statement confirms receipt on test date", confirmedReceived: true }), (error: unknown) => error instanceof PartnerWithdrawalError && error.code === "withdrawal_processing_disabled");
+  await assert.rejects(() => recordManualWithdrawalException({ actorUserId: admin.id, requestId: f.withdrawal.id, outcome: "UNCERTAIN", evidence: "Bank trace does not confirm settlement" }), (error: unknown) => error instanceof PartnerWithdrawalError && error.code === "withdrawal_processing_disabled");
   process.env.PARTNER_CASHOUT_PROCESSING_ENABLED = "true";
   assert.equal(h.counts().transferCount, 0);
 });

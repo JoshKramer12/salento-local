@@ -6,11 +6,14 @@ import { DashboardNav } from "@/components/account/dashboard-nav";
 import { PartnerWorkspaceNav } from "@/components/account/partner-workspace-nav";
 import { PartnerOutstandingCommissionCard } from "@/components/account/partner-outstanding-commission-card";
 import { PartnerPayoutSummary } from "@/components/account/partner-payout-summary";
+import { PartnerCashoutOverview } from "@/components/account/partner-cashout-overview";
 import { formatCurrencyFromCents } from "@/lib/account";
 import { requireCompletedViewer } from "@/lib/auth-guards";
 import { getCurrentLocale } from "@/lib/locale";
 import { getPartnerNextRoute } from "@/lib/partner-onboarding";
 import { getPartnerPayoutSetupSummary } from "@/lib/partner-connect";
+import { getPartnerWithdrawalDashboard } from "@/lib/partner-withdrawal-dashboard";
+import { getPartnerPayoutMode, partnerCashoutRequestsEnabled } from "@/lib/partner-payout-mode";
 import { prisma } from "@/lib/prisma";
 import { getSingleParam } from "@/lib/site";
 import { buildDraftLikeSubmissionWhere } from "@/lib/submission-drafts";
@@ -245,6 +248,7 @@ export default async function DashboardEarningsPage({
           where: buildDraftLikeSubmissionWhere(viewer.id),
         }),
       ]);
+    const cashoutData = partnerCashoutRequestsEnabled() ? await getPartnerWithdrawalDashboard(viewer.id) : null;
 
     return (
       <>
@@ -269,7 +273,7 @@ export default async function DashboardEarningsPage({
           </h1>
         </div>
 
-        <section className="mx-auto grid max-w-5xl gap-4 md:grid-cols-3">
+        {cashoutData ? <PartnerCashoutOverview data={cashoutData} locale={locale} /> : <><section className="mx-auto grid max-w-5xl gap-4 md:grid-cols-3">
           <article className="card p-5">
             <p className="text-sm text-[var(--muted)]">
               {locale === "it" ? "Guadagni totali" : "Total earnings"}
@@ -299,6 +303,7 @@ export default async function DashboardEarningsPage({
           locale={locale}
           setup={setup}
         />
+        </>}
         </main>
       </>
     );
@@ -370,21 +375,21 @@ export default async function DashboardEarningsPage({
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl">
             <h2 className="font-serif text-3xl text-[var(--foreground)]">
-              {locale === "it" ? "Esegui payout manuale" : "Run manual payout"}
+              {getPartnerPayoutMode() === "weekly" ? locale === "it" ? "Esegui payout manuale" : "Run manual payout" : locale === "it" ? "Gestisci richieste di prelievo" : "Manage withdrawal requests"}
             </h2>
             <p className="mt-3 text-sm text-[var(--muted)]">
-              {locale === "it"
+              {getPartnerPayoutMode() === "cashout" ? locale === "it" ? "I pagamenti delle richieste si gestiscono singolarmente, dopo la verifica finanziaria." : "Withdrawal requests are processed individually after financial review." : locale === "it"
                 ? "Questa azione usa Stripe Test Mode: Salento Local riceve sempre l'intero pagamento della scheda, poi questo pannello invia in seguito le commissioni partner tramite Stripe Connect."
                 : "This action stays in Stripe Test Mode: Salento Local always receives the full listing payment first, and this panel sends partner commissions later through Stripe Connect."}
             </p>
-            <p className="mt-2 text-sm text-[var(--muted)]">
+            {getPartnerPayoutMode() === "weekly" ? <p className="mt-2 text-sm text-[var(--muted)]">
               {locale === "it"
                 ? "La futura automazione resta prevista ogni giovedi, ma per ora il pagamento parte solo da questo pulsante admin."
                 : "The future automation is still designed for Thursdays, but for now payouts only start from this admin button."}
-            </p>
+            </p> : null}
           </div>
           <div className="flex shrink-0 items-center">
-            <AdminPartnerPayoutButton locale={locale} />
+            {getPartnerPayoutMode() === "weekly" ? <AdminPartnerPayoutButton locale={locale} /> : <Link href="/dashboard/admin/withdrawals" className="btn-primary">{locale === "it" ? "Apri prelievi" : "Open withdrawals"}</Link>}
           </div>
         </div>
 

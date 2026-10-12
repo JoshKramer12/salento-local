@@ -2,6 +2,13 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { hasSameOriginOrNoOrigin } from "@/lib/request-security";
 import { createPartnerWithdrawalRequest, PartnerWithdrawalError } from "@/lib/partner-withdrawals";
+import { getPartnerWithdrawalDashboard } from "@/lib/partner-withdrawal-dashboard";
+
+export async function GET() {
+  const viewer = (await auth())?.user;
+  if (!viewer?.id || viewer.role !== "GETTER") return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  return NextResponse.json(await getPartnerWithdrawalDashboard(viewer.id), { headers: { "Cache-Control": "private, no-store" } });
+}
 
 export async function POST(request: Request) {
   const viewer = (await auth())?.user;

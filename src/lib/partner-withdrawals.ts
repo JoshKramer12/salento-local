@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Prisma, type PartnerPayoutMethod, type PartnerWithdrawalStatus } from "@prisma/client";
 import { getPartnerMinimumPayoutCents } from "@/lib/partner-connect";
 import { hasValidPartnerCommissionAttribution, payableCommissionWhere } from "@/lib/partner-ledger";
-import { encryptPayoutDestination, isPaypalPayoutConfigured } from "@/lib/partner-payout-methods";
+import { decryptPayoutDestination, encryptPayoutDestination, isPaypalPayoutConfigured, isValidItalianIban } from "@/lib/partner-payout-methods";
 import { partnerCashoutRequestsEnabled } from "@/lib/partner-payout-mode";
 import { prisma } from "@/lib/prisma";
 
@@ -47,14 +47,16 @@ type DestinationProfile = {
 function destinationSnapshot(profile: DestinationProfile) {
   switch (profile.preferredPayoutMethod) {
     case "STRIPE":
-      if (!profile.stripeConnectedAccountId || !profile.stripePayoutsEnabled || profile.stripeAccountStatus !== "READY") break;
+      if (!profile.stripeConnectedAccountId?.startsWith("acct_") || !profile.stripePayoutsEnabled || profile.stripeAccountStatus !== "READY") break;
       return encryptPayoutDestination(profile.stripeConnectedAccountId);
     case "PAYPAL":
-      if (!profile.paypalPayoutEmail?.trim() || profile.payoutSetupStatus !== "READY" || !isPaypalPayoutConfigured()) break;
+      if (!profile.paypalPayoutEmail?.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(profile.paypalPayoutEmail.trim()) || profile.payoutSetupStatus !== "READY" || !isPaypalPayoutConfigured()) break;
       return encryptPayoutDestination(profile.paypalPayoutEmail.trim());
     case "POSTEPAY":
     case "HYPE":
       if (!profile.bankPayoutIbanEncrypted || !profile.bankPayoutAccountLast4 || profile.payoutSetupStatus !== "READY") break;
+      try { if (!isValidItalianIban(decryptPayoutDestination(profile.bankPayoutIbanEncrypted))) break; }
+      catch { break; }
       // Copy the already encrypted value. Later profile edits cannot redirect it.
       return profile.bankPayoutIbanEncrypted;
   }

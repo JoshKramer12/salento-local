@@ -4,6 +4,7 @@ import { DashboardNav } from "@/components/account/dashboard-nav";
 import { AdminPartnerPayoutButton } from "@/components/account/admin-partner-payout-button";
 import { PartnerOutstandingCommissionCard } from "@/components/account/partner-outstanding-commission-card";
 import { PartnerPayoutSummary } from "@/components/account/partner-payout-summary";
+import { PartnerCashoutOverview } from "@/components/account/partner-cashout-overview";
 import { PartnerDashboard } from "@/components/account/partner-dashboard";
 import { PartnerFirstBusinessDashboard } from "@/components/account/partner-first-business-dashboard";
 import {
@@ -31,6 +32,8 @@ import { getCurrentLocale } from "@/lib/locale";
 import { getPartnerNextRoute } from "@/lib/partner-onboarding";
 import { shouldShowPartnerFirstBusinessDashboard } from "@/lib/partner-first-business-dashboard";
 import { getPartnerPayoutSetupSummary } from "@/lib/partner-connect";
+import { getPartnerWithdrawalDashboard } from "@/lib/partner-withdrawal-dashboard";
+import { getPartnerPayoutMode, partnerCashoutRequestsEnabled } from "@/lib/partner-payout-mode";
 import {
   getPartnerBalanceSummary,
   getPartnerOutstandingCommissionItems,
@@ -468,6 +471,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       : Promise.resolve([]),
   ]);
 
+  const cashoutData = viewer.role === "GETTER" && partnerCashoutRequestsEnabled()
+    ? await getPartnerWithdrawalDashboard(viewer.id) : null;
+
   const totals = buildSubmissionTotals(submissions, viewer.role);
   const submittedCount = submissions.filter(
     (submission) => !isDraftLikeSubmission(submission),
@@ -695,7 +701,10 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                   {copy.addBusinessAdmin}
                 </HardNavigationLink>
               </div>
-              <AdminPartnerPayoutButton locale={locale} wide />
+              {getPartnerPayoutMode() === "weekly" ? <AdminPartnerPayoutButton locale={locale} wide /> : null}
+              <HardNavigationLink href="/dashboard/admin/withdrawals" className="btn-secondary w-full justify-center">
+                {locale === "it" ? "Richieste di prelievo" : "Withdrawal requests"}
+              </HardNavigationLink>
             </div>
           </section>
         ) : (
@@ -1097,7 +1106,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             </article>
           </section>
         </>
-      ) : viewer.role === "GETTER" ? (
+      ) : viewer.role === "GETTER" && !cashoutData ? (
         <>
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {partnerTopStats.map((stat) => (
@@ -1131,7 +1140,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             </article>
           </section>
         </>
-      ) : (
+      ) : viewer.role === "GETTER" ? null : (
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {generalStats.map((stat) => (
             <article key={stat.label} className="card p-5">
@@ -1142,7 +1151,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         </section>
       )}
 
-      {viewer.role === "GETTER" && partnerBalances ? (
+      {cashoutData ? <PartnerCashoutOverview data={cashoutData} locale={locale} /> : viewer.role === "GETTER" && partnerBalances ? (
         <PartnerPayoutSummary
           balances={partnerBalances}
           history={partnerHistory}

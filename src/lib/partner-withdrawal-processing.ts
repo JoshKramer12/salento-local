@@ -246,6 +246,7 @@ export async function processPartnerWithdrawal(params: { actorUserId: string; re
 
 export async function reconcilePartnerWithdrawal(params: { actorUserId: string; requestId: string }, providers: Providers = {}) {
   await requireAdmin(params.actorUserId);
+  requireProcessingEnabled();
   const request = await prisma.partnerWithdrawalRequest.findUnique({ where: { id: params.requestId }, include: { payout: true } });
   if (!request) throw new PartnerWithdrawalError("withdrawal_missing");
   if (request.status === "PAID" || request.status === "CANCELED" || request.status === "FAILED") return { id: request.id, status: request.status };
@@ -359,6 +360,7 @@ export async function recordManualTransferInitiated(params: { actorUserId: strin
 
 export async function confirmManualWithdrawalSettlement(params: { actorUserId: string; requestId: string; evidence: string; confirmedReceived: boolean }) {
   await requireAdmin(params.actorUserId);
+  requireProcessingEnabled();
   if (!params.confirmedReceived || params.evidence.trim().length < 20 || params.evidence.length > 2000) throw new PartnerWithdrawalError("settlement_evidence_required");
   const request = await prisma.partnerWithdrawalRequest.findUnique({ where: { id: params.requestId } });
   if (!request || !["POSTEPAY", "HYPE"].includes(request.payoutMethod) || !request.manualTransferInitiatedAt || !request.manualTransferReference) throw new PartnerWithdrawalError("manual_transfer_state_conflict");
@@ -367,6 +369,7 @@ export async function confirmManualWithdrawalSettlement(params: { actorUserId: s
 
 export async function recordManualWithdrawalException(params: { actorUserId: string; requestId: string; outcome: "FAILED" | "RETURNED" | "UNCERTAIN"; evidence: string }) {
   await requireAdmin(params.actorUserId);
+  requireProcessingEnabled();
   if (params.evidence.trim().length < 20 || params.evidence.length > 2000) throw new PartnerWithdrawalError("manual_exception_evidence_required");
   const request = await prisma.partnerWithdrawalRequest.findUnique({ where: { id: params.requestId } });
   if (!request || !["POSTEPAY", "HYPE"].includes(request.payoutMethod) || !request.manualTransferInitiatedAt) throw new PartnerWithdrawalError("manual_transfer_state_conflict");
@@ -389,6 +392,7 @@ export async function recordManualWithdrawalException(params: { actorUserId: str
 
 export async function cancelUnsentManualWithdrawal(params: { actorUserId: string; requestId: string; confirmation: string }) {
   await requireAdmin(params.actorUserId);
+  requireProcessingEnabled();
   if (params.confirmation.trim().length < 20 || params.confirmation.length > 2000) throw new PartnerWithdrawalError("no_transfer_evidence_required");
   return prisma.$transaction(async (tx) => {
     const request = await loadWithdrawal(tx, params.requestId);

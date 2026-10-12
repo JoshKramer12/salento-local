@@ -104,6 +104,12 @@ test("feature flag, payout mode, role, and destination are checked server side",
   await expectCode(() => createPartnerWithdrawalRequest({ partnerUserId: f.owner.id, idempotencyKey: key("role") }), "partner_required");
   await prisma.localPartnerProfile.update({ where: { userId: f.partner.id }, data: { stripePayoutsEnabled: false } });
   await expectCode(() => createPartnerWithdrawalRequest({ partnerUserId: f.partner.id, idempotencyKey: key("destination") }), "payout_destination_unavailable");
+  await prisma.localPartnerProfile.update({ where: { userId: f.partner.id }, data: { stripePayoutsEnabled: true, stripeConnectedAccountId: "invalid-account" } });
+  await expectCode(() => createPartnerWithdrawalRequest({ partnerUserId: f.partner.id, idempotencyKey: key("invalid-stripe") }), "payout_destination_unavailable");
+  await prisma.localPartnerProfile.update({ where: { userId: f.partner.id }, data: {
+    preferredPayoutMethod: "POSTEPAY", payoutSetupStatus: "READY", bankPayoutIbanEncrypted: encryptPayoutDestination("IT00INVALID"), bankPayoutAccountLast4: "0000",
+  } });
+  await expectCode(() => createPartnerWithdrawalRequest({ partnerUserId: f.partner.id, idempotencyKey: key("invalid-iban") }), "payout_destination_unavailable");
 });
 
 test("debt, open dispute, and refund request each block the selected commission", async () => {
