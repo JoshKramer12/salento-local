@@ -202,6 +202,15 @@ enum PartnerPayoutStatus {
   CANCELED
 }
 
+enum PartnerWithdrawalStatus {
+  REQUESTED
+  PROCESSING
+  PAID
+  FAILED
+  ACTION_REQUIRED
+  CANCELED
+}
+
 enum StripeWebhookEndpointType {
   PLATFORM
   CONNECT
@@ -304,6 +313,7 @@ model User {
   partnerCommissions PartnerCommission[]
   originatingBusinessMemberships BusinessMembership[] @relation("OriginatingPartner")
   partnerPayouts   PartnerPayout[]
+  partnerWithdrawals PartnerWithdrawalRequest[]
   localPartnerProfile LocalPartnerProfile?
   legalAcceptances LegalAcceptance[]
   createdAt        DateTime             @default(now())
@@ -907,8 +917,41 @@ model PartnerPayout {
   partnerUser           User                   @relation(fields: [partnerUserId], references: [id], onDelete: Cascade)
   payoutRun             PartnerPayoutRun       @relation(fields: [payoutRunId], references: [id], onDelete: Cascade)
   commissions           PartnerCommission[]
+  withdrawalRequest     PartnerWithdrawalRequest?
 
   @@index([partnerUserId, status, initiatedAt])
+}
+
+model PartnerWithdrawalRequest {
+  id                           String @id @default(cuid())
+  partnerUserId                String
+  idempotencyKey               String
+  payoutId                     String @unique
+  amountCents                  Int
+  payoutMethod                 PartnerPayoutMethod
+  destinationSnapshotEncrypted String
+  status                       PartnerWithdrawalStatus @default(REQUESTED)
+  failureReason                String?
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
+  partnerUser                  User @relation(fields: [partnerUserId], references: [id], onDelete: Restrict)
+  payout                       PartnerPayout @relation(fields: [payoutId], references: [id], onDelete: Restrict)
+  auditEvents                  PartnerWithdrawalAuditEvent[]
+
+  @@unique([partnerUserId, idempotencyKey])
+  @@index([partnerUserId, status, createdAt])
+}
+
+model PartnerWithdrawalAuditEvent {
+  id                  String @id @default(cuid())
+  withdrawalRequestId String
+  fromStatus          PartnerWithdrawalStatus?
+  toStatus            PartnerWithdrawalStatus
+  reason              String?
+  createdAt           DateTime @default(now())
+  withdrawalRequest   PartnerWithdrawalRequest @relation(fields: [withdrawalRequestId], references: [id], onDelete: Restrict)
+
+  @@index([withdrawalRequestId, createdAt])
 }
 
 model StripeWebhookEvent {

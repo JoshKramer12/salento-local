@@ -21,6 +21,7 @@ import { prisma } from "@/lib/prisma";
 import { runThrottledServerTask } from "@/lib/server-throttle";
 import { getStripe, isStripeSandboxMode } from "@/lib/stripe";
 import { createPaypalPayout, getPaypalPayoutBatch, isPaypalPayoutConfigured } from "@/lib/partner-payout-methods";
+import { partnerCashoutRequestsEnabled } from "@/lib/partner-payout-mode";
 
 function revalidatePartnerLedgerPaths() {
   revalidatePath("/dashboard");
@@ -300,6 +301,21 @@ export function payableCommissionWhere(now: Date): Prisma.PartnerCommissionWhere
       { payment: { is: { purpose: { in: ["ANNUAL_RENEWAL", "REACTIVATION"] }, status: "PAID" } } },
     ],
   };
+}
+
+/** Shared by weekly and requested reservations after the eligibility query. */
+export function hasValidPartnerCommissionAttribution(commission: {
+  businessId: string | null;
+  businessSubmissionId: string | null;
+  payment: { businessId: string | null; businessSubmissionId: string } | null;
+  businessSubmission: { userId: string } | null;
+  business: { membership: { originatingPartnerUserId: string | null } | null } | null;
+}, partnerUserId: string) {
+  return Boolean(commission.payment && commission.businessId && commission.businessSubmissionId &&
+    commission.payment.businessId === commission.businessId &&
+    commission.payment.businessSubmissionId === commission.businessSubmissionId &&
+    commission.businessSubmission?.userId === partnerUserId &&
+    commission.business?.membership?.originatingPartnerUserId === partnerUserId);
 }
 
 type InitialMembershipPayment = {
@@ -1124,11 +1140,7 @@ async function reserveAvailablePartnerCommissions(params: {
       },
     });
 
-    if (commissions.some((commission) => !commission.payment || !commission.businessId ||
-      commission.payment.businessId !== commission.businessId ||
-      commission.payment.businessSubmissionId !== commission.businessSubmissionId ||
-      commission.businessSubmission?.userId !== params.partnerUserId ||
-      commission.business?.membership?.originatingPartnerUserId !== params.partnerUserId)) {
+    if (commissions.some((commission) => !hasValidPartnerCommissionAttribution(commission, params.partnerUserId))) {
       throw new Error("commission_payment_attribution_conflict");
     }
 
@@ -1280,6 +1292,7 @@ async function retryReservedPartnerPayout(payout: Pick<
 async function settleInFlightSandboxPayouts() {
   const payouts = await prisma.partnerPayout.findMany({
     where: {
+      withdrawalRequest: null,
       status: {
         in: ["PROCESSING", "SCHEDULED"],
       },
@@ -1694,6 +1707,9 @@ export async function runWeeklyPartnerPayouts(params?: {
   force?: boolean;
 }) {
   const now = new Date();
+  if (partnerCashoutRequestsEnabled()) {
+    return { processedPartners: 0, runKey: "cashout-mode", scheduledFor: now, status: "skipped" as const };
+  }
   const isManualRun = Boolean(params?.force);
   const targetDate = isManualRun ? now : getNextPartnerPayoutDate(now);
   const isScheduledDay =
@@ -2186,6 +2202,7 @@ export async function getPartnerPayoutAdminOverview(selectedRunKey?: string | nu
       },
     }),
     prisma.partnerPayout.findMany({
+      where: { withdrawalRequest: null },
       orderBy: {
         initiatedAt: "desc",
       },
@@ -2207,6 +2224,7 @@ export async function getPartnerPayoutAdminOverview(selectedRunKey?: string | nu
       },
     }),
     prisma.partnerPayoutRun.findMany({
+      where: { runKey: { not: { startsWith: "cashout:" } } },
       orderBy: {
         scheduledFor: "desc",
       },
