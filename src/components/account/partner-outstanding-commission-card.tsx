@@ -5,7 +5,6 @@ import {
   IconChevronDown,
   IconChevronUp,
   IconCircleCheckFilled,
-  IconCircleXFilled,
 } from "@tabler/icons-react";
 
 import { formatCurrencyFromCents } from "@/lib/account";
@@ -73,41 +72,25 @@ export function PartnerOutstandingCommissionCard({
         <div className="border-t border-[var(--border)] bg-[color:rgba(247,244,239,0.62)] px-5 py-4">
           <div className="grid gap-3">
             {items.length ? (
-              items.map((item) => {
-                const approved = item.status !== "PENDING";
-
-                return (
-                  <div
-                    key={item.id}
-                    className="rounded-[1.15rem] border border-[var(--border)] bg-white px-4 py-4"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="font-medium text-[var(--foreground)]">{item.businessName}</p>
-                        <p
-                          className={`mt-2 inline-flex items-center gap-2 text-sm ${
-                            approved ? "text-[var(--primary)]" : "text-[var(--accent)]"
-                          }`}
-                        >
-                          {approved ? (
-                            <IconCircleCheckFilled size={16} />
-                          ) : (
-                            <IconCircleXFilled size={16} />
-                          )}
-                          {approved
-                            ? copy.approved
-                            : locale === "it"
-                              ? "In attesa di approvazione del pagamento"
-                              : "Awaiting payment approval"}
-                        </p>
-                      </div>
-                      <p className="font-medium text-[var(--foreground)]">
-                        {formatCurrencyFromCents(item.amountCents, locale)}
+              items.map((item) => (
+                <div
+                  key={item.id}
+                  className="rounded-[1.15rem] border border-[var(--border)] bg-white px-4 py-4"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="font-medium text-[var(--foreground)]">{item.businessName}</p>
+                      <p className="mt-2 inline-flex items-center gap-2 text-sm text-[var(--primary)]">
+                        <IconCircleCheckFilled size={16} />
+                        {copy.approved}
                       </p>
                     </div>
+                    <p className="font-medium text-[var(--foreground)]">
+                      {formatCurrencyFromCents(item.amountCents, locale)}
+                    </p>
                   </div>
-                );
-              })
+                </div>
+              ))
             ) : (
               <p className="text-sm text-[var(--muted)]">{copy.empty}</p>
             )}

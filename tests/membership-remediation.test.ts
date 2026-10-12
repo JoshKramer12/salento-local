@@ -76,7 +76,8 @@ test("a renewal refund finds and reverses only its matching commission once", ()
 
 test("a dispute reverses commission only after Stripe confirms a lost outcome", () => {
   assert.match(webhook, /event\.type === "charge\.dispute\.closed"/);
-  assert.match(webhook, /dispute\.status === "lost"/);
+  assert.match(webhook, /reconcilePartnerPaymentDispute\(event\.data\.object\.id, \{ stripe \}\)/);
+  assert.match(webhook, /outcome\.status === "lost"/);
   assert.match(webhook, /reason: "payment_dispute_lost"/);
 });
 

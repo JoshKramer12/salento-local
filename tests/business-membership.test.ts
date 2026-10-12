@@ -194,7 +194,8 @@ test("expired-business enforcement preserves business records, owner access, and
 test("only full refunds and confirmed lost disputes revoke public membership entitlement", () => {
   assert.match(webhookRoute, /revokeMembershipEntitlement: charge\.amount_refunded >= charge\.amount/);
   assert.match(webhookRoute, /event\.type === "charge\.dispute\.closed"/);
-  assert.match(webhookRoute, /dispute\.status === "lost"/);
+  assert.match(webhookRoute, /reconcilePartnerPaymentDispute\(event\.data\.object\.id, \{ stripe \}\)/);
+  assert.match(webhookRoute, /outcome\.status === "lost"/);
   assert.match(paymentSyncSource, /entitlementRevokedAt: new Date\(\)/);
 });
 

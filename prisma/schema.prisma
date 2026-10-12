@@ -747,6 +747,7 @@ model Payment {
   user                   User                @relation("SubmissionPayer", fields: [userId], references: [id], onDelete: Cascade)
   partnerUser            User?               @relation("SubmissionPartner", fields: [partnerUserId], references: [id], onDelete: SetNull)
   partnerCommissions     PartnerCommission[]
+  partnerDisputes        PartnerPaymentDispute[]
   membershipPaymentOutcomeDelivery MembershipPaymentOutcomeDelivery?
   createdAt              DateTime            @default(now())
   updatedAt              DateTime            @updatedAt
@@ -842,6 +843,22 @@ model PartnerCommission {
   @@index([businessSubmissionId, type])
   @@index([stripePaymentIntentId])
   @@index([partnerUserId, createdAt])
+}
+
+// Provider-verified dispute state. A missing row is not evidence that a
+// historical dispute was resolved; reconciliation reports legacy events.
+model PartnerPaymentDispute {
+  id               String   @id @default(cuid())
+  paymentId        String
+  stripeDisputeId  String   @unique
+  stripeChargeId   String
+  status           String
+  holdActive       Boolean  @default(true)
+  observedAt       DateTime @default(now())
+  resolvedAt       DateTime?
+  payment          Payment  @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  @@index([paymentId, holdActive])
 }
 
 model PartnerPayoutRun {

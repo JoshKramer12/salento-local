@@ -271,10 +271,6 @@ function shouldCountAsToBePaid(status: PartnerCommissionStatus) {
   return status === "PENDING" || status === "AVAILABLE";
 }
 
-function shouldCountAsOutstanding(status: PartnerCommissionStatus) {
-  return status === "PENDING" || shouldCountAsToBePaid(status);
-}
-
 function buildSubmissionCommissionSourceKey(submissionId: string) {
   return `commission:submission:${submissionId}`;
 }
@@ -290,6 +286,15 @@ export function payableCommissionWhere(now: Date): Prisma.PartnerCommissionWhere
     payoutId: null,
     status: { in: ["PENDING", "AVAILABLE"] },
     type: "COMMISSION",
+    // Both the batch selection and its reservation transaction use this
+    // predicate. A debt anywhere on the Partner ledger blocks disbursement.
+    partnerUser: { is: { partnerCommissions: { none: { status: "DEBT", amountCents: { lt: 0 } } } } },
+    payment: { is: {
+      status: "PAID",
+      paidAt: { not: null },
+      partnerDisputes: { none: { holdActive: true } },
+      OR: [{ refundRequestedAt: null }, { refundStatus: "support_closed" }],
+    } },
     OR: [
       { payment: { is: { purpose: "INITIAL_MEMBERSHIP", status: "PAID", OR: [{ refundRequestedAt: null }, { refundStatus: "support_closed" }], paidAt: { lte: addUtcDays(now, -INITIAL_COMMISSION_HOLD_DAYS) } } } },
       { payment: { is: { purpose: { in: ["ANNUAL_RENEWAL", "REACTIVATION"] }, status: "PAID" } } },
@@ -477,15 +482,21 @@ function getCommissionBusinessName(commission: {
 }
 
 export async function getPartnerBalanceSummary(userId: string) {
-  const [commissions, latestPayout] = await Promise.all([
+  const now = new Date();
+  const [commissions, latestPayout, payableRows] = await Promise.all([
     prisma.partnerCommission.findMany({
       where: {
         partnerUserId: userId,
       },
       select: {
         amountCents: true,
+        businessId: true,
+        businessSubmissionId: true,
         eligibleAt: true,
-        payment: { select: { paidAt: true, purpose: true, status: true, refundRequestedAt: true, refundStatus: true } },
+        id: true,
+        payoutId: true,
+        payout: { select: { status: true } },
+        payment: { select: { businessId: true, businessSubmissionId: true, paidAt: true, purpose: true, status: true, refundRequestedAt: true, refundStatus: true, partnerDisputes: { select: { holdActive: true } } } },
         status: true,
         type: true,
       },
@@ -501,43 +512,69 @@ export async function getPartnerBalanceSummary(userId: string) {
         status: true,
       },
     }),
+    prisma.partnerCommission.findMany({
+      where: { ...payableCommissionWhere(now), partnerUserId: userId },
+      select: { id: true },
+    }),
   ]);
-
+  const payableIds = new Set(payableRows.map((row) => row.id));
+  const hasDebt = commissions.some((row) => row.status === "DEBT" && row.amountCents < 0);
   return commissions.reduce(
     (summary, commission) => {
-      const payable = commission.payment?.status === "PAID" && commission.eligibleAt && commission.eligibleAt <= new Date() &&
-        (commission.payment.purpose !== "INITIAL_MEMBERSHIP" || Boolean((!commission.payment.refundRequestedAt || commission.payment.refundStatus === "support_closed") && commission.payment.paidAt && addUtcDays(commission.payment.paidAt, INITIAL_COMMISSION_HOLD_DAYS) <= new Date()));
-      if (commission.type === "COMMISSION" && commission.amountCents > 0) {
-        if (commission.status !== "REVERSED" && (payable || commission.status === "PAID" || commission.status === "RESERVED")) {
-          summary.totalEarned += commission.amountCents;
-        }
-      }
-
-      if (commission.status === "PENDING") {
-        summary.pending += commission.amountCents;
-      }
-
-      if (shouldCountAsOutstanding(commission.status) && payable) {
-        summary.available += commission.amountCents;
-      }
-
-      if (commission.status === "PAID") {
-        summary.paid += commission.amountCents;
-      }
-
       if (commission.status === "DEBT") {
         summary.debt += Math.abs(commission.amountCents);
+      }
+      if (commission.type === "ADJUSTMENT" && commission.amountCents < 0 &&
+          commission.status !== "PAID" && commission.status !== "DEBT") {
+        summary.adjustments += Math.abs(commission.amountCents);
+      }
+      if (commission.type !== "COMMISSION" || commission.amountCents <= 0 || commission.status === "REVERSED") return summary;
+
+      const payment = commission.payment;
+      const paidBacked = Boolean(payment?.paidAt && payment.status === "PAID" && payment.businessId &&
+        payment.businessSubmissionId === commission.businessSubmissionId &&
+        payment.businessId === commission.businessId);
+      // A settled commission stays in paid history even after its payment is
+      // refunded; the separate DEBT reversal records the later obligation.
+      if (commission.status === "PAID") {
+        summary.paid += commission.amountCents;
+        summary.totalEarned += commission.amountCents;
+        return summary;
+      }
+      if (!paidBacked) return summary;
+      summary.totalEarned += commission.amountCents;
+      if (commission.status === "RESERVED") {
+        if (commission.payoutId && commission.payout && commission.payout.status !== "PAID") summary.processing += commission.amountCents;
+        else summary.held += commission.amountCents;
+        return summary;
+      }
+      if (payableIds.has(commission.id)) {
+        summary.available += commission.amountCents;
+        return summary;
+      }
+      const initialHoldEndsAt = payment?.purpose === "INITIAL_MEMBERSHIP" && payment.paidAt
+        ? addUtcDays(payment.paidAt, INITIAL_COMMISSION_HOLD_DAYS) : null;
+      const refundHeld = Boolean(payment?.refundRequestedAt && payment.refundStatus !== "support_closed");
+      const disputeHeld = Boolean(payment?.partnerDisputes.some((entry) => entry.holdActive));
+      if (!hasDebt && !refundHeld && !disputeHeld && commission.eligibleAt &&
+          (commission.eligibleAt > now || Boolean(initialHoldEndsAt && initialHoldEndsAt > now))) {
+        summary.pending += commission.amountCents;
+      } else {
+        summary.held += commission.amountCents;
       }
 
       return summary;
     },
     {
+      adjustments: 0,
       available: 0,
       debt: 0,
+      held: 0,
       lastPayoutStatus: latestPayout?.status ?? null,
       nextPayoutDate: getNextPartnerPayoutDate(),
       paid: 0,
       pending: 0,
+      processing: 0,
       totalEarned: 0,
     },
   );
@@ -743,16 +780,7 @@ export async function getPartnerOutstandingCommissionItems(
   userId: string,
 ): Promise<PartnerOutstandingCommissionItem[]> {
   const commissions = await prisma.partnerCommission.findMany({
-    where: {
-      amountCents: {
-        gt: 0,
-      },
-      partnerUserId: userId,
-      status: {
-        in: ["PENDING", "AVAILABLE"],
-      },
-      type: "COMMISSION",
-    },
+    where: { ...payableCommissionWhere(new Date()), partnerUserId: userId },
     orderBy: [
       {
         createdAt: "desc",
@@ -1275,6 +1303,7 @@ async function settleInFlightSandboxPayouts() {
   });
 
   for (const payout of payouts) {
+    if (payout.status === "SCHEDULED" && !await recheckReservedPayoutBeforeDispatch(payout)) continue;
     await settleSandboxPartnerPayout({
       email: payout.localPartnerProfile?.user.email ?? "",
       locale: getLocale(payout.localPartnerProfile?.preferredLanguage),
@@ -1309,12 +1338,55 @@ async function syncPendingPaypalPayouts() {
   }
 }
 
+/** Recheck a newly reserved batch before any provider call. A refund or
+ * dispute can arrive between reservation and dispatch. */
+export async function recheckReservedPayoutBeforeDispatch(payout: PartnerPayout) {
+  return prisma.$transaction(async (tx) => {
+    const current = await tx.partnerPayout.findUnique({ where: { id: payout.id } });
+    if (!current || current.status !== "SCHEDULED" || current.stripeTransferId || current.stripePayoutId || current.providerBatchId) return false;
+    const [debtCount, commissions] = await Promise.all([
+      tx.partnerCommission.count({ where: { partnerUserId: payout.partnerUserId, status: "DEBT", amountCents: { lt: 0 } } }),
+      tx.partnerCommission.findMany({
+        where: { payoutId: payout.id },
+        select: {
+          amountCents: true,
+          businessId: true,
+          businessSubmissionId: true,
+          partnerUserId: true,
+          status: true,
+          payment: { select: { businessId: true, businessSubmissionId: true, paidAt: true, status: true, refundRequestedAt: true, refundStatus: true, partnerDisputes: { select: { holdActive: true } } } },
+        },
+      }),
+    ]);
+    const safe = !debtCount && commissions.length > 0 &&
+      commissions.reduce((sum, row) => sum + row.amountCents, 0) === current.amountCents &&
+      commissions.every((row) => row.partnerUserId === payout.partnerUserId && row.status === "RESERVED" &&
+        row.payment?.status === "PAID" && Boolean(row.payment.paidAt) &&
+        Boolean(row.businessId) && row.businessId === row.payment.businessId &&
+        row.businessSubmissionId === row.payment.businessSubmissionId &&
+        (!row.payment.refundRequestedAt || row.payment.refundStatus === "support_closed") &&
+        !row.payment.partnerDisputes.some((dispute) => dispute.holdActive));
+    if (safe) return true;
+    const canceled = await tx.partnerPayout.updateMany({
+      where: { id: payout.id, status: "SCHEDULED", stripeTransferId: null, stripePayoutId: null, providerBatchId: null },
+      data: { status: "CANCELED", canceledAt: new Date(), failureMessage: "Financial eligibility changed before payout dispatch." },
+    });
+    if (!canceled.count) return false;
+    await tx.partnerCommission.updateMany({
+      where: { payoutId: payout.id, status: "RESERVED" },
+      data: { payoutId: null, status: "AVAILABLE" },
+    });
+    return false;
+  });
+}
+
 async function createTransferAndPayout(params: {
   email: string;
   locale: Locale;
   paypalPayoutEmail?: string | null;
   payout: PartnerPayout;
 }) {
+  if (!await recheckReservedPayoutBeforeDispatch(params.payout)) return false;
   if (params.payout.payoutMethod === "PAYPAL") {
     if (!params.paypalPayoutEmail) throw new Error("missing_paypal_email");
     try {
@@ -1583,6 +1655,24 @@ async function retryExistingPartnerPayouts(payoutRunId: string) {
   });
 
   for (const payout of pendingPayouts) {
+    const [debts, reserved] = await Promise.all([
+      prisma.partnerCommission.count({ where: { partnerUserId: payout.partnerUserId, status: "DEBT", amountCents: { lt: 0 } } }),
+      prisma.partnerCommission.findMany({
+        where: { payoutId: payout.id },
+        select: {
+          amountCents: true, businessId: true, businessSubmissionId: true, partnerUserId: true, status: true,
+          payment: { select: { businessId: true, businessSubmissionId: true, paidAt: true, status: true, refundRequestedAt: true, refundStatus: true, partnerDisputes: { select: { holdActive: true } } } },
+        },
+      }),
+    ]);
+    if (debts || !reserved.length || reserved.reduce((sum, row) => sum + row.amountCents, 0) !== payout.amountCents ||
+        reserved.some((row) => row.partnerUserId !== payout.partnerUserId || row.status !== "RESERVED" ||
+          row.payment?.status !== "PAID" || !row.payment.paidAt || !row.businessId ||
+          row.businessId !== row.payment.businessId || row.businessSubmissionId !== row.payment.businessSubmissionId ||
+          (row.payment.refundRequestedAt && row.payment.refundStatus !== "support_closed") ||
+          row.payment.partnerDisputes.some((dispute) => dispute.holdActive))) {
+      continue;
+    }
     const synced = await syncPartnerStripeAccountStatus(payout.partnerUserId);
 
     if (synced?.setupState !== "ready") {

@@ -16,6 +16,7 @@ import { EMAIL_MANUAL_PAYMENT_FLOW, getVerifiedManualElementPaymentIntent, NO_EM
 import { getVerifiedInitialSubscriptionInvoice, MEMBERSHIP_SUBSCRIPTION_FLOW } from "@/lib/embedded-subscription";
 import { MEMBERSHIP_ELEMENT_FLOW, syncMembershipElementPayment } from "@/lib/membership-element-payment";
 import { reconcileInitialRefund } from "@/lib/self-service-refunds";
+import { reconcilePartnerPaymentDispute } from "@/lib/partner-dispute-holds";
 
 export async function POST(request: Request) {
   const signature = request.headers.get("stripe-signature");
@@ -342,38 +343,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ received: true });
     }
 
-    if (event.type === "charge.dispute.created") {
-      // A dispute can still be won. Commission reversal waits for Stripe's
-      // authoritative `lost` outcome below rather than pre-emptively taking
-      // back an otherwise valid acquisition or renewal commission.
-      await completeStripeWebhookProcessing({
-        id: webhookLog.id,
-        status: "PROCESSED",
-      });
-      return NextResponse.json({ received: true });
-    }
-
-    if (event.type === "charge.dispute.closed") {
-      const dispute = event.data.object;
-
-      if (dispute.status === "lost") {
-        const charge = await stripe.charges.retrieve(
-          typeof dispute.charge === "string" ? dispute.charge : dispute.charge.id,
-        );
-
-        if (typeof charge.payment_intent === "string") {
-          await markStripePaymentRefunded({
-            revokeMembershipEntitlement: true,
-            stripePaymentIntentId: charge.payment_intent,
-          });
-          await reversePartnerCommissionForPayment({
-            eventType: event.type,
-            reason: "payment_dispute_lost",
-            sourceEventId: event.id,
-            stripeChargeId: charge.id,
-            stripePaymentIntentId: charge.payment_intent,
-          });
-        }
+    if (event.type === "charge.dispute.created" || event.type === "charge.dispute.closed") {
+      const outcome = await reconcilePartnerPaymentDispute(event.data.object.id, { stripe });
+      // A created event may arrive after closure. The provider's current lost
+      // outcome, not the event snapshot, decides whether to reverse.
+      if (outcome.status === "lost") {
+        await markStripePaymentRefunded({
+          revokeMembershipEntitlement: true,
+          stripePaymentIntentId: outcome.paymentIntentId,
+        });
+        await reversePartnerCommissionForPayment({
+          eventType: "charge.dispute.closed",
+          reason: "payment_dispute_lost",
+          sourceEventId: event.id,
+          paymentId: outcome.paymentId,
+          stripeChargeId: outcome.chargeId,
+          stripePaymentIntentId: outcome.paymentIntentId,
+        });
       }
 
       await completeStripeWebhookProcessing({

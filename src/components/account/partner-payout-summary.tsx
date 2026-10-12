@@ -24,10 +24,13 @@ type PartnerPayoutHistoryItem = {
 type PartnerPayoutSummaryProps = {
   balances: {
     available: number;
+    adjustments: number;
     debt: number;
+    held: number;
     nextPayoutDate: Date;
     paid: number;
     pending: number;
+    processing: number;
     totalEarned: number;
   };
   history: PartnerPayoutHistoryItem[];
@@ -204,6 +207,11 @@ export function PartnerPayoutSummary({
           </div>
         </div>
         <p className="mt-5 text-sm leading-7 text-[var(--muted)]">{copy.payoutNote}</p>
+        <p className="mt-2 text-sm leading-7 text-[var(--muted)]">
+          {locale === "it" ? "In elaborazione" : "Processing"}: {formatCurrencyFromCents(balances.processing, locale)}
+          {" · "}{locale === "it" ? "In sospeso" : "On hold"}: {formatCurrencyFromCents(balances.held, locale)}
+          {balances.debt || balances.adjustments ? <>{" · "}{locale === "it" ? "Debito/rettifiche" : "Debt/adjustments"}: {formatCurrencyFromCents(balances.debt + balances.adjustments, locale)}</> : null}
+        </p>
       </article>
 
       <article className="card p-6">
