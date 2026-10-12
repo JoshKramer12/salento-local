@@ -112,6 +112,18 @@ test("feature flag, payout mode, role, and destination are checked server side",
   await expectCode(() => createPartnerWithdrawalRequest({ partnerUserId: f.partner.id, idempotencyKey: key("invalid-iban") }), "payout_destination_unavailable");
 });
 
+test("cash-out mode blocks both scheduled and forced weekly runs even before requests are enabled", async () => {
+  process.env.PARTNER_PAYOUT_MODE = "cashout";
+  process.env.PARTNER_CASHOUT_REQUESTS_ENABLED = "false";
+  try {
+    assert.equal((await runWeeklyPartnerPayouts()).status, "skipped");
+    assert.equal((await runWeeklyPartnerPayouts({ force: true })).status, "skipped");
+    assert.equal(await prisma.partnerPayoutRun.count({ where: { runKey: "cashout-mode" } }), 0);
+  } finally {
+    process.env.PARTNER_CASHOUT_REQUESTS_ENABLED = "true";
+  }
+});
+
 test("debt, open dispute, and refund request each block the selected commission", async () => {
   const debt = await fixture();
   await prisma.partnerCommission.create({ data: {

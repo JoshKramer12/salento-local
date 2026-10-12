@@ -21,7 +21,7 @@ import { prisma } from "@/lib/prisma";
 import { runThrottledServerTask } from "@/lib/server-throttle";
 import { getStripe, isStripeSandboxMode } from "@/lib/stripe";
 import { createPaypalPayout, getPaypalPayoutBatch, isPaypalPayoutConfigured } from "@/lib/partner-payout-methods";
-import { partnerCashoutRequestsEnabled } from "@/lib/partner-payout-mode";
+import { getPartnerPayoutMode } from "@/lib/partner-payout-mode";
 
 function revalidatePartnerLedgerPaths() {
   revalidatePath("/dashboard");
@@ -1720,7 +1720,7 @@ export async function runWeeklyPartnerPayouts(params?: {
   force?: boolean;
 }) {
   const now = new Date();
-  if (partnerCashoutRequestsEnabled()) {
+  if (getPartnerPayoutMode() === "cashout") {
     return { processedPartners: 0, runKey: "cashout-mode", scheduledFor: now, status: "skipped" as const };
   }
   const isManualRun = Boolean(params?.force);
