@@ -109,7 +109,7 @@ test("bilingual labels, masking, and responsive balance/history markup", async (
   assert.match(en, /Cash out/);
   assert.match(en, /Pending/);
   assert.match(en, /Processing/);
-  assert.match(en, /Total paid out/);
+  assert.match(en, /Net paid out/);
   assert.match(en, /Recent earnings/);
   assert.match(en, /Withdrawal history/);
   assert.match(it, /Disponibile da prelevare/);
@@ -149,12 +149,13 @@ test("confirmation and Admin controls render only actions allowed by state and f
   assert.match(confirmation, /Confirm cash out/);
   assert.match(confirmation, /full available balance/);
   assert.doesNotMatch(confirmation, /type="number"/);
-  const common = { id: "sample", dispatchStarted: false, manualInitiated: false, canContinueStripe: false, needsPaypalBatch: false, returnRecorded: false, amountCents: 5000 };
+  const common = { id: "sample", dispatchStarted: false, manualInitiated: false, canContinueStripe: false, needsPaypalBatch: false, returnRecorded: false, returnCreditApproved: false, amountCents: 5000 };
   const disabled = render(createElement(AdminWithdrawalActions, { ...common, locale: "en", method: "STRIPE", status: "REQUESTED", processingEnabled: false, reconciliationEnabled: false }));
   assert.match(disabled, /Processing and reconciliation are disabled/);
   assert.doesNotMatch(disabled, /Start provider processing/);
   const stripe = render(createElement(AdminWithdrawalActions, { ...common, locale: "en", method: "STRIPE", status: "REQUESTED", processingEnabled: true, reconciliationEnabled: true }));
   assert.match(stripe, /Start provider processing/);
+  assert.match(stripe, /Check evidence/);
   assert.doesNotMatch(stripe, /View bank details/);
   const paypal = render(createElement(AdminWithdrawalActions, { ...common, locale: "en", method: "PAYPAL", status: "PROCESSING", dispatchStarted: true, processingEnabled: false, reconciliationEnabled: true, needsPaypalBatch: true }));
   assert.match(paypal, /Reconcile provider status/);

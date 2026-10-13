@@ -973,7 +973,7 @@ model PartnerWithdrawalAuditEvent {
 model PartnerManualBankReturn {
   id                     String   @id @default(cuid())
   withdrawalRequestId    String   @unique
-  bankReturnReference    String
+  bankReturnReference    String   @unique
   amountCents            Int
   evidenceEncrypted      String
   verifiedByUserId       String

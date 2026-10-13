@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Explicit clean-install path. The hosted startup script never calls this file.
 import { existsSync } from "node:fs";
-import { copyFile, cp, mkdtemp, readFile, rm, lstat, open } from "node:fs/promises";
+import { copyFile, cp, mkdtemp, rm, lstat, open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,7 +10,6 @@ import { spawnSync } from "node:child_process";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const prisma = join(root, "node_modules", ".bin", "prisma");
 const schema = join(root, "prisma", "schema.prisma");
-const baseline = join(root, "prisma", "clean-install", "migrations", "20261012190000_current_schema_baseline", "migration.sql");
 const destination = process.argv[2];
 
 if (!destination || !isAbsolute(destination) || process.argv.length !== 3) {
@@ -27,13 +26,6 @@ try {
 
 const work = await mkdtemp(join(tmpdir(), "salento-clean-schema-"));
 try {
-  const generated = spawnSync(prisma, ["migrate", "diff", "--from-empty", "--to-schema-datamodel", schema, "--script"], {
-    cwd: root, encoding: "utf8", env: { ...process.env, DATABASE_URL: `file:${databaseFile}` },
-  });
-  if (generated.status !== 0) throw new Error(generated.stderr || "Unable to generate schema baseline");
-  if (generated.stdout.trim() !== (await readFile(baseline, "utf8")).trim()) {
-    throw new Error("Clean baseline differs from the current Prisma schema; regenerate and review it first");
-  }
   await copyFile(schema, join(work, "schema.prisma"));
   await cp(join(root, "prisma", "clean-install", "migrations"), join(work, "migrations"), { recursive: true });
   // Check again after preparation. Never point Prisma at a pre-existing file.
@@ -51,6 +43,11 @@ try {
     cwd: root, encoding: "utf8", env: { ...process.env, DATABASE_URL: `file:${databaseFile}` },
   });
   if (result.status !== 0) throw new Error(result.stderr || result.stdout || "Clean migration failed");
+  const diff = spawnSync(prisma, ["migrate", "diff", "--from-url", `file:${databaseFile}`,
+    "--to-schema-datamodel", schema, "--exit-code"], {
+    cwd: root, encoding: "utf8", env: { ...process.env, DATABASE_URL: `file:${databaseFile}` },
+  });
+  if (diff.status !== 0) throw new Error(diff.stdout || diff.stderr || "Clean migration does not match the Prisma schema");
   process.stdout.write(result.stdout);
 } finally {
   await rm(work, { recursive: true, force: true });

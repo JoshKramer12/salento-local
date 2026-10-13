@@ -2,10 +2,10 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { hasSameOrigin } from "@/lib/request-security";
 import {
-  attachVerifiedPaypalBatch, cancelUnsentManualWithdrawal, confirmManualWithdrawalSettlement, continueStripeWithdrawalPayout,
+  approveVerifiedBankReturnCredit, attachVerifiedPaypalBatch, cancelUnsentManualWithdrawal, confirmManualWithdrawalSettlement, continueStripeWithdrawalPayout,
   getWithdrawalAdminReview, processPartnerWithdrawal, reconcilePartnerWithdrawal,
   recordManualTransferInitiated, recordManualWithdrawalException, recordVerifiedManualBankReturn,
-  revealManualWithdrawalDestination,
+  revealManualWithdrawalDestination, reviewDefinitiveNonpayment, resolveDefinitiveNonpayment,
 } from "@/lib/partner-withdrawal-processing";
 import { PartnerWithdrawalError } from "@/lib/partner-withdrawals";
 
@@ -49,6 +49,10 @@ export async function POST(request: Request, context: Context) {
         if (typeof input.batchId !== "string") break;
         result = await attachVerifiedPaypalBatch({ actorUserId, requestId, batchId: input.batchId }); break;
       case "reconcile": result = await reconcilePartnerWithdrawal({ actorUserId, requestId }); break;
+      case "review-nonpayment": result = await reviewDefinitiveNonpayment({ actorUserId, requestId }); break;
+      case "resolve-nonpayment":
+        if (typeof input.note !== "string") break;
+        result = await resolveDefinitiveNonpayment({ actorUserId, requestId, note: input.note }); break;
       case "reveal-bank-destination": result = await revealManualWithdrawalDestination(actorUserId, requestId); break;
       case "manual-initiated":
         if (typeof input.reference !== "string" || typeof input.bankName !== "string") break;
@@ -64,6 +68,9 @@ export async function POST(request: Request, context: Context) {
             typeof input.evidence !== "string" || input.verifiedReturned !== true) break;
         result = await recordVerifiedManualBankReturn({ actorUserId, requestId, bankReturnReference: input.bankReturnReference,
           amountCents: input.amountCents, evidence: input.evidence, verifiedReturned: true }); break;
+      case "approve-bank-return-credit":
+        if (typeof input.note !== "string") break;
+        result = await approveVerifiedBankReturnCredit({ actorUserId, requestId, note: input.note }); break;
       case "cancel-unsent":
         if (typeof input.confirmation !== "string") break;
         result = await cancelUnsentManualWithdrawal({ actorUserId, requestId, confirmation: input.confirmation }); break;

@@ -28,7 +28,8 @@ export async function getPartnerWithdrawalDashboard(userId: string) {
     } }),
     prisma.partnerWithdrawalRequest.findMany({ where: { partnerUserId: userId }, orderBy: { createdAt: "desc" }, take: 30,
       select: { id: true, idempotencyKey: true, amountCents: true, payoutMethod: true, destinationSnapshotEncrypted: true,
-        status: true, createdAt: true, settlementVerifiedAt: true, failureReason: true } }),
+        status: true, createdAt: true, settlementVerifiedAt: true, failureReason: true,
+        manualBankReturn: { select: { amountCents: true } } } }),
     prisma.partnerCommission.count({ where: { partnerUserId: userId, amountCents: { lt: 0 }, OR: [
       { status: "DEBT" }, { type: "REVERSAL", status: "REVERSED", payoutId: { not: null } },
     ] } }),
@@ -59,11 +60,13 @@ export async function getPartnerWithdrawalDashboard(userId: string) {
     debt: contingentDebt > 0, held: balances.held });
   return {
     availableCents: balances.available, pendingCents: balances.pending, processingCents: balances.processing,
-    paidCents: balances.paid, heldCents: balances.held, debtCents: balances.debt, minimumCents,
+    paidCents: balances.paid, grossPaidCents: balances.grossPaid, returnedCents: balances.returned,
+    heldCents: balances.held, debtCents: balances.debt, minimumCents,
     method, destinationMasked, blockReason, canRequest: blockReason === null,
     history: requests.map((row) => ({ id: row.id, idempotencyKey: row.idempotencyKey, amountCents: row.amountCents,
       method: row.payoutMethod, destinationMasked: safeMask(row.payoutMethod, row.destinationSnapshotEncrypted),
       status: row.status, requestedAt: row.createdAt.toISOString(), settledAt: row.settlementVerifiedAt?.toISOString() ?? null,
+      returnedCents: row.manualBankReturn?.amountCents ?? 0,
       needsSupport: row.status === "FAILED" || row.status === "ACTION_REQUIRED" || Boolean(row.failureReason && row.status === "PAID") })),
     recentEarnings: recent.map((row) => ({ id: row.id, amountCents: row.amountCents,
       businessName: row.business?.name ?? row.businessSubmission?.businessName ?? "Salento Local",

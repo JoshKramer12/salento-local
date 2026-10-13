@@ -19,6 +19,10 @@ test("clean-install baseline creates every model and supports connected financia
       for (const model of Prisma.dmmf.datamodel.models) assert.ok(tables.has(model.dbName ?? model.name), `missing table ${model.name}`);
       const guard = await db.$queryRaw<Array<{ name: string }>>`SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'PartnerWithdrawalRequest_one_unresolved_per_partner_key'`;
       assert.equal(guard.length, 1, "the partial uniqueness guard must be installed");
+      const releaseGuard = await db.$queryRaw<Array<{ name: string }>>`SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'PartnerWithdrawalAuditEvent_one_nonpayment_release'`;
+      assert.equal(releaseGuard.length, 1, "one verified nonpayment release is permitted per withdrawal");
+      const returnGuard = await db.$queryRaw<Array<{ name: string }>>`SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'PartnerManualBankReturn_bankReturnReference_key'`;
+      assert.equal(returnGuard.length, 1, "one bank reference may not credit two withdrawals");
       assert.equal(await db.user.count(), 0, "the clean path must not seed test users");
       assert.equal(await db.payment.count(), 0, "the clean path must not seed payments");
       assert.equal(await db.partnerPayout.count(), 0, "the clean path must not seed payouts");

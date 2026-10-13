@@ -22,6 +22,7 @@ import { runThrottledServerTask } from "@/lib/server-throttle";
 import { getStripe, isStripeSandboxMode } from "@/lib/stripe";
 import { createPaypalPayout, getPaypalPayoutBatch, isPaypalPayoutConfigured } from "@/lib/partner-payout-methods";
 import { getPartnerPayoutMode } from "@/lib/partner-payout-mode";
+import { bankReturnCreditSafe } from "@/lib/partner-recovery-credits";
 
 function revalidatePartnerLedgerPaths() {
   revalidatePath("/dashboard");
@@ -502,7 +503,7 @@ function getCommissionBusinessName(commission: {
 
 export async function getPartnerBalanceSummary(userId: string) {
   const now = new Date();
-  const [commissions, latestPayout, payableRows] = await Promise.all([
+  const [commissions, latestPayout, payableRows, returns] = await Promise.all([
     prisma.partnerCommission.findMany({
       where: {
         partnerUserId: userId,
@@ -518,6 +519,10 @@ export async function getPartnerBalanceSummary(userId: string) {
         payment: { select: { businessId: true, businessSubmissionId: true, paidAt: true, purpose: true, status: true, refundRequestedAt: true, refundStatus: true, partnerDisputes: { select: { holdActive: true } } } },
         status: true,
         type: true,
+        partnerUserId: true,
+        sourceEventType: true,
+        sourceEventId: true,
+        sourceKey: true,
       },
     }),
     prisma.partnerPayout.findFirst({
@@ -535,11 +540,13 @@ export async function getPartnerBalanceSummary(userId: string) {
       where: { ...payableCommissionWhere(now), partnerUserId: userId },
       select: { id: true },
     }),
+    prisma.partnerManualBankReturn.findMany({ where: { withdrawalRequest: { partnerUserId: userId, status: "PAID" } },
+      select: { amountCents: true } }),
   ]);
   const payableIds = new Set(payableRows.map((row) => row.id));
   const hasDebt = commissions.some((row) => row.amountCents < 0 &&
     (row.status === "DEBT" || row.type === "REVERSAL" && row.status === "REVERSED" && row.payoutId));
-  return commissions.reduce(
+  const summary = commissions.reduce(
     (summary, commission) => {
       if (commission.status === "DEBT") {
         summary.debt += Math.abs(commission.amountCents);
@@ -596,8 +603,33 @@ export async function getPartnerBalanceSummary(userId: string) {
       pending: 0,
       processing: 0,
       totalEarned: 0,
+      returned: 0,
+      grossPaid: 0,
     },
   );
+  for (const credit of commissions.filter((row) => row.type === "ADJUSTMENT" && row.amountCents > 0 &&
+      row.sourceEventType === "VERIFIED_BANK_RETURN")) {
+    if (credit.status === "PAID") {
+      summary.paid += credit.amountCents;
+    } else if (credit.status === "RESERVED") {
+      if (credit.payoutId && credit.payout?.status !== "PAID") summary.processing += credit.amountCents;
+      else summary.held += credit.amountCents;
+    } else if (credit.status === "AVAILABLE" && !credit.payoutId && await bankReturnCreditSafe(prisma, credit)) {
+      summary.available += credit.amountCents;
+    } else {
+      summary.held += credit.amountCents;
+    }
+  }
+  summary.returned = returns.reduce((sum, row) => sum + row.amountCents, 0);
+  const credited = commissions.filter((row) => row.type === "ADJUSTMENT" && row.amountCents > 0 &&
+    row.sourceEventType === "VERIFIED_BANK_RETURN").reduce((sum, row) => sum + row.amountCents, 0);
+  summary.held += Math.max(0, summary.returned - credited);
+  summary.paid += commissions.filter((row) => row.type === "ADJUSTMENT" && row.status === "DEBT" &&
+    row.amountCents < 0 && row.sourceEventType === "LATE_PROVIDER_SETTLEMENT" &&
+    row.sourceKey.startsWith("late-settlement:")).reduce((sum, row) => sum + Math.abs(row.amountCents), 0);
+  summary.grossPaid = summary.paid;
+  summary.paid -= summary.returned;
+  return summary;
 }
 
 export async function ensurePendingPartnerCommissionForSubmission(params: {

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Prisma, type PartnerPayoutMethod, type PartnerWithdrawalStatus } from "@prisma/client";
 import { getPartnerMinimumPayoutCents } from "@/lib/partner-connect";
 import { hasValidPartnerCommissionAttribution, payableCommissionWhere } from "@/lib/partner-ledger";
+import { bankReturnCreditSafe } from "@/lib/partner-recovery-credits";
 import { decryptPayoutDestination, encryptPayoutDestination, isPaypalPayoutConfigured, isValidItalianIban } from "@/lib/partner-payout-methods";
 import { partnerCashoutRequestsEnabled } from "@/lib/partner-payout-mode";
 import { prisma } from "@/lib/prisma";
@@ -103,7 +104,17 @@ export async function createPartnerWithdrawalRequest(params: { partnerUserId: st
         if (commissions.some((row) => !hasValidPartnerCommissionAttribution(row, params.partnerUserId))) {
           throw new PartnerWithdrawalError("commission_payment_attribution_conflict");
         }
-        const amountCents = commissions.reduce((sum, row) => sum + row.amountCents, 0);
+        const candidateCredits = await tx.partnerCommission.findMany({ where: {
+          partnerUserId: params.partnerUserId, type: "ADJUSTMENT", status: "AVAILABLE", payoutId: null,
+          amountCents: { gt: 0 }, sourceEventType: "VERIFIED_BANK_RETURN",
+        }, select: { id: true, partnerUserId: true, amountCents: true, sourceEventType: true,
+          sourceEventId: true, sourceKey: true } });
+        const credits = [];
+        for (const credit of candidateCredits) {
+          if (await bankReturnCreditSafe(tx, credit)) credits.push(credit);
+        }
+        const amountCents = commissions.reduce((sum, row) => sum + row.amountCents, 0) +
+          credits.reduce((sum, row) => sum + row.amountCents, 0);
         if (amountCents < getPartnerMinimumPayoutCents()) throw new PartnerWithdrawalError("below_minimum_payout");
 
         const requestId = randomUUID();
@@ -128,6 +139,12 @@ export async function createPartnerWithdrawalRequest(params: { partnerUserId: st
           data: { payoutId: payout.id, status: "RESERVED" },
         });
         if (reserved.count !== commissions.length) throw new PartnerWithdrawalError("commission_reservation_changed");
+        if (credits.length) {
+          const reservedCredits = await tx.partnerCommission.updateMany({ where: { id: { in: credits.map((row) => row.id) },
+            partnerUserId: params.partnerUserId, type: "ADJUSTMENT", status: "AVAILABLE", payoutId: null },
+          data: { payoutId: payout.id, status: "RESERVED" } });
+          if (reservedCredits.count !== credits.length) throw new PartnerWithdrawalError("recovery_credit_reservation_changed");
+        }
         await tx.partnerWithdrawalAuditEvent.create({ data: { withdrawalRequestId: withdrawal.id, toStatus: "REQUESTED" } });
         return { id: withdrawal.id, status: withdrawal.status };
       });
