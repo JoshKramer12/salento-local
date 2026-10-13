@@ -545,6 +545,7 @@ export async function getPartnerBalanceSummary(userId: string) {
 
 export async function ensurePendingPartnerCommissionForSubmission(params: {
   businessSubmissionId: string;
+  revalidatePaths?: boolean;
   sourceEventId?: string;
   sourceEventType?: string;
 }) {
@@ -562,6 +563,7 @@ export async function ensurePendingPartnerCommissionForSubmission(params: {
         id: true,
         paymentMethod: true,
         paymentStatus: true,
+        payLaterInvitation: { select: { id: true } },
         payments: {
           where: {
             status: "PAID",
@@ -596,6 +598,7 @@ export async function ensurePendingPartnerCommissionForSubmission(params: {
       submission.user.role !== "GETTER" ||
       !submission.paymentMethod ||
       submission.status === "DRAFT" ||
+      (submission.payLaterInvitation && (submission.paymentStatus !== "PAID" || submission.status !== "PUBLISHED")) ||
       submission.commissionCents <= 0
     ) {
       return;
@@ -672,7 +675,7 @@ export async function ensurePendingPartnerCommissionForSubmission(params: {
         businessId: submission.createdBusinessId,
         businessSubmissionId: submission.id,
         currency: initialPayment?.currency || "eur",
-        earnedAt: submission.createdAt,
+        earnedAt: submission.payLaterInvitation ? initialPayment?.paidAt ?? submission.createdAt : submission.createdAt,
         eligibleAt: shouldMarkPending ? addUtcDays(initialPayment?.paidAt ?? submission.createdAt, INITIAL_COMMISSION_HOLD_DAYS) : null,
         partnerUserId: submission.user.id,
         paymentId: initialPayment?.id ?? null,
@@ -689,7 +692,7 @@ export async function ensurePendingPartnerCommissionForSubmission(params: {
     created = true;
   });
 
-  if (created) {
+  if (created && params.revalidatePaths !== false) {
     revalidatePartnerLedgerPaths();
   }
 }

@@ -304,6 +304,7 @@ model User {
   partnerCommissions PartnerCommission[]
   originatingBusinessMemberships BusinessMembership[] @relation("OriginatingPartner")
   partnerPayouts   PartnerPayout[]
+  payLaterInvitations BusinessSubmissionInvitation[] @relation("PayLaterPartner")
   localPartnerProfile LocalPartnerProfile?
   legalAcceptances LegalAcceptance[]
   createdAt        DateTime             @default(now())
@@ -674,6 +675,12 @@ model BusinessSubmission {
   verificationLastSentAt DateTime?
   verificationSentTo   String?
   verificationVerifiedAt DateTime?
+  payLaterDetailsHash String?
+  payLaterConfirmedAt DateTime?
+  payLaterVerifiedAt DateTime?
+  payLaterSetupStartedAt DateTime?
+  payLaterSetupCompletedAt DateTime?
+  payLaterInvitation BusinessSubmissionInvitation?
   user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   town               Town              @relation(fields: [townId], references: [id])
   locality           Locality?         @relation(fields: [localityId], references: [id])
@@ -689,6 +696,73 @@ model BusinessSubmission {
   @@index([categoryId])
   @@index([userId, createdAt])
   @@index([userId, updatedAt])
+}
+
+// Pre-publication owner handoff. The submission and Partner never change when
+// the owner resumes on another device. A rotated token invalidates old links.
+model BusinessSubmissionInvitation {
+  id                         String   @id @default(cuid())
+  businessSubmissionId       String   @unique
+  partnerUserId              String
+  recipientEmail             String
+  ownerPhone                 String?
+  locale                     String   @default("it")
+  tokenNonce                 String
+  tokenHash                  String   @unique
+  tokenExpiresAt             DateTime
+  tokenGeneration            Int      @default(1)
+  lastRotatedAt              DateTime?
+  revokedAt                  DateTime?
+  declinedAt                 DateTime?
+  remindersStoppedAt         DateTime?
+  completedAt                DateTime?
+  emailAttemptedAt           DateTime?
+  emailAttemptCount          Int      @default(0)
+  emailNextAttemptAt         DateTime?
+  emailAcceptedAt            DateTime?
+  emailAcceptedGeneration    Int?
+  emailProvider              String?
+  emailProviderMessageId     String?
+  emailFailureMessage        String?
+  whatsappPreparedAt         DateTime?
+  otpCodeHash                String?
+  otpExpiresAt               DateTime?
+  otpAttemptCount            Int      @default(0)
+  otpSentAt                  DateTime?
+  otpSendCount               Int      @default(0)
+  otpSendWindowStartedAt      DateTime?
+  verifiedAt                 DateTime?
+  verifiedDetailsHash        String?
+  verifiedSessionHash        String?
+  verifiedSessionExpiresAt   DateTime?
+  partnerCapturedSignature   String?
+  reminderCursor             Int      @default(0)
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+  businessSubmission         BusinessSubmission @relation(fields: [businessSubmissionId], references: [id], onDelete: Cascade)
+  partnerUser                User @relation("PayLaterPartner", fields: [partnerUserId], references: [id], onDelete: Restrict)
+  reminders                  BusinessSubmissionInvitationReminder[]
+
+  @@index([emailAcceptedAt, completedAt, revokedAt])
+  @@index([partnerUserId, updatedAt])
+}
+
+model BusinessSubmissionInvitationReminder {
+  id                         String   @id @default(cuid())
+  invitationId               String
+  sequence                   Int
+  attemptedAt                DateTime?
+  attemptCount               Int      @default(0)
+  nextAttemptAt              DateTime?
+  acceptedAt                 DateTime?
+  provider                   String?
+  providerMessageId          String?
+  failureMessage             String?
+  createdAt                  DateTime @default(now())
+  invitation                 BusinessSubmissionInvitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+
+  @@unique([invitationId, sequence])
+  @@index([nextAttemptAt, acceptedAt])
 }
 
 model Payment {

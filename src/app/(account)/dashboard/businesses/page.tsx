@@ -13,12 +13,23 @@ import { requireCompletedViewer } from "@/lib/auth-guards";
 import { getCurrentLocale } from "@/lib/locale";
 import { getPartnerNextRoute } from "@/lib/partner-onboarding";
 import { prisma } from "@/lib/prisma";
+import { isPayLaterEnabled } from "@/lib/pay-later-invitations";
 import { getSingleParam } from "@/lib/site";
 import { buildDraftLikeSubmissionWhere } from "@/lib/submission-drafts";
 
 type DashboardBusinessesPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
+
+const payLaterInvitationSelect = {
+  id: true, recipientEmail: true, ownerPhone: true, tokenGeneration: true,
+  emailAcceptedGeneration: true, emailAcceptedAt: true, emailAttemptedAt: true,
+  emailFailureMessage: true, verifiedAt: true, completedAt: true,
+  declinedAt: true, revokedAt: true, remindersStoppedAt: true,
+  tokenExpiresAt: true, whatsappPreparedAt: true,
+  reminders: { orderBy: { sequence: "desc" }, take: 1,
+    select: { acceptedAt: true } },
+} as const;
 
 export default async function DashboardBusinessesPage({
   searchParams,
@@ -77,6 +88,7 @@ export default async function DashboardBusinessesPage({
             userId: viewer.id,
           },
       include: {
+        payLaterInvitation: { select: payLaterInvitationSelect },
         category: {
           select: {
             name: true,
@@ -137,6 +149,7 @@ export default async function DashboardBusinessesPage({
     prisma.businessSubmission.findMany({
       where: buildDraftLikeSubmissionWhere(viewer.id),
       include: {
+        payLaterInvitation: { select: payLaterInvitationSelect },
         category: {
           select: {
             name: true,
@@ -214,6 +227,7 @@ export default async function DashboardBusinessesPage({
           />
         </div>
         <PartnerSubmissions
+          payLaterEnabled={isPayLaterEnabled()}
           now={new Date().toISOString()}
           locale={locale}
           drafts={draftSubmissions}

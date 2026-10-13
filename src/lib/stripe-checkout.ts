@@ -235,6 +235,7 @@ export async function ensureStripeCheckoutSession(params: {
 export async function ensureStripeBankTransferIntent(params: {
   submission: CheckoutSubmission;
   viewer: CheckoutViewer;
+  idempotencyKey?: string;
 }) : Promise<StripeBankTransferSession> {
   const stripe = getStripe();
   const latestPendingPayment = await prisma.payment.findFirst({
@@ -305,7 +306,7 @@ export async function ensureStripeBankTransferIntent(params: {
     },
     name: params.submission.ownerName || params.submission.businessName,
     phone: params.submission.ownerPhone || undefined,
-  });
+  }, params.idempotencyKey ? { idempotencyKey: `${params.idempotencyKey}:customer` } : undefined);
 
   const paymentIntent = await stripe.paymentIntents.create({
     amount: params.submission.amountOwedCents,
@@ -336,7 +337,7 @@ export async function ensureStripeBankTransferIntent(params: {
       },
     },
     payment_method_types: ["customer_balance"],
-  });
+  }, params.idempotencyKey ? { idempotencyKey: `${params.idempotencyKey}:intent` } : undefined);
 
   const instructions = extractStripeBankTransferInstructions(paymentIntent);
 
@@ -356,6 +357,7 @@ export async function ensureStripeBankTransferIntent(params: {
   } else {
     await prisma.payment.create({
       data: {
+        ...(params.idempotencyKey ? { id: `initial-bank:${params.submission.id}` } : {}),
         amountCents: params.submission.amountOwedCents,
         bankTransferReference: instructions?.reference ?? null,
         businessId: params.submission.createdBusinessId,

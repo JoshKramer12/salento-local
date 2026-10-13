@@ -293,6 +293,11 @@ async function finalizeStripeManagedPayment(params: {
       db: tx,
       submissionId: params.businessSubmissionId,
     });
+    await tx.businessSubmissionInvitation.updateMany({
+      where: { businessSubmissionId: params.businessSubmissionId, completedAt: null },
+      data: { completedAt: finalizedAt, remindersStoppedAt: finalizedAt,
+        otpCodeHash: null, verifiedSessionHash: null, verifiedSessionExpiresAt: null },
+    });
   });
 
   if (refundReplay) {
@@ -314,6 +319,7 @@ async function finalizeStripeManagedPayment(params: {
 
   await ensurePendingPartnerCommissionForSubmission({
     businessSubmissionId: params.businessSubmissionId,
+    revalidatePaths: params.revalidatePaths,
   });
 
   return {
@@ -675,6 +681,7 @@ export async function syncStripePaymentFromWebhook(params: {
   currency?: string | null;
   method?: PaymentRecordMethod;
   paymentIntentId?: string | null;
+  revalidatePaths?: boolean;
   sessionId?: string | null;
   stripeCustomerId?: string | null;
   stripeCancelAtPeriodEnd?: boolean | null;
@@ -689,6 +696,7 @@ export async function syncStripePaymentFromWebhook(params: {
     currency: params.currency,
     method: params.method ?? resolvePaymentMethodRecord(null),
     paymentIntentId: params.paymentIntentId,
+    revalidatePaths: params.revalidatePaths,
     sessionId: params.sessionId,
     stripeCustomerId: params.stripeCustomerId,
     stripeCancelAtPeriodEnd: params.stripeCancelAtPeriodEnd,

@@ -1,6 +1,8 @@
 "use client";
 
 import { type ReactNode, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import type { PaymentMethod } from "@prisma/client";
 import {
   IconArrowRight,
   IconBuildingStore,
@@ -8,6 +10,8 @@ import {
   IconChevronDown,
   IconFileDescription,
   IconMapPin,
+  IconBrandWhatsapp,
+  IconMail,
   IconSearch,
 } from "@tabler/icons-react";
 
@@ -42,6 +46,16 @@ type Submission = {
   ownerHasNoEmail: boolean;
   ownerName: string;
   ownerPhone: string;
+  paymentMethod: PaymentMethod | null;
+  payLaterInvitation: {
+    id: string; recipientEmail: string; ownerPhone: string | null;
+    tokenGeneration: number; emailAcceptedGeneration: number | null;
+    emailAcceptedAt: Date | null; emailAttemptedAt: Date | null;
+    emailFailureMessage: string | null; verifiedAt: Date | null;
+    completedAt: Date | null; declinedAt: Date | null; revokedAt: Date | null;
+    remindersStoppedAt: Date | null; tokenExpiresAt: Date; whatsappPreparedAt: Date | null;
+    reminders: { acceptedAt: Date | null }[];
+  } | null;
   paymentStatus: "NOT_REQUIRED" | "PENDING_PAYMENT" | "AWAITING_BANK_TRANSFER" | "PAID" | "FAILED" | "REFUNDED";
   phone: string;
   photoUrls: unknown;
@@ -51,7 +65,7 @@ type Submission = {
   partnerCommissions: Commission[];
 };
 
-type Props = { drafts: Submission[]; locale: Locale; now: string; submissions: Submission[] };
+type Props = { drafts: Submission[]; locale: Locale; now: string; payLaterEnabled?: boolean; submissions: Submission[] };
 
 const copy = {
   en: {
@@ -119,7 +133,7 @@ const copy = {
 } as const;
 
 function formatDate(value: Date, locale: Locale) {
-  return new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-US", { dateStyle: "medium" }).format(value);
+  return new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-US", { dateStyle: "medium", timeZone: "Europe/Rome" }).format(value);
 }
 
 function draftProgress(submission: Submission, locale: Locale) {
@@ -164,7 +178,7 @@ function paymentDisplay(submission: Submission, locale: Locale) {
 function commissionDisplay(submission: Submission, locale: Locale, now: string) {
   const initial = submission.partnerCommissions.filter((entry) => (entry.sourceKey === `commission:submission:${submission.id}` || entry.sourceKey.startsWith("commission:refund-repurchase:")) && entry.type === "COMMISSION");
   const commission = initial.find((entry) => entry.status !== "REVERSED" && entry.status !== "DEBT");
-  if (!commission) return { label: initial.some((entry) => entry.status === "REVERSED") ? `${formatCurrencyFromCents(5000, locale)} ${locale === "it" ? "annullata" : "canceled"}` : "—", tone: styles.mutedEarning };
+  if (!commission) return { label: initial.some((entry) => entry.status === "REVERSED") ? `${formatCurrencyFromCents(5000, locale)} ${locale === "it" ? "annullata" : "canceled"}` : submission.payLaterInvitation && !submission.payLaterInvitation.revokedAt && !submission.payLaterInvitation.declinedAt && !submission.payLaterInvitation.completedAt ? `${formatCurrencyFromCents(5000, locale)} ${locale === "it" ? "potenziale" : "potential"}` : "—", tone: styles.mutedEarning };
   const unresolvedRefund = Boolean(commission.payment?.refundRequestedAt && commission.payment?.refundStatus !== "support_closed");
   const settled = commission.status === "RESERVED" || commission.status === "PAID" || Boolean(!unresolvedRefund && commission.payment?.status === "PAID" && commission.eligibleAt && new Date(commission.eligibleAt).getTime() <= new Date(now).getTime());
   return {
@@ -186,7 +200,69 @@ function SubmissionThumbnail({ locale, submission }: { locale: Locale; submissio
   return <div className={styles.thumbnail}>{photos[0] ? <img src={photos[0]} alt={submission.createdBusiness?.images[0]?.alt || submission.businessName} /> : <IconBuildingStore aria-label={locale === "it" ? "Foto non disponibile" : "Photo unavailable"} size={30} />}</div>;
 }
 
-export function PartnerSubmissions({ drafts, locale, now, submissions }: Props) {
+function payLaterStatus(submission: Submission, locale: Locale, now = new Date()) {
+  const invitation = submission.payLaterInvitation;
+  if (!invitation) return "";
+  const it = locale === "it";
+  if (invitation.completedAt || submission.paymentStatus === "PAID") return it ? "Completato · pagamento confermato" : "Completed · payment confirmed";
+  if (invitation.declinedAt) return it ? "Invito rifiutato" : "Invitation declined";
+  if (invitation.revokedAt) return it ? "Invito revocato" : "Invitation revoked";
+  if (submission.paymentMethod === "BANK_TRANSFER") return it ? "In attesa del bonifico" : "Awaiting bank transfer";
+  if (submission.paymentMethod === "ONLINE") return it ? "In attesa di pagamento" : "Awaiting payment";
+  if (invitation.tokenExpiresAt <= now) return it ? "Invito scaduto" : "Invitation expired";
+  if (invitation.emailAcceptedGeneration !== invitation.tokenGeneration) return invitation.emailAttemptedAt
+    ? it ? "Invio email in attesa di nuovo tentativo" : "Email awaiting retry"
+    : it ? "Invito preparato" : "Invitation prepared";
+  if (invitation.verifiedAt) return it ? "Titolare in corso · in attesa di pagamento" : "Owner in progress · awaiting payment";
+  return it ? "Email accettata · in attesa della verifica" : "Email accepted · awaiting verification";
+}
+
+function PayLaterDashboardActions({ enabled, locale, submission }: { enabled: boolean; locale: Locale; submission: Submission }) {
+  const router = useRouter();
+  const invitation = submission.payLaterInvitation;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  if (!invitation) return null;
+  const it = locale === "it";
+  const active = !invitation.revokedAt && !invitation.declinedAt && !invitation.completedAt;
+  const editable = enabled && active && !submission.paymentMethod && submission.status === "DRAFT";
+  const canShare = enabled && active && Boolean(invitation.ownerPhone) &&
+    invitation.emailAcceptedGeneration === invitation.tokenGeneration &&
+    invitation.tokenExpiresAt > new Date();
+  async function act(mode: "email" | "share" | "revoke") {
+    setBusy(true); setError("");
+    try {
+      const response = await fetch("/api/pay-later/invitations", { method: "POST",
+        headers: { "Content-Type": "application/json" }, credentials: "same-origin",
+        body: JSON.stringify({ submissionId: submission.id, mode, locale }) });
+      const result = await response.json() as { email?: string; whatsappUrl?: string; error?: string };
+      if (!response.ok && response.status !== 202) throw new Error(result.error || "unavailable");
+      if (mode === "share" && result.whatsappUrl) window.open(result.whatsappUrl, "_blank", "noopener,noreferrer");
+      else if (mode === "revoke") router.push(`/publish?submission=${encodeURIComponent(submission.id)}`);
+      else window.location.reload();
+    } catch (caught) { setError(caught instanceof Error && caught.message === "cooldown"
+      ? it ? "Attendi prima di riprovare." : "Wait before trying again."
+      : it ? "Operazione non riuscita. Riprova più tardi." : "Action failed. Try again later."); }
+    finally { setBusy(false); }
+  }
+  return <div className="mt-4 grid gap-3 rounded-2xl border border-[rgba(42,98,87,.2)] bg-[rgba(237,248,242,.55)] p-4 text-sm">
+    <p className="font-semibold text-[var(--primary)]">{payLaterStatus(submission, locale)}</p>
+    <p className="break-all text-[var(--muted)]">Email: {invitation.recipientEmail}</p>
+    <p className="text-[var(--muted)]">{it ? "Ultimo invio/promemoria" : "Last invitation/reminder"}: {formatDate(invitation.reminders[0]?.acceptedAt ?? invitation.emailAcceptedAt ?? invitation.emailAttemptedAt ?? submission.updatedAt, locale)}</p>
+    <p className="font-semibold">{it ? "Commissione potenziale: €50 · non maturata" : "Potential commission: €50 · not earned"}</p>
+    <div className="flex flex-wrap gap-2">
+      {editable ? <button type="button" disabled={busy} onClick={() => act("email")} className="btn-secondary disabled:opacity-50"><IconMail size={17} />{it ? "Reinvia invito" : "Resend invitation"}</button> : null}
+      {canShare ? <button type="button" disabled={busy} onClick={() => act("share")} className="btn-secondary disabled:opacity-50"><IconBrandWhatsapp size={17} />{it ? "Condividi su WhatsApp" : "Share on WhatsApp"}</button> : null}
+      {editable ? <button type="button" disabled={busy} onClick={() => act("revoke")} className="btn-secondary disabled:opacity-50">{it ? "Correggi scheda e reinvia" : "Correct listing and resend"}</button> : null}
+    </div>
+    {error ? <p role="alert" className="text-[var(--accent)]">{error}</p> : null}
+    <details><summary className="cursor-pointer font-semibold text-[var(--primary)]">{it ? "Vedi dettagli" : "View details"}</summary>
+      <p className="mt-2 whitespace-pre-wrap text-[var(--muted)]">{submission.businessName} · {submission.town.name}<br />{submission.ownerName}<br />{submission.longDescription}</p>
+    </details>
+  </div>;
+}
+
+export function PartnerSubmissions({ drafts, locale, now, payLaterEnabled = false, submissions }: Props) {
   const text = copy[locale];
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("ALL");
@@ -208,7 +284,7 @@ export function PartnerSubmissions({ drafts, locale, now, submissions }: Props) 
       <div className={styles.sectionHead}>
         <div><h2>{text.drafts} <span className={styles.count}>{drafts.length}</span></h2><p>{text.draftsBody}</p></div>
       </div>
-      <div className={styles.draftList}>{drafts.map((submission) => <DraftCard key={submission.id} locale={locale} submission={submission} />)}</div>
+      <div className={styles.draftList}>{drafts.map((submission) => <DraftCard key={submission.id} locale={locale} payLaterEnabled={payLaterEnabled} submission={submission} />)}</div>
     </section> : null}
 
     <section className={styles.submitted}>
@@ -225,12 +301,16 @@ export function PartnerSubmissions({ drafts, locale, now, submissions }: Props) 
   </main>;
 }
 
-function DraftCard({ locale, submission }: { locale: Locale; submission: Submission }) {
+function DraftCard({ locale, payLaterEnabled, submission }: { locale: Locale; payLaterEnabled: boolean; submission: Submission }) {
   const text = copy[locale]; const progress = draftProgress(submission, locale);
+  const activeInvitation = Boolean(submission.payLaterInvitation && !submission.payLaterInvitation.revokedAt &&
+    !submission.payLaterInvitation.declinedAt && !submission.payLaterInvitation.completedAt);
   return <article className={styles.draftCard}>
     <SubmissionThumbnail locale={locale} submission={submission} />
-    <div className={styles.draftInfo}><div className={styles.draftTitle}><div><h3>{submission.businessName}</h3><p>{submission.category.name} <span>·</span> {submission.town.name}</p></div><span className={`${styles.badge} ${styles.draftBadge}`}>{text.draft}</span></div><div className={styles.draftMeta}><div><p className={styles.metaLabel}>{text.progress}</p><strong>{locale === "it" ? `Passaggio ${progress.current} di 6` : `Step ${progress.current} of 6`}</strong><div className={styles.progress}><i style={{ width: `${progress.percentage}%` }} /></div></div><div><p className={styles.metaLabel}>{text.lastUpdated}</p><strong>{formatDate(submission.updatedAt, locale)}</strong><small>{progress.label}</small></div></div></div>
-    <div className={styles.draftActions}><div className={styles.resume}><span><IconFileDescription aria-hidden="true" size={23} /></span><div><strong>{text.continueTitle}</strong><p>{text.continueBody}</p></div></div><div><HardNavigationLink href={`/publish?submission=${encodeURIComponent(submission.id)}`} className={styles.primary}>{text.continue}<IconArrowRight aria-hidden="true" size={18} /></HardNavigationLink><span className={styles.deleteButton}><DraftDeleteButton businessName={submission.businessName} locale={locale} submissionId={submission.id} /></span></div></div>
+    <div className={styles.draftInfo}><div className={styles.draftTitle}><div><h3>{submission.businessName}</h3><p>{submission.category.name} <span>·</span> {submission.town.name}</p></div><span className={`${styles.badge} ${styles.draftBadge}`}>{activeInvitation ? (locale === "it" ? "In attesa di pagamento" : "Awaiting payment") : text.draft}</span></div><div className={styles.draftMeta}><div><p className={styles.metaLabel}>{text.progress}</p><strong>{locale === "it" ? `Passaggio ${progress.current} di 6` : `Step ${progress.current} of 6`}</strong><div className={styles.progress}><i style={{ width: `${progress.percentage}%` }} /></div></div><div><p className={styles.metaLabel}>{text.lastUpdated}</p><strong>{formatDate(submission.updatedAt, locale)}</strong><small>{progress.label}</small></div></div>
+      {submission.payLaterInvitation ? <PayLaterDashboardActions enabled={payLaterEnabled} locale={locale} submission={submission} /> : null}
+    </div>
+    {!activeInvitation ? <div className={styles.draftActions}><div className={styles.resume}><span><IconFileDescription aria-hidden="true" size={23} /></span><div><strong>{text.continueTitle}</strong><p>{text.continueBody}</p></div></div><div><HardNavigationLink href={`/publish?submission=${encodeURIComponent(submission.id)}`} className={styles.primary}>{text.continue}<IconArrowRight aria-hidden="true" size={18} /></HardNavigationLink><span className={styles.deleteButton}><DraftDeleteButton businessName={submission.businessName} locale={locale} submissionId={submission.id} /></span></div></div> : null}
   </article>;
 }
 

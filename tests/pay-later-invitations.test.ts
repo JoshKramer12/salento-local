@@ -1,0 +1,244 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test, { after } from "node:test";
+
+import { prisma } from "@/lib/prisma";
+import { attemptInvitationEmail, createOrRotateInvitation, deriveInvitationToken,
+  getInvitationByToken, getOwnerDetailsHash, requireVerifiedInvitation,
+  startInvitationOtp, verifyInvitationOtp, closeInvitation, getInvitationUrl } from "@/lib/pay-later-invitations";
+import { isValidOwnerSignature, chooseVerifiedPayLaterPayment } from "@/lib/pay-later-payment";
+import { reminderSequenceDue, runPayLaterReminderJob } from "@/lib/pay-later-reminders";
+import { ensurePendingPartnerCommissionForSubmission } from "@/lib/partner-ledger";
+import { syncStripePaymentFromWebhook } from "@/lib/stripe-payment-sync";
+
+const directory = mkdtempSync(join(tmpdir(), "salento-pay-later-"));
+writeFileSync(join(directory, "isolated.db"), "");
+process.env.DATABASE_URL = `file:${join(directory, "isolated.db")}`;
+process.env.PAY_LATER_ENABLED = "true";
+process.env.PAY_LATER_TOKEN_SECRET = "pay-later-test-secret-12345678901234567890";
+process.env.APP_URL = "https://salento.example.test";
+execFileSync(process.execPath, ["node_modules/prisma/build/index.js", "db", "push", "--skip-generate"], { env: process.env, stdio: "pipe" });
+after(async () => { await prisma.$disconnect(); rmSync(directory, { recursive: true, force: true }); });
+
+let fixtureNumber = 0;
+async function fixture() {
+  const number = ++fixtureNumber;
+  const partner = await prisma.user.create({ data: { role: "GETTER", email: `partner-${number}@example.test`, username: `pay-later-partner-${number}` } });
+  const town = await prisma.town.upsert({ where: { id: "pay-later-test-town" }, update: {}, create: {
+    id: "pay-later-test-town", slug: "pay-later-test-town", name: "Lecce", province: "LE",
+    shortDescription: "Test", intro: "Test", history: "Test", practicalInfo: "Test",
+    heroImageSeed: "test", latitude: 40.35, longitude: 18.17,
+  } });
+  const category = await prisma.category.upsert({ where: { id: "pay-later-test-category" }, update: {}, create: {
+    id: "pay-later-test-category", slug: "pay-later-test-category", name: "Restaurants",
+    description: "Test", icon: "restaurant", group: "FOOD",
+  } });
+  const submission = await prisma.businessSubmission.create({ data: {
+    userId: partner.id, businessName: `Caffè Test ${number}`, townId: town.id,
+    categoryId: category.id, address: "Via Test 1, Lecce", addressPlaceId: `place-${number}`,
+    addressLatitude: 40.35, addressLongitude: 18.17, googleMapsUrl: "https://maps.example.test",
+    phone: "+393200000001", whatsapp: "+393200000001", email: "business@example.test",
+    openingHours: "[{}]", shortDescription: "Test business", longDescription: "A synthetic listing",
+    ownerName: "Test Owner", ownerPhone: "+393200000002",
+    ownerEmail: `owner-${number}@example.test`, photoUrls: ["/test/exterior.jpg", "/test/interior.jpg"],
+  } });
+  return { partner, submission };
+}
+
+const sent: Array<{ idempotencyKey?: string; text: string; to: string }> = [];
+const sendEmail = async (message: { idempotencyKey?: string; text: string; to: string }) => {
+  sent.push(message);
+  return { provider: "resend" as const, messageId: `test-mail-${sent.length}`, success: true };
+};
+const day = 86_400_000;
+
+test("invitation persists before mandatory email, OTP verifies once, rotation revokes old link", async () => {
+  const { partner, submission } = await fixture();
+  const created = await createOrRotateInvitation({ partnerUserId: partner.id, submissionId: submission.id, locale: "it" });
+  const token = deriveInvitationToken(created);
+  assert.equal(getInvitationUrl(created), `https://salento.example.test/pay-later#invite=${token}`);
+  assert.equal(await prisma.businessSubmissionInvitation.count({ where: { businessSubmissionId: submission.id } }), 1);
+  assert.equal(await prisma.payment.count({ where: { businessSubmissionId: submission.id } }), 0);
+  assert.equal(await prisma.partnerCommission.count({ where: { businessSubmissionId: submission.id } }), 0);
+  assert.equal(await startInvitationOtp(token), "unavailable");
+  assert.equal(await attemptInvitationEmail(created.id, new Date(), sendEmail as never), "accepted");
+  assert.equal(sent.at(-1)?.to, submission.ownerEmail);
+  assert.match(sent.at(-1)?.text ?? "", /€100/);
+  assert.equal(await startInvitationOtp(token, new Date(), sendEmail as never), "sent");
+  const code = sent.at(-1)?.text.match(/\b\d{6}\b/)?.[0];
+  assert.ok(code);
+  assert.equal(await verifyInvitationOtp(token, "000000"), null);
+  const verified = await verifyInvitationOtp(token, code);
+  assert.ok(verified);
+  assert.ok(await requireVerifiedInvitation(token, verified.sessionToken));
+  assert.equal(await verifyInvitationOtp(token, code), null);
+  const rotated = await createOrRotateInvitation({ partnerUserId: partner.id, submissionId: submission.id, locale: "it" });
+  assert.equal(await getInvitationByToken(token), null);
+  assert.equal(await startInvitationOtp(deriveInvitationToken(rotated)), "unavailable");
+  assert.equal(await prisma.businessSubmissionInvitation.count({ where: { businessSubmissionId: submission.id } }), 1);
+  assert.equal(await prisma.partnerCommission.count({ where: { businessSubmissionId: submission.id } }), 0);
+  await prisma.businessSubmissionInvitation.update({ where: { id: created.id }, data: { revokedAt: new Date() } });
+});
+
+test("verified detail changes invalidate payment approval before Stripe resource creation", async () => {
+  const { partner, submission } = await fixture();
+  const created = await createOrRotateInvitation({ partnerUserId: partner.id, submissionId: submission.id, locale: "en" });
+  const token = deriveInvitationToken(created);
+  await attemptInvitationEmail(created.id, new Date(), sendEmail as never);
+  await startInvitationOtp(token, new Date(), sendEmail as never);
+  const code = sent.at(-1)?.text.match(/\b\d{6}\b/)?.[0];
+  assert.ok(code);
+  await verifyInvitationOtp(token, code);
+  const invitation = await getInvitationByToken(token);
+  assert.ok(invitation);
+  assert.equal(invitation.verifiedDetailsHash, getOwnerDetailsHash(invitation.businessSubmission));
+  await prisma.businessSubmission.update({ where: { id: submission.id }, data: { phone: "+393200000003" } });
+  const signature = JSON.stringify({ version: 1, strokes: [[{ x: 1, y: 2 }, { x: 2, y: 3 }]] });
+  assert.equal(isValidOwnerSignature(signature), true);
+  await assert.rejects(chooseVerifiedPayLaterPayment(invitation, { method: "BANK_TRANSFER", renewal: "MANUAL",
+    ownerConfirmed: true, termsAccepted: true, signerFullName: "Test Owner", signerRole: "OWNER",
+    signerRoleOther: "", signature }), /pay_later_state_conflict/);
+  assert.equal(await prisma.payment.count({ where: { businessSubmissionId: submission.id } }), 0);
+  await prisma.businessSubmissionInvitation.update({ where: { id: created.id }, data: { revokedAt: new Date() } });
+});
+
+test("six reminders follow original acceptance clock, retry one failure, and stop after payment", async () => {
+  const { partner, submission } = await fixture();
+  const created = await createOrRotateInvitation({ partnerUserId: partner.id, submissionId: submission.id, locale: "en" });
+  const acceptedAt = new Date();
+  await attemptInvitationEmail(created.id, acceptedAt, sendEmail as never);
+  const anchor = (await prisma.businessSubmissionInvitation.findUniqueOrThrow({ where: { id: created.id } })).emailAcceptedAt!;
+  assert.deepEqual([0, 2, 3, 6, 13, 20, 27, 34, 40].map((days) => reminderSequenceDue(anchor, new Date(anchor.getTime() + days * day))),
+    [0, 0, 1, 2, 3, 4, 5, 6, 6]);
+  let reminderCount = 0;
+  const reminders = async (message: { text: string; idempotencyKey?: string }) => {
+    assert.match(message.text, /€100/);
+    assert.ok(message.idempotencyKey);
+    reminderCount++;
+    return { provider: "resend" as const, messageId: `reminder-${reminderCount}`, success: true };
+  };
+  for (const dueDay of [3, 6, 13, 20, 27, 34]) {
+    const dueAt = new Date(anchor.getTime() + dueDay * day + 1_000);
+    assert.equal((await runPayLaterReminderJob(dueAt, reminders as never)).sent, 1);
+    assert.equal((await runPayLaterReminderJob(dueAt, reminders as never)).sent, 0);
+  }
+  assert.equal(reminderCount, 6);
+  assert.equal((await runPayLaterReminderJob(new Date(anchor.getTime() + 40 * day), reminders as never)).sent, 0);
+  await prisma.businessSubmission.update({ where: { id: submission.id }, data: { paymentStatus: "PAID" } });
+  assert.equal((await runPayLaterReminderJob(new Date(anchor.getTime() + 41 * day), reminders as never)).sent, 0);
+});
+
+test("paid webhook creates one published membership and original Partner commission from payment date", async () => {
+  const { partner, submission } = await fixture();
+  const invitation = await createOrRotateInvitation({ partnerUserId: partner.id, submissionId: submission.id, locale: "it" });
+  await attemptInvitationEmail(invitation.id, new Date(), sendEmail as never);
+  await prisma.businessSubmission.update({ where: { id: submission.id }, data: {
+    paymentMethod: "ONLINE", paymentStatus: "PENDING_PAYMENT", status: "AWAITING_PAYMENT",
+    agreementSignature: JSON.stringify({ version: 1, strokes: [[{ x: 1, y: 2 }]] }),
+    signedAt: new Date(), businessTermsAcceptedAt: new Date(),
+  } });
+  await prisma.payment.create({ data: { id: `initial-element:${submission.id}`,
+    businessSubmissionId: submission.id, userId: partner.id, partnerUserId: partner.id,
+    method: "STRIPE_CHECKOUT", amountCents: 10000, status: "PENDING_PAYMENT",
+    stripePaymentIntentId: `pi_pay_later_${submission.id}` } });
+  await ensurePendingPartnerCommissionForSubmission({ businessSubmissionId: submission.id, revalidatePaths: false });
+  assert.equal(await prisma.partnerCommission.count({ where: { businessSubmissionId: submission.id } }), 0);
+  const event = { amountPaidCents: 10000, businessSubmissionId: submission.id, revalidatePaths: false,
+    paymentIntentId: `pi_pay_later_${submission.id}`, stripeEventId: `evt_pay_later_${submission.id}` };
+  await syncStripePaymentFromWebhook(event);
+  await syncStripePaymentFromWebhook(event);
+  const paidSubmission = await prisma.businessSubmission.findUniqueOrThrow({ where: { id: submission.id } });
+  assert.equal(paidSubmission.status, "PUBLISHED");
+  assert.equal(paidSubmission.paymentStatus, "PAID");
+  assert.ok(paidSubmission.createdBusinessId);
+  const membership = await prisma.businessMembership.findUniqueOrThrow({ where: { businessId: paidSubmission.createdBusinessId! } });
+  assert.equal(membership.originatingPartnerUserId, partner.id);
+  assert.equal(await prisma.businessMembership.count({ where: { businessId: paidSubmission.createdBusinessId! } }), 1);
+  const payment = await prisma.payment.findUniqueOrThrow({ where: { id: `initial-element:${submission.id}` } });
+  assert.equal(payment.partnerUserId, partner.id);
+  assert.equal(payment.status, "PAID");
+  const commission = await prisma.partnerCommission.findUniqueOrThrow({ where: { sourceKey: `commission:submission:${submission.id}` } });
+  assert.equal(commission.partnerUserId, partner.id);
+  assert.equal(commission.paymentId, payment.id);
+  assert.equal(commission.amountCents, 5000);
+  assert.equal(commission.eligibleAt?.getTime(), payment.paidAt!.getTime() + 14 * day);
+  assert.equal(commission.earnedAt?.getTime(), payment.paidAt!.getTime());
+  assert.equal(await prisma.partnerCommission.count({ where: { businessSubmissionId: submission.id } }), 1);
+  assert.ok((await prisma.businessSubmissionInvitation.findUniqueOrThrow({ where: { id: invitation.id } })).completedAt);
+});
+
+test("email failure remains pending and retries with the same invitation, without a payment or commission", async () => {
+  const { partner, submission } = await fixture();
+  const created = await createOrRotateInvitation({ partnerUserId: partner.id, submissionId: submission.id, locale: "en" });
+  const token = deriveInvitationToken(created);
+  const failed = await attemptInvitationEmail(created.id, new Date(), async () => { throw new Error("synthetic-provider-failure"); });
+  assert.equal(failed, "pending");
+  let invitation = await prisma.businessSubmissionInvitation.findUniqueOrThrow({ where: { id: created.id } });
+  assert.equal(invitation.emailAcceptedAt, null);
+  assert.equal(invitation.emailFailureMessage, "email_provider_failed");
+  assert.equal(await startInvitationOtp(token), "unavailable");
+  assert.equal(await prisma.payment.count({ where: { businessSubmissionId: submission.id } }), 0);
+  assert.equal(await prisma.partnerCommission.count({ where: { businessSubmissionId: submission.id } }), 0);
+  assert.equal(await attemptInvitationEmail(created.id, new Date(invitation.emailNextAttemptAt!.getTime() + 1), sendEmail as never), "accepted");
+  invitation = await prisma.businessSubmissionInvitation.findUniqueOrThrow({ where: { id: created.id } });
+  assert.equal(invitation.emailAcceptedGeneration, invitation.tokenGeneration);
+  assert.ok(invitation.emailProviderMessageId);
+  assert.equal(await attemptInvitationEmail(created.id, new Date(invitation.emailNextAttemptAt?.getTime() ?? Date.now()), sendEmail as never), "skipped");
+  await prisma.businessSubmissionInvitation.update({ where: { id: created.id }, data: { revokedAt: new Date() } });
+});
+
+test("OTP limits and expiry fail closed, unauthorized Partner cannot rotate, expired link preserves draft", async () => {
+  const { partner, submission } = await fixture();
+  const stranger = await fixture();
+  const created = await createOrRotateInvitation({ partnerUserId: partner.id, submissionId: submission.id, locale: "en" });
+  const token = deriveInvitationToken(created);
+  await assert.rejects(createOrRotateInvitation({ partnerUserId: stranger.partner.id, submissionId: submission.id, locale: "en" }), /pay_later_submission_ineligible/);
+  await attemptInvitationEmail(created.id, new Date(), sendEmail as never);
+  const sentAt = new Date();
+  assert.equal(await startInvitationOtp(token, sentAt, sendEmail as never), "sent");
+  const firstCode = sent.at(-1)?.text.match(/\b\d{6}\b/)?.[0];
+  assert.ok(firstCode);
+  const wrong = firstCode === "000000" ? "999999" : "000000";
+  for (let index = 0; index < 5; index++) assert.equal(await verifyInvitationOtp(token, wrong), null);
+  assert.equal(await verifyInvitationOtp(token, firstCode), null);
+  assert.equal(await startInvitationOtp(token, new Date(sentAt.getTime() + 2 * 60_000 + 1), sendEmail as never), "sent");
+  const secondCode = sent.at(-1)?.text.match(/\b\d{6}\b/)?.[0];
+  assert.ok(secondCode);
+  assert.equal(await verifyInvitationOtp(token, secondCode, new Date(sentAt.getTime() + 13 * 60_000)), null);
+  await prisma.businessSubmissionInvitation.update({ where: { id: created.id }, data: { tokenExpiresAt: new Date(Date.now() - 1000) } });
+  assert.equal(await getInvitationByToken(token), null);
+  assert.ok(await prisma.businessSubmission.findUnique({ where: { id: submission.id } }));
+});
+
+test("reminder provider failure retries once under concurrent scheduler runs and stops on opt-out or decline", async () => {
+  const { partner, submission } = await fixture();
+  const created = await createOrRotateInvitation({ partnerUserId: partner.id, submissionId: submission.id, locale: "it" });
+  await attemptInvitationEmail(created.id, new Date(), sendEmail as never);
+  const invitation = await prisma.businessSubmissionInvitation.findUniqueOrThrow({ where: { id: created.id } });
+  const dueAt = new Date(invitation.emailAcceptedAt!.getTime() + 3 * day + 1);
+  const failed = await runPayLaterReminderJob(dueAt, async () => { throw new Error("synthetic-provider-failure"); });
+  assert.equal(failed.sent, 0);
+  const reminder = await prisma.businessSubmissionInvitationReminder.findUniqueOrThrow({ where: {
+    invitationId_sequence: { invitationId: created.id, sequence: 1 },
+  } });
+  assert.equal(reminder.failureMessage, "email_provider_failed");
+  let count = 0;
+  const retry = async () => { count++; return { provider: "resend" as const, messageId: "retry-ok", success: true }; };
+  const retryAt = new Date(reminder.nextAttemptAt!.getTime() + 1);
+  const results = await Promise.all([runPayLaterReminderJob(retryAt, retry as never), runPayLaterReminderJob(retryAt, retry as never)]);
+  assert.equal(results.reduce((sum, row) => sum + row.sent, 0), 1);
+  assert.equal(count, 1);
+  assert.equal(await closeInvitation(created.id, "stop"), true);
+  assert.equal((await runPayLaterReminderJob(new Date(invitation.emailAcceptedAt!.getTime() + 6 * day + 1), retry as never)).sent, 0);
+  await createOrRotateInvitation({ partnerUserId: partner.id, submissionId: submission.id, locale: "it" });
+  assert.ok((await prisma.businessSubmissionInvitation.findUniqueOrThrow({ where: { id: created.id } })).remindersStoppedAt);
+  const another = await fixture();
+  const declined = await createOrRotateInvitation({ partnerUserId: another.partner.id, submissionId: another.submission.id, locale: "it" });
+  await attemptInvitationEmail(declined.id, new Date(), sendEmail as never);
+  assert.equal(await closeInvitation(declined.id, "decline"), true);
+  assert.equal((await runPayLaterReminderJob(new Date(Date.now() + 3 * day + 1_000), retry as never)).sent, 0);
+  assert.equal(await prisma.payment.count({ where: { businessSubmissionId: submission.id } }), 0);
+});

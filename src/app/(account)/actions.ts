@@ -1395,6 +1395,7 @@ async function saveBusinessSubmission(
     createdBusinessId: string | null;
     id: string;
     userId: string;
+    payLaterInvitation: { revokedAt: Date | null; completedAt: Date | null } | null;
   } | null = null;
 
   if (submissionId) {
@@ -1406,6 +1407,7 @@ async function saveBusinessSubmission(
         createdBusinessId: true,
         id: true,
         userId: true,
+        payLaterInvitation: { select: { revokedAt: true, completedAt: true } },
       },
     });
 
@@ -1414,6 +1416,14 @@ async function saveBusinessSubmission(
         error: formCopy[locale].notAllowed,
         submission: rawSubmission,
       };
+    }
+
+    if (existingSubmission.payLaterInvitation && !existingSubmission.payLaterInvitation.revokedAt &&
+      !existingSubmission.payLaterInvitation.completedAt) {
+      return { error: locale === "it"
+        ? "Questa scheda ha un invito attivo. Revoca l'invito dalla dashboard prima di modificarla."
+        : "This listing has an active invitation. Revoke it from the dashboard before editing.",
+        submission: rawSubmission };
     }
 
     if (adminMode && intent === "submit") {
@@ -1822,16 +1832,19 @@ async function saveBusinessSubmission(
   }
 
   if (submissionId) {
-    const updatedSubmission = await prisma.businessSubmission.update({
-      where: {
-        id: submissionId,
-      },
+    const saved = await prisma.businessSubmission.updateMany({
+      where: { id: submissionId, userId: viewer.id,
+        OR: [{ payLaterInvitation: { is: null } },
+          { payLaterInvitation: { is: { revokedAt: { not: null } } }, status: "DRAFT",
+            paymentStatus: "NOT_REQUIRED", paymentMethod: null }] },
       data: baseSubmissionData,
-      select: {
-        amountOwedCents: true,
-        id: true,
-        status: true,
-      },
+    });
+    if (!saved.count) return { error: locale === "it"
+      ? "Invito attivo o scheda modificata. Aggiorna la pagina."
+      : "An invitation is active or the listing changed. Refresh the page.",
+      submission: rawSubmission };
+    const updatedSubmission = await prisma.businessSubmission.findUniqueOrThrow({
+      where: { id: submissionId }, select: { amountOwedCents: true, id: true, status: true },
     });
 
     if (wantsPaymentStep) {
@@ -1953,10 +1966,12 @@ export async function deleteDraftSubmissionAction(
         paymentStatus: true,
         status: true,
         userId: true,
+        payLaterInvitation: { select: { revokedAt: true, completedAt: true } },
       },
     });
 
-    if (!draft || draft.userId !== viewer.id || !isDraftLikeSubmission(draft)) {
+    if (!draft || draft.userId !== viewer.id || !isDraftLikeSubmission(draft) ||
+      (draft.payLaterInvitation && !draft.payLaterInvitation.revokedAt && !draft.payLaterInvitation.completedAt)) {
       return {
         error:
           locale === "it"
@@ -3463,6 +3478,11 @@ export async function confirmBankTransferReceivedAction(formData: FormData) {
         submissionId: submission.id,
       });
     }
+    await tx.businessSubmissionInvitation.updateMany({
+      where: { businessSubmissionId: submission.id, completedAt: null },
+      data: { completedAt: confirmedAt, remindersStoppedAt: confirmedAt,
+        otpCodeHash: null, verifiedSessionHash: null, verifiedSessionExpiresAt: null },
+    });
   });
 
   revalidatePath("/dashboard");
