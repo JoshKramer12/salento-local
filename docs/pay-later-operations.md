@@ -32,10 +32,10 @@ sends it in a POST body after the page loads so it is not included in HTTP reque
 ## Scheduler
 
 Keep the existing 15-minute `membership-outcome-retry-cron` service on
-`?outcomes=only`. It does not run reminders. Add exactly one separate daily cron service
-that invokes the same endpoint **without** `?outcomes=only`, with
+`?outcomes=only`. It does not run reminders. The separate daily `curl` service already
+invokes the same endpoint **without** `?outcomes=only` at 07:00 UTC, with
 `Authorization: Bearer <MEMBERSHIP_REMINDER_CRON_SECRET>`. Use the same secret as the web
-service. Do not add a second daily reminder caller. Database reminder records, claim leases,
+service. Do not add another daily reminder caller. Database reminder records, claim leases,
 and Resend idempotency keys guard against retries and concurrent runs. Resend retains
 idempotency keys for 24 hours. The first attempt timestamp is persisted; if an invitation
 or reminder remains unacknowledged after 23 hours, automatic retries stop with
@@ -75,9 +75,11 @@ keys or a deterministic Pay Later bank transfer key. Do not switch methods while
 resource may exist. Investigate Stripe and the saved payment before manual remediation.
 
 To roll back before activation, keep the flag off. After activation, first set the flag
-off and stop the scheduler's Pay Later sends. Restore application code only after checking
-in-flight payments and webhook finalization; leave the additive database migration in place
-if any invitation or payment may depend on it. Do not delete invitation or financial rows.
+off; the Pay Later reminder job then exits without sending. Keep both existing Railway
+cron services running because they also handle membership reminders and payment outcomes.
+Restore application code only after checking in-flight payments and webhook finalization;
+leave the additive database migration in place if any invitation or payment may depend on it.
+Do not delete invitation or financial rows.
 
 ## Production release gate
 
@@ -131,36 +133,70 @@ absent. The active 15-minute cron targets `?outcomes=only`, so Pay Later reminde
 scheduled. The production volume has no backups or backup schedule. The apex
 `salentolocal.ca` currently resolves away from Railway and presents an expired TLS
 certificate; Railway reports its apex traffic DNS record requires an update. These
-conditions block release. No production setting or database was changed during the audit.
+were the findings at the initial audit. No production setting or database was changed then.
 
 The Pay Later branch is based on the active `main` commit and adds only the October 13
 Pay Later migration. It contains none of the separate, unmerged cash-out migrations.
 
+## Follow-up release audit — 14 October 2026
+
+The authenticated Stripe dashboard shows the Salento Local sandbox account
+`acct_1TqwSuRTjKpCuoPH` and an unfinished live-account activation flow for
+`acct_1TqwSiEoijjMObZa`. Railway production still has matching `sk_test_` and `pk_test_`
+credentials. The sandbox account reports `charges_enabled=false` and
+`details_submitted=false`. Its enabled **test-mode** payment webhook targets the actual
+Railway `web` service domain, `web-production-6f26e.up.railway.app`, and includes the
+payment, invoice, refund and dispute events used by the application. Live credentials
+and a live webhook cannot be verified or installed before the live account is activated.
+The owner must complete Stripe's required business verification, bank information and
+legal acceptance; do not substitute test keys for live payment readiness.
+
+The daily Railway `curl` cron was already present at this follow-up audit, scheduled
+`0 7 * * *` UTC. Its target is the normal membership reminder endpoint on the production
+`web` domain. Its secret matches both the web service and the 15-minute outcomes-only
+cron. Recent daily runs exited successfully, including 14 October. Preserve both jobs.
+
+A dedicated random `PAY_LATER_TOKEN_SECRET` was added to `production/web` with deploys
+skipped; its presence and minimum length were verified without displaying its value.
+`PAY_LATER_ENABLED` remains absent. Resend still reports `salentolocal.ca` verified and
+sending enabled; the configured sender is `hello@salentolocal.ca`, reply-to/support is
+`support@salentolocal.ca`, and `APP_URL` is `https://www.salentolocal.ca`. No test email
+was sent because no recipient was explicitly designated.
+
+Railway's native backup API refused a manual volume backup because this workspace is on
+the Hobby plan. A consistent SQLite `VACUUM INTO` copy was instead created at
+`/data/prisma/paylater-predeploy-20261014.db`, with mode 0600, then downloaded into
+this task's private audit directory outside the repository. The 15,441,920-byte backup
+was restored into an isolated database. Both backup and restore passed SQLite integrity
+and foreign-key checks. The current Pay Later migration applied to that restored copy.
+Every pre-existing column value in User, Business, BusinessSubmission, Payment,
+BusinessMembership, PartnerCommission, PartnerPayout and LocalPartnerProfile matched the
+backup after migration. All 24 completed production migration checksums match local files.
+No customer row was printed or included in version control. Repeat the online backup
+immediately before any future production migration; the existing copy is a recovery
+checkpoint for this audit, not an indefinitely current pre-deployment backup.
+
 ## Exact release sequence after the blockers are resolved
 
-1. Confirm the intended live Stripe account and install matching live secret,
-   publishable, and webhook signing keys on the `production/web` service. Verify the
-   webhook endpoint configuration read-only; do not make a live charge as a test.
-2. Correct apex DNS at the domain registrar, if the apex should serve the site, and
-   wait for a valid certificate. The canonical `www` hostname already works.
-3. In Railway's `production/web` Backups tab, create a manual `web-volume` backup and
-   confirm it appears as restorable. Configure a recurring backup schedule. Do not
-   restore it as a test: that would replace the live volume. Record backup ID and time.
-4. Generate a dedicated random `PAY_LATER_TOKEN_SECRET` of at least 32 characters in a
-   secret manager and configure it on `production/web`. Do not print, commit, or rotate it
-   while invitations are active. Set `PAY_LATER_ENABLED=false` for initial deployment.
-5. Preserve the existing 15-minute outcomes-only cron. Prepare exactly one new daily Railway
-   cron service using `curlimages/curl:8.12.1`, with schedule `0 8 * * *` (UTC), and a
-   start command that POSTs to
-   `https://www.salentolocal.ca/api/internal/membership-reminders` without query
-   parameters using the shared cron secret. Create the service only after the web migration
-   and health checks in step 7. Schedule its first run after activation;
-   do not manually trigger it to test with real customers. Verify its configuration,
-   authentication secret equality, next run, and later its natural run status.
-
-   ```sh
-   /bin/sh -c 'exec curl --fail --silent --show-error --request POST --header "Authorization: Bearer $MEMBERSHIP_REMINDER_CRON_SECRET" https://www.salentolocal.ca/api/internal/membership-reminders'
-   ```
+1. Complete activation of the existing Salento Local live Stripe account. Confirm its
+   charges are enabled, then configure matching live secret, publishable, and webhook
+   signing keys on `production/web` without rotating the existing test credentials
+   unnecessarily. Create or verify a live webhook to the existing `web` service endpoint
+   with the payment, invoice, refund and dispute events. Confirm the webhook actually
+   delivers to that service. Do not make a live charge as a test.
+2. The apex DNS correction is independent of Pay Later because invitations use the valid
+   canonical `www` origin. Correct the apex if it should serve the site; do not alter the
+   working `www` domain during this release.
+3. Immediately before migration, repeat the SQLite online backup to a unique filename,
+   copy it to protected storage outside the Railway volume, verify integrity and an
+   isolated restore, and record its hash and timestamp. Railway native backups and
+   schedules require a Pro workspace here; do not rely on them on Hobby.
+4. Verify the configured `PAY_LATER_TOKEN_SECRET` remains present and persistent. Keep
+   `PAY_LATER_ENABLED=false` for initial deployment. Never print or rotate the token
+   secret while invitations are active.
+5. Preserve the existing 15-minute outcomes-only cron and the existing daily `curl`
+   service at 07:00 UTC. Confirm the daily caller targets the normal production endpoint
+   exactly once with the shared secret. Do not manually trigger it to test with customers.
 
 6. Recheck `main`, cash-out exclusion, migration checksums, SQLite integrity, and
    aggregate counts. Run all tests, TypeScript, lint, and production build on the exact
@@ -169,8 +205,8 @@ Pay Later migration. It contains none of the separate, unmerged cash-out migrati
 7. `scripts/start-hosted.sh` runs `prisma migrate deploy` against the mounted SQLite
    volume before Next starts. Confirm the Pay Later migration is recorded as completed,
    schema diff is empty, old aggregate counts have not fallen, integrity and foreign-key
-   checks pass, and the web health route returns 200. Configure the daily cron as described
-   in step 5, then verify its target, authentication secret equality and next run. Leave
+   checks pass, and the web health route returns 200. Reverify the daily cron as described
+   in step 5, including its next run. Leave
    the feature flag off until these checks pass.
 8. Enable `PAY_LATER_ENABLED=true` on `production/web` and confirm the new deployment,
    Partner UI, owner route, and existing payment routes. Use a synthetic/non-customer
@@ -179,9 +215,12 @@ Pay Later migration. It contains none of the separate, unmerged cash-out migrati
    duplicate reminder records.
 
 If a release check fails, stop before the next step. To disable Pay Later, set
-`PAY_LATER_ENABLED=false` and deploy the changed variable, then disable the daily
-reminder cron. Keep the additive schema and existing invitation/payment data. If code
+`PAY_LATER_ENABLED=false` and deploy the changed variable. Keep both pre-existing cron
+services running, and keep the additive schema and existing invitation/payment data. If code
 rollback is required, reconcile any in-flight Stripe payments and webhooks first; the
 payment finalizer must remain available. A volume backup restore is only for catastrophic
 data corruption after assessing all intervening financial transactions, never the normal
-feature rollback. Do not reset or delete production data.
+feature rollback. The 14 October SQLite backup was restored successfully only in an
+isolated local database; a production database restore has not been attempted and would
+require downtime and reconciliation of all intervening payments. Do not reset or delete
+production data.
