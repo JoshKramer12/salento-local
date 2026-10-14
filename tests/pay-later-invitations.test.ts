@@ -190,6 +190,23 @@ test("email failure remains pending and retries with the same invitation, withou
   await prisma.businessSubmissionInvitation.update({ where: { id: created.id }, data: { revokedAt: new Date() } });
 });
 
+test("invitation retry stops before the provider idempotency window expires", async () => {
+  const { partner, submission } = await fixture();
+  const created = await createOrRotateInvitation({ partnerUserId: partner.id, submissionId: submission.id, locale: "en" });
+  const initial = new Date();
+  await attemptInvitationEmail(created.id, initial, async () => { throw new Error("synthetic-provider-failure"); });
+  const late = new Date(initial.getTime() + 23 * 60 * 60 * 1000 + 1);
+  let sends = 0;
+  await attemptInvitationEmail(created.id, late, async () => {
+    sends++;
+    return { provider: "resend" as const, messageId: "unexpected", success: true };
+  });
+  const invitation = await prisma.businessSubmissionInvitation.findUniqueOrThrow({ where: { id: created.id } });
+  assert.equal(sends, 0);
+  assert.equal(invitation.emailNextAttemptAt, null);
+  assert.equal(invitation.emailFailureMessage, "delivery_uncertain_requires_review");
+});
+
 test("OTP limits and expiry fail closed, unauthorized Partner cannot rotate, expired link preserves draft", async () => {
   const { partner, submission } = await fixture();
   const stranger = await fixture();
@@ -241,4 +258,25 @@ test("reminder provider failure retries once under concurrent scheduler runs and
   assert.equal(await closeInvitation(declined.id, "decline"), true);
   assert.equal((await runPayLaterReminderJob(new Date(Date.now() + 3 * day + 1_000), retry as never)).sent, 0);
   assert.equal(await prisma.payment.count({ where: { businessSubmissionId: submission.id } }), 0);
+});
+
+test("reminder retry stops before the provider idempotency window expires", async () => {
+  const { partner, submission } = await fixture();
+  const created = await createOrRotateInvitation({ partnerUserId: partner.id, submissionId: submission.id, locale: "en" });
+  await attemptInvitationEmail(created.id, new Date(), sendEmail as never);
+  const invitation = await prisma.businessSubmissionInvitation.findUniqueOrThrow({ where: { id: created.id } });
+  const dueAt = new Date(invitation.emailAcceptedAt!.getTime() + 3 * day + 1);
+  await runPayLaterReminderJob(dueAt, async () => { throw new Error("synthetic-provider-failure"); });
+  const late = new Date(dueAt.getTime() + 23 * 60 * 60 * 1000 + 1);
+  let sends = 0;
+  await runPayLaterReminderJob(late, async () => {
+    sends++;
+    return { provider: "resend" as const, messageId: "unexpected", success: true };
+  });
+  const reminder = await prisma.businessSubmissionInvitationReminder.findUniqueOrThrow({
+    where: { invitationId_sequence: { invitationId: created.id, sequence: 1 } },
+  });
+  assert.equal(sends, 0);
+  assert.equal(reminder.nextAttemptAt, null);
+  assert.equal(reminder.failureMessage, "delivery_uncertain_requires_review");
 });

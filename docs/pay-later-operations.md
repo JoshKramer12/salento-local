@@ -36,7 +36,12 @@ Keep the existing 15-minute `membership-outcome-retry-cron` service on
 that invokes the same endpoint **without** `?outcomes=only`, with
 `Authorization: Bearer <MEMBERSHIP_REMINDER_CRON_SECRET>`. Use the same secret as the web
 service. Do not add a second daily reminder caller. Database reminder records, claim leases,
-and Resend idempotency keys guard against retries and concurrent runs.
+and Resend idempotency keys guard against retries and concurrent runs. Resend retains
+idempotency keys for 24 hours. The first attempt timestamp is persisted; if an invitation
+or reminder remains unacknowledged after 23 hours, automatic retries stop with
+`delivery_uncertain_requires_review`. Reconcile that record against provider delivery
+logs before any manual reissue or database remediation. Never restart its automatic
+retry without confirming whether the earlier message was accepted.
 Reminder milestones are elapsed UTC days 3, 6, 13, 20, 27 and 34 after the first accepted
 invitation email. Dates shown to Partners use Europe/Rome.
 
@@ -44,8 +49,8 @@ invitation email. Dates shown to Partners use Europe/Rome.
 
 The migration `20261013160000_add_pay_later_invitations` is additive: five nullable
 `BusinessSubmission` columns, two new tables, and indexes. No existing financial table is
-reset or backfilled. It applies cleanly to an isolated copy built from the current `main`
-Prisma schema, and the resulting schema has no diff against `schema.prisma`.
+reset or backfilled. It applies cleanly to an isolated schema-only clone of observed
+production, and the resulting schema has no diff against `schema.prisma`.
 
 The repository's historical migrations do **not** replay on a fresh empty database:
 `20260730143000_structured_business_addresses` fails because `BusinessSubmission` is absent
@@ -59,7 +64,9 @@ shipping its unfinished payout behavior.
 ## Recovery and rollback
 
 If email acceptance fails, the invitation remains saved and the daily job retries it using
-the same generation and Resend idempotency key. A Partner can resend from the dashboard;
+the same generation and Resend idempotency key within the provider's 24-hour window.
+After 23 hours of uncertainty, retries halt for operator review. A Partner can resend from
+the dashboard;
 that rotates the link and invalidates the prior session. An owner reminder opt-out persists
 through a resend to the same recipient. A Partner correction requires revoking the active
 link, editing the saved draft, and sending a new mandatory email. A payment setup failure
@@ -142,11 +149,12 @@ Pay Later migration. It contains none of the separate, unmerged cash-out migrati
 4. Generate a dedicated random `PAY_LATER_TOKEN_SECRET` of at least 32 characters in a
    secret manager and configure it on `production/web`. Do not print, commit, or rotate it
    while invitations are active. Set `PAY_LATER_ENABLED=false` for initial deployment.
-5. Preserve the existing 15-minute outcomes-only cron. Configure one new daily Railway
+5. Preserve the existing 15-minute outcomes-only cron. Prepare exactly one new daily Railway
    cron service using `curlimages/curl:8.12.1`, with schedule `0 8 * * *` (UTC), and a
    start command that POSTs to
    `https://www.salentolocal.ca/api/internal/membership-reminders` without query
-   parameters using the shared cron secret. Keep its first run after the web deployment;
+   parameters using the shared cron secret. Create the service only after the web migration
+   and health checks in step 7. Schedule its first run after activation;
    do not manually trigger it to test with real customers. Verify its configuration,
    authentication secret equality, next run, and later its natural run status.
 
@@ -161,8 +169,9 @@ Pay Later migration. It contains none of the separate, unmerged cash-out migrati
 7. `scripts/start-hosted.sh` runs `prisma migrate deploy` against the mounted SQLite
    volume before Next starts. Confirm the Pay Later migration is recorded as completed,
    schema diff is empty, old aggregate counts have not fallen, integrity and foreign-key
-   checks pass, and the web health route returns 200. Leave the feature flag off until
-   these checks and the daily cron configuration are verified.
+   checks pass, and the web health route returns 200. Configure the daily cron as described
+   in step 5, then verify its target, authentication secret equality and next run. Leave
+   the feature flag off until these checks pass.
 8. Enable `PAY_LATER_ENABLED=true` on `production/web` and confirm the new deployment,
    Partner UI, owner route, and existing payment routes. Use a synthetic/non-customer
    invitation for UI checks only; do not send a real customer email or initiate a live

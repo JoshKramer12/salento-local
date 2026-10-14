@@ -76,9 +76,21 @@ export async function runPayLaterReminderJob(now = new Date(), sendEmail = sendT
       where: { invitationId_sequence: { invitationId: invitation.id, sequence } },
       create: { invitationId: invitation.id, sequence, nextAttemptAt: now }, update: {},
     });
+    // Provider idempotency expires after 24 hours; stop uncertain retries first.
+    if (reminder.firstAttemptedAt &&
+      now.getTime() - reminder.firstAttemptedAt.getTime() >= 23 * 60 * 60 * 1000) {
+      await prisma.businessSubmissionInvitationReminder.updateMany({
+        where: { id: reminder.id, acceptedAt: null, nextAttemptAt: { lte: now },
+          firstAttemptedAt: reminder.firstAttemptedAt },
+        data: { nextAttemptAt: null, failureMessage: "delivery_uncertain_requires_review" },
+      });
+      continue;
+    }
     const claim = await prisma.businessSubmissionInvitationReminder.updateMany({
-      where: { id: reminder.id, acceptedAt: null, nextAttemptAt: { lte: now } },
-      data: { attemptedAt: now, attemptCount: { increment: 1 },
+      where: { id: reminder.id, acceptedAt: null, nextAttemptAt: { lte: now },
+        firstAttemptedAt: reminder.firstAttemptedAt },
+      data: { attemptedAt: now, firstAttemptedAt: reminder.firstAttemptedAt ?? now,
+        attemptCount: { increment: 1 },
         nextAttemptAt: new Date(now.getTime() + LEASE_MS), failureMessage: null },
     });
     if (!claim.count) continue;

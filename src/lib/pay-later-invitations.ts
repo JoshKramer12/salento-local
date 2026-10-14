@@ -127,7 +127,8 @@ export async function createOrRotateInvitation(params: {
       verifiedAt: null, verifiedDetailsHash: null,
       verifiedSessionHash: null, verifiedSessionExpiresAt: null,
       otpCodeHash: null, otpExpiresAt: null, otpAttemptCount: 0,
-      emailAttemptedAt: null, emailNextAttemptAt: now, emailFailureMessage: null,
+      emailAttemptedAt: null, emailFirstAttemptedAt: null,
+      emailNextAttemptAt: now, emailFailureMessage: null,
       emailAcceptedGeneration: null,
       reminderCursor: resetRecipient ? 0 : submission.payLaterInvitation?.reminderCursor ?? 0,
       whatsappPreparedAt: null,
@@ -173,17 +174,35 @@ export function buildInvitationEmail(params: { businessName: string; townName: s
 }
 
 export async function attemptInvitationEmail(invitationId: string, now = new Date(), sendEmail = sendTransactionalEmail) {
+  const pending = await prisma.businessSubmissionInvitation.findUnique({ where: { id: invitationId },
+    select: { tokenGeneration: true, emailFirstAttemptedAt: true, emailNextAttemptAt: true } });
+  if (!pending?.emailNextAttemptAt || pending.emailNextAttemptAt > now) return "skipped" as const;
+  // Resend retains an idempotency key for 24 hours. After 23 hours, a lost
+  // provider acknowledgement needs manual review instead of another send.
+  if (pending.emailFirstAttemptedAt &&
+    now.getTime() - pending.emailFirstAttemptedAt.getTime() >= 23 * 60 * 60 * 1000) {
+    const quarantined = await prisma.businessSubmissionInvitation.updateMany({
+      where: { id: invitationId, tokenGeneration: pending.tokenGeneration,
+        completedAt: null, declinedAt: null, revokedAt: null,
+        emailNextAttemptAt: { lte: now }, emailFirstAttemptedAt: pending.emailFirstAttemptedAt },
+      data: { emailNextAttemptAt: null, emailFailureMessage: "delivery_uncertain_requires_review" },
+    });
+    return quarantined.count ? "pending" as const : "skipped" as const;
+  }
   const claimed = await prisma.businessSubmissionInvitation.updateMany({
-    where: { id: invitationId, completedAt: null, declinedAt: null, revokedAt: null,
-      emailNextAttemptAt: { lte: now } },
-    data: { emailAttemptedAt: now, emailAttemptCount: { increment: 1 },
+    where: { id: invitationId, tokenGeneration: pending.tokenGeneration,
+      completedAt: null, declinedAt: null, revokedAt: null,
+      emailNextAttemptAt: { lte: now }, emailFirstAttemptedAt: pending.emailFirstAttemptedAt },
+    data: { emailAttemptedAt: now, emailFirstAttemptedAt: pending.emailFirstAttemptedAt ?? now,
+      emailAttemptCount: { increment: 1 },
       emailNextAttemptAt: new Date(now.getTime() + EMAIL_LEASE_MS), emailFailureMessage: null },
   });
   if (!claimed.count) return "skipped" as const;
   const invitation = await prisma.businessSubmissionInvitation.findUniqueOrThrow({
     where: { id: invitationId }, include: { businessSubmission: { include: { town: true } } },
   });
-  if (!invitationIsOpen(invitation, invitation.businessSubmission, now) ||
+  if (invitation.tokenGeneration !== pending.tokenGeneration ||
+    !invitationIsOpen(invitation, invitation.businessSubmission, now) ||
     normalizeEmail(invitation.businessSubmission.ownerEmail) !== invitation.recipientEmail) return "skipped" as const;
   const message = buildInvitationEmail({ businessName: invitation.businessSubmission.businessName,
     townName: invitation.businessSubmission.town.name, ownerName: invitation.businessSubmission.ownerName,
