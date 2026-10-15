@@ -275,5 +275,7 @@ synthetic owner stopped reminders, a due reminder call sent one message to the o
 synthetic address; an immediate repeat sent none. The test database still contained zero
 Business, Payment, BusinessMembership, and PartnerCommission rows. The separate test cron
 is configured for `0 7 * * *` UTC and targets the normal isolated reminder endpoint.
-Its first natural scheduled execution remains to be observed. Production counts and
+An operator-triggered execution of that exact cron deployment reached the isolated
+endpoint with HTTP 200 and exited successfully. Its first natural scheduled execution
+remains to be observed. Production counts and
 migration state stayed unchanged throughout these checks.
