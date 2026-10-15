@@ -1,9 +1,36 @@
 import type { PaymentPurpose, PaymentRecordMethod, Prisma, PrismaClient } from "@prisma/client";
+import type Stripe from "stripe";
 
 import { getBusinessMembershipPeriod, getBusinessMembershipStatus } from "@/lib/business-membership";
 import { LISTING_OFFER } from "@/lib/listing-offer";
 
 type RenewalDb = PrismaClient | Prisma.TransactionClient;
+
+/** Require one full card payment for the exact recurring invoice before buying a term. */
+export function getVerifiedRenewalInvoiceIntentId(params: {
+  currentInvoice: Stripe.Invoice;
+  eventInvoice: Stripe.Invoice;
+  subscriptionId: string;
+}) {
+  const { currentInvoice, eventInvoice, subscriptionId } = params;
+  const paidPayments = currentInvoice.payments?.data.filter((payment) => payment.status === "paid") ?? [];
+  const paidPayment = paidPayments[0];
+  const rawIntent = paidPayment?.payment.type === "payment_intent"
+    ? paidPayment.payment.payment_intent : null;
+  const intentId = typeof rawIntent === "string" ? rawIntent : rawIntent?.id;
+  if (currentInvoice.id !== eventInvoice.id || currentInvoice.status !== "paid" ||
+    currentInvoice.billing_reason !== "subscription_cycle" ||
+    currentInvoice.amount_paid !== eventInvoice.amount_paid ||
+    currentInvoice.amount_paid !== LISTING_OFFER.renewalPriceCents ||
+    currentInvoice.currency !== "eur" || currentInvoice.currency !== eventInvoice.currency ||
+    currentInvoice.parent?.subscription_details?.subscription !== subscriptionId ||
+    currentInvoice.payments?.has_more || paidPayments.length !== 1 ||
+    paidPayment.amount_paid !== currentInvoice.amount_paid || !intentId ||
+    typeof currentInvoice.customer !== "string") {
+    throw new Error("renewal_invoice_payment_identity_unavailable");
+  }
+  return { intentId, customerId: currentInvoice.customer };
+}
 
 export function getMembershipPaymentPurpose(params: {
   currentPeriodEnd: Date;

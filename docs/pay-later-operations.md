@@ -279,3 +279,44 @@ An operator-triggered execution of that exact cron deployment reached the isolat
 endpoint with HTTP 200 and exited successfully. Its first natural scheduled execution
 remains to be observed. Production counts and
 migration state stayed unchanged throughout these checks.
+
+## Controlled financial verification — 15 October 2026
+
+The isolated service now has a distinct pair of Salento Local Stripe **test-mode** keys
+and a dedicated signed test webhook. It remains behind Basic Auth, uses its own SQLite
+volume, and writes all transactional email to the private test mailbox. Its naturally
+scheduled daily reminder run completed successfully. No test webhook delivers to the
+production database. Production remains on its existing Stripe test-mode configuration;
+the Pay Later feature flag is absent there.
+
+Synthetic owners completed both invitation entry points, OTP, legal acceptance and
+signature, €100 test payments, publication, annual membership activation, and original
+Partner €50 pending commission. An owner-initiated refund from the actual dashboard
+refunded Stripe, canceled automatic renewal, deactivated the membership and listing,
+and reversed that €50 commission once. A Stripe Test Clock verified a successful annual
+renewal, a failed renewal without term or commission creation, recovery by paying the
+same invoice, and end-of-term cancellation without another charge. Event replays did
+not create duplicate financial rows.
+
+Stripe's `invoice.paid` event snapshot can omit the invoice's `payments` collection.
+The first Test Clock renewal therefore recorded a paid term and €15 commission with no
+PaymentIntent reference in the **synthetic test database**. The webhook now fetches the
+current invoice with payments expanded, requires exactly one fully paid payment for the
+correct subscription, invoice, amount and currency, and verifies the resulting
+PaymentIntent is succeeded for the same customer and amount before finalizing a term.
+A subsequent natural test renewal stored the correct PaymentIntent reference, extended
+the term once, and created one €15 commission. Production read-only inspection found no
+paid invoice renewals or missing PaymentIntent references requiring backfill. The
+original synthetic row remains as a known pre-fix test artifact.
+
+Apple Pay and Google Pay are active for the isolated domain and use the same Stripe
+PaymentIntent and signed webhook finalizer as card payments. A wallet authorization
+still requires a compatible device and wallet belonging to an authorized tester. Do not
+substitute a live charge. The owner interface has no saved-card update control; a
+payment method may be updated directly in Stripe Test mode for controlled tests.
+
+The owner self-service refund route currently requires Stripe test mode. Before a
+separate live-key launch, decide how live refunds will be authorized and implemented,
+and review recovery if an unpaid renewal is retried while an owner also makes a manual
+payment. Neither question is resolved by enabling Pay Later in production. A fresh
+verified database backup is required immediately before any production migration.

@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import type Stripe from "stripe";
 
 import { getBusinessMembershipPeriod, getBusinessMembershipStatus } from "@/lib/business-membership";
-import { getMembershipPaymentPurpose } from "@/lib/membership-renewal";
+import { getMembershipPaymentPurpose, getVerifiedRenewalInvoiceIntentId } from "@/lib/membership-renewal";
 
 const schema = readFileSync("prisma/schema.prisma", "utf8");
 const migration = readFileSync("prisma/migrations/20260914120000_add_business_membership/migration.sql", "utf8");
@@ -60,10 +61,44 @@ for (const deliveryOrder of [
 }
 
 test("an invoice renewal stores Stripe's current invoice payment-intent identity", () => {
-  assert.match(webhook, /invoice\.payments\?\.data\.find/);
-  assert.match(webhook, /paidPayment\?\.payment\.payment_intent/);
+  assert.match(webhook, /stripe\.invoices\.retrieve\(invoice\.id, \{ expand: \["payments"\] \}\)/);
+  assert.match(webhook, /getVerifiedRenewalInvoiceIntentId/);
+  assert.match(webhook, /stripe\.paymentIntents\.retrieve\(paymentIntentId\)/);
+  assert.match(webhook, /renewal_invoice_payment_identity_unavailable/);
   assert.match(webhook, /paymentIntentId:/);
   assert.match(schema, /stripeInvoiceId\s+String\?\s+@unique/);
+});
+
+test("renewal invoice verification handles an event without payments and one full paid intent", () => {
+  const eventInvoice = { id: "in_test", amount_paid: 10000, currency: "eur" } as Stripe.Invoice;
+  const currentInvoice = {
+    ...eventInvoice, status: "paid", billing_reason: "subscription_cycle", customer: "cus_test",
+    parent: { subscription_details: { subscription: "sub_test" } },
+    payments: { has_more: false, data: [
+      { status: "failed", amount_paid: 0, payment: { type: "payment_intent", payment_intent: "pi_failed" } },
+      { status: "paid", amount_paid: 10000, payment: { type: "payment_intent", payment_intent: "pi_paid" } },
+    ] },
+  } as unknown as Stripe.Invoice;
+  const verify = (candidate: Stripe.Invoice) => getVerifiedRenewalInvoiceIntentId({
+    currentInvoice: candidate, eventInvoice, subscriptionId: "sub_test",
+  });
+  assert.deepEqual(verify(currentInvoice), { intentId: "pi_paid", customerId: "cus_test" });
+  for (const candidate of [
+    { ...currentInvoice, payments: undefined },
+    { ...currentInvoice, amount_paid: 5000 },
+    { ...currentInvoice, status: "open" },
+    { ...currentInvoice, parent: { subscription_details: { subscription: "sub_other" } } },
+    { ...currentInvoice, payments: { ...currentInvoice.payments!, has_more: true } },
+    { ...currentInvoice, payments: { has_more: false, data: [
+      { status: "paid", amount_paid: 5000, payment: { type: "payment_intent", payment_intent: "pi_partial" } },
+    ] } },
+    { ...currentInvoice, payments: { has_more: false, data: [
+      { status: "paid", amount_paid: 5000, payment: { type: "payment_intent", payment_intent: "pi_one" } },
+      { status: "paid", amount_paid: 5000, payment: { type: "payment_intent", payment_intent: "pi_two" } },
+    ] } },
+  ]) {
+    assert.throws(() => verify(candidate as Stripe.Invoice), /renewal_invoice_payment_identity_unavailable/);
+  }
 });
 
 test("a renewal refund finds and reverses only its matching commission once", () => {

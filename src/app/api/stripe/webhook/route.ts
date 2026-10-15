@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { ensurePartnerRefundRepurchaseCommissionForPayment, ensurePartnerRenewalCommissionForPayment, reversePartnerCommissionForPayment } from "@/lib/partner-ledger";
 import { getStripe } from "@/lib/stripe";
 import { markStripePaymentRefunded } from "@/lib/stripe-payment-sync";
-import { finalizeMembershipRenewalPayment } from "@/lib/membership-renewal";
+import { finalizeMembershipRenewalPayment, getVerifiedRenewalInvoiceIntentId } from "@/lib/membership-renewal";
 import { prisma } from "@/lib/prisma";
 import { attemptMembershipPaymentOutcomeDelivery } from "@/lib/membership-payment-outcomes";
 import { attemptMembershipFailedPaymentDelivery, recordMembershipInvoiceFailure } from "@/lib/membership-failed-payments";
@@ -180,18 +180,27 @@ export async function POST(request: Request) {
         await completeStripeWebhookProcessing({ id: webhookLog.id, status: "SKIPPED" });
         return NextResponse.json({ received: true });
       }
+      // Stripe's invoice.paid snapshot omits the `payments` collection. Read
+      // the current invoice so the exact charge remains attached to the term
+      // and can later be matched to a refund or dispute.
+      const currentInvoice = await stripe.invoices.retrieve(invoice.id, { expand: ["payments"] });
+      const { intentId: paymentIntentId, customerId } = getVerifiedRenewalInvoiceIntentId({
+        currentInvoice, eventInvoice: invoice, subscriptionId,
+      });
+      const paidIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+      if (paidIntent.status !== "succeeded" ||
+        paidIntent.amount_received !== currentInvoice.amount_paid ||
+        paidIntent.currency !== currentInvoice.currency || paidIntent.customer !== customerId) {
+        throw new Error("renewal_invoice_payment_identity_unavailable");
+      }
       const result = await prisma.$transaction((tx) => finalizeMembershipRenewalPayment({
-        amountPaidCents: invoice.amount_paid,
+        amountPaidCents: currentInvoice.amount_paid,
         db: tx,
         eventId: event.id,
         invoiceId: invoice.id,
         method: "STRIPE_CHECKOUT",
         paidAt: new Date(invoice.status_transitions.paid_at ? invoice.status_transitions.paid_at * 1000 : Date.now()),
-        paymentIntentId: (() => {
-          const paidPayment = invoice.payments?.data.find((payment) => payment.status === "paid" && payment.payment.type === "payment_intent");
-          const paymentIntent = paidPayment?.payment.payment_intent;
-          return typeof paymentIntent === "string" ? paymentIntent : paymentIntent?.id ?? null;
-        })(),
+        paymentIntentId,
         subscriptionId,
       }));
       if (result?.paymentId) {
