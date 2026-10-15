@@ -2,10 +2,10 @@ import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 
 import type { Prisma, PrismaClient } from "@prisma/client";
 
-import { hasResendConfiguration, sendTransactionalEmail } from "@/lib/email";
+import { sendTransactionalEmail } from "@/lib/email";
 import { getAppUrl } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
-import { hasSmtpConfiguration } from "@/lib/claim-delivery";
+import { hasTransactionalEmailDelivery } from "@/lib/claim-delivery";
 import { normalizeEmail, normalizePhoneNumber } from "@/lib/validation";
 import { normalizeEnvValue } from "@/lib/env";
 
@@ -470,7 +470,7 @@ export async function sendOwnerAccessEmail(params: {
   recipient: string;
   viewUrl: string;
 }) {
-  if (!hasResendConfiguration() && !hasSmtpConfiguration()) {
+  if (!hasTransactionalEmailDelivery()) {
     if (process.env.NODE_ENV !== "production") {
       console.warn("[owner-access] transactional email is not configured.");
     }

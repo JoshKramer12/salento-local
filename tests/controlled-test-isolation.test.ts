@@ -6,6 +6,12 @@ import path from "node:path";
 import test from "node:test";
 
 import { controlledTestAuthorized, saveControlledTestEmail } from "../src/lib/controlled-test";
+import { hasTransactionalEmailDelivery } from "../src/lib/claim-delivery";
+
+test("the isolated mail sink satisfies transactional email preflight without external credentials", () => {
+  assert.equal(hasTransactionalEmailDelivery({ CONTROLLED_TEST_MODE: "true" }), true);
+  assert.equal(hasTransactionalEmailDelivery({}), false);
+});
 
 test("controlled test gate rejects missing and invalid browser credentials", () => {
   const password = randomBytes(32).toString("hex");

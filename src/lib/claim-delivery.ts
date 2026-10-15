@@ -57,6 +57,10 @@ export function hasSmtpConfiguration(env: RuntimeEnv = process.env) {
   );
 }
 
+export function hasTransactionalEmailDelivery(env: RuntimeEnv = process.env) {
+  return env.CONTROLLED_TEST_MODE === "true" || hasResendConfiguration(env) || hasSmtpConfiguration(env);
+}
+
 export function hasTwilioSmsConfiguration(env: RuntimeEnv = process.env) {
   const hasVerify = Boolean(
     trimEnvValue(env.TWILIO_ACCOUNT_SID) &&
@@ -196,7 +200,7 @@ async function sendEmailVerification(
   params: Omit<VerificationDeliveryParams, "channel">,
   env: RuntimeEnv = process.env,
 ) {
-  if (!hasResendConfiguration(env) && !hasSmtpConfiguration(env)) {
+  if (!hasTransactionalEmailDelivery(env)) {
     if (!isProductionRuntime(env)) {
       logVerificationFallback({
         ...params,

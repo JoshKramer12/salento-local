@@ -1,8 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { Prisma, PrismaClient } from "@prisma/client";
 
-import { hasSmtpConfiguration } from "@/lib/claim-delivery";
-import { hasResendConfiguration, sendTransactionalEmail } from "@/lib/email";
+import { hasTransactionalEmailDelivery } from "@/lib/claim-delivery";
+import { sendTransactionalEmail } from "@/lib/email";
 import { getAppUrl } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
 
@@ -59,7 +59,7 @@ export async function sendPasswordResetEmail(params: {
   recipient: string;
   resetUrl: string;
 }) {
-  if (!hasResendConfiguration() && !hasSmtpConfiguration()) {
+  if (!hasTransactionalEmailDelivery()) {
     if (process.env.NODE_ENV !== "production") console.warn("[password-reset] transactional email is not configured.");
     return false;
   }

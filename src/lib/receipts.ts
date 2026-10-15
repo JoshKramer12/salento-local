@@ -4,12 +4,9 @@ import { join } from "node:path";
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import type { PaymentPurpose, PaymentRecordMethod, PaymentStatus, UserRole } from "@prisma/client";
 
-import { hasSmtpConfiguration } from "@/lib/claim-delivery";
+import { hasTransactionalEmailDelivery } from "@/lib/claim-delivery";
 import { formatCurrencyFromCents } from "@/lib/account";
-import {
-  hasResendConfiguration,
-  sendTransactionalEmail,
-} from "@/lib/email";
+import { sendTransactionalEmail } from "@/lib/email";
 import type { Locale } from "@/lib/i18n";
 import { LISTING_OFFER } from "@/lib/listing-offer";
 import { addUtcDays, BUSINESS_MEMBERSHIP_PERIOD_DAYS } from "@/lib/business-membership";
@@ -912,7 +909,7 @@ export async function sendReceiptEmail(params: {
   const recipientEmail = params.recipientEmail?.trim() || params.receipt.recipientEmail;
   if (
     !recipientEmail ||
-    (!hasResendConfiguration() && !hasSmtpConfiguration())
+    !hasTransactionalEmailDelivery()
   ) {
     return false;
   }
