@@ -178,12 +178,14 @@ checkpoint for this audit, not an indefinitely current pre-deployment backup.
 
 ## Exact release sequence after the blockers are resolved
 
-1. Complete activation of the existing Salento Local live Stripe account. Confirm its
-   charges are enabled, then configure matching live secret, publishable, and webhook
-   signing keys on `production/web` without rotating the existing test credentials
-   unnecessarily. Create or verify a live webhook to the existing `web` service endpoint
-   with the payment, invoice, refund and dispute events. Confirm the webhook actually
-   delivers to that service. Do not make a live charge as a test.
+The controlled testing phase and public launch are separate gates. The production site
+must retain its existing test keys until the owner separately approves live charges.
+
+1. Keep the production Stripe keys and webhook in their current test mode. The live Stripe
+   account reports Payments and Payouts active in its account status, but no live key or
+   live webhook belongs in production during controlled testing. Do not make a live charge
+   as a test. Stripe's setup guide can show incomplete suggestions even when the account
+   status has no active verification tasks; recheck status before public launch.
 2. The apex DNS correction is independent of Pay Later because invitations use the valid
    canonical `www` origin. Correct the apex if it should serve the site; do not alter the
    working `www` domain during this release.
@@ -198,7 +200,8 @@ checkpoint for this audit, not an indefinitely current pre-deployment backup.
    service at 07:00 UTC. Confirm the daily caller targets the normal production endpoint
    exactly once with the shared secret. Do not manually trigger it to test with customers.
 
-6. Recheck `main`, cash-out exclusion, migration checksums, SQLite integrity, and
+6. After the owner approves a change to the production website and financial database,
+   recheck `main`, cash-out exclusion, migration checksums, SQLite integrity, and
    aggregate counts. Run all tests, TypeScript, lint, and production build on the exact
    release commit. Push the Pay Later branch, merge only its reviewed changes into
    `main`, and confirm Railway deploys that exact commit to `production/web`.
@@ -208,7 +211,8 @@ checkpoint for this audit, not an indefinitely current pre-deployment backup.
    checks pass, and the web health route returns 200. Reverify the daily cron as described
    in step 5, including its next run. Leave
    the feature flag off until these checks pass.
-8. Enable `PAY_LATER_ENABLED=true` on `production/web` and confirm the new deployment,
+8. Enable `PAY_LATER_ENABLED=true` on `production/web` only after the owner approves
+   exposing this functionality to real customers. Confirm the new deployment,
    Partner UI, owner route, and existing payment routes. Use a synthetic/non-customer
    invitation for UI checks only; do not send a real customer email or initiate a live
    Stripe charge as a test. Monitor the first natural daily cron run for success and
@@ -224,3 +228,36 @@ feature rollback. The 14 October SQLite backup was restored successfully only in
 isolated local database; a production database restore has not been attempted and would
 require downtime and reconciliation of all intervening payments. Do not reset or delete
 production data.
+
+## Isolated controlled testing — 14 October 2026
+
+Railway environment `pay-later-test` is separate from `production`. Its
+`pay-later-test-web` service has its own volume at `/data`; it was populated with a
+schema-only copy of the observed production schema and 25 migration-history rows. The
+copy has zero User and Business rows and no customer data. The hosted startup applies
+the additive Pay Later migration to this separate volume. The service is protected by
+`CONTROLLED_TEST_MODE=true` and a long random Basic Auth password; the only bypass is
+the Stripe signed webhook and the internal reminder endpoint with its separate bearer
+secret. Every transactional email is written to `/data/test-mail` instead of leaving the
+server, and any address outside the reserved `@example.test` domain is rejected. Resend,
+SMTP and Twilio credentials are absent from this environment. Bank details are visibly
+marked test-only and contain no transferable IBAN. `BOOTSTRAP_BUNDLED_DATA=false`
+prevents copying the repository's bundled database or uploads.
+
+The existing production sandbox is **not** suitable for isolated staged payment tests:
+its webhook delivers account events to `production/web`. The live Salento Local Stripe
+account offers a distinct **Test mode** with different `sk_test_` and `pk_test_` keys.
+Until those distinct keys and a matching test-mode webhook signing secret are installed
+on `pay-later-test-web`, keep `PAY_LATER_ENABLED=false` there and do not complete Stripe
+test payments. Never use `sk_live_` or `pk_live_` in the test environment. No automatic
+test reminder cron should run before the isolated keys, signed webhook, synthetic test
+accounts, and mailbox behavior are verified. The existing production daily cron remains
+unchanged; its Pay Later branch remains gated off.
+
+After test keys are installed: verify both keys resolve to the live account's **test**
+mode, create only a test-mode webhook for the isolated service with the application's
+payment, invoice, refund and dispute events, set its signing secret, and run the full
+synthetic end-to-end suite. Verify no production payment, membership, commission or
+webhook log rows change. To roll back controlled testing, set `PAY_LATER_ENABLED=false`
+on `pay-later-test-web`; retain the synthetic database for diagnosis. This does not alter
+the production site or its cron jobs.

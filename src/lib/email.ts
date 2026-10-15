@@ -2,6 +2,7 @@ import nodemailer from "nodemailer";
 import { Resend, type CreateEmailRequestOptions } from "resend";
 
 import { normalizeEnvValue } from "@/lib/env";
+import { saveControlledTestEmail } from "@/lib/controlled-test";
 
 type RuntimeEnv = NodeJS.ProcessEnv;
 
@@ -131,6 +132,9 @@ export async function sendTransactionalEmail(
   params: TransactionalEmailParams,
   env: RuntimeEnv = process.env,
 ) {
+  if (env.CONTROLLED_TEST_MODE === "true") {
+    return saveControlledTestEmail(params, env);
+  }
   if (getTransactionalEmailProvider(env) === "resend") {
     const resend = getResendClient(env);
     const options = buildTransactionalMailOptions(
