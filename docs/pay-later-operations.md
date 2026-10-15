@@ -248,11 +248,13 @@ The existing production sandbox is **not** suitable for isolated staged payment 
 its webhook delivers account events to `production/web`. The live Salento Local Stripe
 account offers a distinct **Test mode** with different `sk_test_` and `pk_test_` keys.
 Until those distinct keys and a matching test-mode webhook signing secret are installed
-on `pay-later-test-web`, keep `PAY_LATER_ENABLED=false` there and do not complete Stripe
-test payments. Never use `sk_live_` or `pk_live_` in the test environment. No automatic
-test reminder cron should run before the isolated keys, signed webhook, synthetic test
-accounts, and mailbox behavior are verified. The existing production daily cron remains
-unchanged; its Pay Later branch remains gated off.
+on `pay-later-test-web`, keep its Stripe keys blank. Pay Later may be enabled behind the
+password gate to test synthetic invitations, owner OTP and the email sink, but no online
+payment test can complete. Never use `sk_live_` or `pk_live_` in the test environment. The
+separate test reminder cron targets only the isolated web domain and uses a secret distinct
+from production. It may run for synthetic invitations while payment keys are absent;
+the private mailbox keeps every message on the test volume. The existing production daily
+cron remains unchanged; its Pay Later branch remains gated off.
 
 After test keys are installed: verify both keys resolve to the live account's **test**
 mode, create only a test-mode webhook for the isolated service with the application's
@@ -261,3 +263,17 @@ synthetic end-to-end suite. Verify no production payment, membership, commission
 webhook log rows change. To roll back controlled testing, set `PAY_LATER_ENABLED=false`
 on `pay-later-test-web`; retain the synthetic database for diagnosis. This does not alter
 the production site or its cron jobs.
+
+The isolated deployment passed these live checks: unauthenticated site requests returned
+401, authenticated health returned 200, and an unsigned webhook returned 400. The volume
+recorded the Pay Later migration as completed, passed SQLite integrity and foreign-key
+checks, and began with zero customer or financial rows. A synthetic Partner submitted
+invitations through both pre-signature and post-signature paths; both were accepted by the
+private mailbox. Their owner OTP flows rejected an incorrect code and accepted the
+captured code. WhatsApp deep links were generated but never opened or sent. After one
+synthetic owner stopped reminders, a due reminder call sent one message to the other
+synthetic address; an immediate repeat sent none. The test database still contained zero
+Business, Payment, BusinessMembership, and PartnerCommission rows. The separate test cron
+is configured for `0 7 * * *` UTC and targets the normal isolated reminder endpoint.
+Its first natural scheduled execution remains to be observed. Production counts and
+migration state stayed unchanged throughout these checks.
