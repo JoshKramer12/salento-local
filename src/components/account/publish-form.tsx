@@ -13,17 +13,13 @@ import {
   IconArrowRight,
   IconBuildingStore,
   IconCamera,
-  IconCashBanknote,
   IconCheck,
   IconClock,
   IconCopy,
   IconCreditCard,
   IconDeviceFloppy,
-  IconMail,
   IconPhoto,
   IconPlus,
-  IconQrcode,
-  IconReceipt2,
   IconSignature,
   IconTrash,
   IconUser,
@@ -49,8 +45,8 @@ import {
 import { usePaymentQrTransition } from "@/hooks/use-payment-qr-transition";
 import { formatCurrencyFromCents } from "@/lib/account";
 import { SignaturePad } from "@/components/account/signature-pad";
-import { PaymentChoiceButton } from "@/components/account/payment-choice-button";
 import { PayLaterPartnerInvitation } from "@/components/account/pay-later-partner-invitation";
+import { PartnerHandoffStep, PaymentDecisionStep, PaymentMethodStep, RenewalSelectionStep } from "@/components/account/pay-later-payment-steps";
 import { OwnerAgreementStep } from "@/components/account/owner-agreement-step";
 import { AddressAutocomplete } from "@/components/address-autocomplete";
 import { PhoneCountrySelector } from "@/components/phone-country-selector";
@@ -805,7 +801,12 @@ export function PublishForm({
   );
   // Card authority is never inferred from the terms: the Partner and owner
   // choose this visibly before the QR Checkout handoff is opened.
-  const [renewalPreference, setRenewalPreference] = useState<"AUTO" | "MANUAL">("AUTO");
+  const [renewalPreference, setRenewalPreference] = useState<"AUTO" | "MANUAL">(() => {
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("renewal") === "MANUAL") return "MANUAL";
+    return "AUTO";
+  });
+  const [renewalChosen, setRenewalChosen] = useState(() => typeof window !== "undefined" &&
+    ["AUTO", "MANUAL"].includes(new URLSearchParams(window.location.search).get("renewal") ?? ""));
   const effectiveRenewalPreference = !ownerEmail.trim()
     ? "MANUAL"
     : renewalPreference;
@@ -838,6 +839,12 @@ export function PublishForm({
     editMode ? editMode.initialStep ?? "business" : getResumeWizardStep(initialSubmissionValues, skipOwnerStep),
   );
   const [inviteOrigin, setInviteOrigin] = useState<"handoff" | "payment">("handoff");
+  const [emailCorrectionFromInvite, setEmailCorrectionFromInvite] = useState(false);
+  const [paymentSubstep, setPaymentSubstep] = useState<"decision" | "renewal" | "methods">(() => {
+    if (typeof window === "undefined") return "decision";
+    const value = new URLSearchParams(window.location.search).get("paymentStep");
+    return value === "renewal" || value === "methods" ? value : "decision";
+  });
   const offerInputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const photoInputRefs = useRef<Partial<Record<PhotoSlot, HTMLInputElement | null>>>({});
   const formRef = useRef<HTMLFormElement | null>(null);
@@ -2030,7 +2037,8 @@ export function PublishForm({
     { key: "signature", label: ownerFlowCopy.sign, shortLabel: ownerFlowCopy.sign, Icon: IconSignature },
     { key: "payment", label: ownerFlowCopy.payment, shortLabel: ownerFlowCopy.payment, Icon: IconCreditCard },
   ] as const;
-  const ownerProgressIndex = ownerSteps.findIndex((step) => step.key === wizardStep);
+  const ownerProgressIndex = wizardStep === "invite" && inviteOrigin === "payment"
+    ? 3 : ownerSteps.findIndex((step) => step.key === wizardStep);
   const visiblePhotoSlots: PhotoSlot[] = [
     "exterior",
     "interior",
@@ -2081,15 +2089,48 @@ export function PublishForm({
     window.scrollTo({ top: 0 });
   }, [wizardStep]);
 
+  useEffect(() => {
+    const restorePaymentNavigation = () => {
+      const query = new URLSearchParams(window.location.search);
+      const next = query.get("paymentStep");
+      setPaymentSubstep(next === "renewal" || next === "methods" ? next : "decision");
+      const preference = query.get("renewal");
+      setRenewalChosen(preference === "AUTO" || preference === "MANUAL");
+      if (preference === "AUTO" || preference === "MANUAL") setRenewalPreference(preference);
+    };
+    window.addEventListener("popstate", restorePaymentNavigation);
+    return () => window.removeEventListener("popstate", restorePaymentNavigation);
+  }, []);
+
+  function navigatePayment(next: "decision" | "renewal" | "methods") {
+    setPaymentSubstep(next);
+    const url = new URL(window.location.href);
+    url.searchParams.set("paymentStep", next);
+    window.history.pushState({ paymentStep: next }, "", url);
+  }
+
+  function selectRenewal(next: "AUTO" | "MANUAL") {
+    setRenewalPreference(next);
+    setRenewalChosen(true);
+    const url = new URL(window.location.href);
+    url.searchParams.set("renewal", next);
+    window.history.replaceState(window.history.state, "", url);
+  }
+
   function continueWithPaymentMethod(method: PaymentQrMethod) {
-    if (!formRef.current || actionPending || paymentOpeningMethod) {
+    if (!formRef.current || actionPending || paymentOpeningMethod || !renewalChosen) {
       return;
     }
 
-    const selectedRenewalPreference = method === "BANK_TRANSFER" || !ownerEmail.trim() ? "MANUAL" : renewalPreference;
+    if (method === "BANK_TRANSFER" && renewalPreference === "AUTO") {
+      setDraftNotice(locale === "it" ? "Per il bonifico, scegli prima il rinnovo manuale." : "Choose manual renewal before using bank transfer.");
+      return;
+    }
+
+    const selectedRenewalPreference = !ownerEmail.trim() ? "MANUAL" : renewalPreference;
 
     setPaymentMethod(method);
-    if (method === "BANK_TRANSFER" || !ownerEmail.trim()) {
+    if (!ownerEmail.trim()) {
       setRenewalPreference("MANUAL");
     }
     setDraftNotice("");
@@ -2113,7 +2154,7 @@ export function PublishForm({
     formRef.current?.requestSubmit();
   }
 
-  const showWizardFooter = wizardStep !== "payment" && wizardStep !== "invite";
+  const showWizardFooter = wizardStep !== "payment" && wizardStep !== "invite" && wizardStep !== "handoff";
   const specialFooterStep = wizardStep === "agreement" || wizardStep === "signature";
   const showFooterButtonIcons = collectionIndex >= 0 || specialFooterStep;
 
@@ -2122,7 +2163,7 @@ export function PublishForm({
       case "contact":
         return "business";
       case "owner":
-        return "contact";
+        return emailCorrectionFromInvite ? "invite" : "contact";
       case "about":
         return skipOwnerStep ? "contact" : "owner";
       case "hours":
@@ -2638,9 +2679,17 @@ export function PublishForm({
           </div>
         ) : null}
 
-        {wizardStep === "handoff" ? <div className="mx-auto grid max-w-xl gap-6 text-center"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[rgba(42,98,87,0.1)] text-[var(--primary)]"><IconCheck size={28} aria-hidden="true" /></div><div><p className="section-kicker">{locale === "it" ? "Parte del partner completata" : "Partner section complete"}</p><h1 className="mt-3 font-serif text-4xl text-[var(--foreground)]">{locale === "it" ? "Ora consegna il telefono al titolare." : "Now hand the phone to the business owner."}</h1><p className="mx-auto mt-4 max-w-lg text-[var(--muted)]">{locale === "it" ? "Controllerà la scheda e completerà gli ultimi passaggi." : "They’ll confirm the listing and complete the final steps."}</p></div><button type="button" onClick={() => moveToWizardStep("owner-review")} className="btn-primary mx-auto">{locale === "it" ? "Sono il titolare" : "I'm the business owner"}<IconArrowRight size={18} aria-hidden="true" /></button>{payLaterEnabled && isPartnerFlow ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => { setInviteOrigin("handoff"); requestDraftSave("autosave", false, "invite"); }} className="btn-secondary mx-auto disabled:opacity-50"><IconMail size={18} />{locale === "it" ? "Invia al titolare per completare più tardi" : "Send to owner to complete later"}</button> : null}</div> : null}
+        {wizardStep === "handoff" ? <PartnerHandoffStep
+          locale={locale}
+          payLaterEnabled={payLaterEnabled && isPartnerFlow}
+          busy={draftSavePending || actionPending}
+          onNow={() => moveToWizardStep("owner-review")}
+          onLater={() => { setInviteOrigin("handoff"); requestDraftSave("autosave", false, "invite"); }}
+          onBack={goToPreviousStep}
+          onSave={() => requestDraftSave("manual", true)}
+        /> : null}
 
-        {wizardStep === "invite" ? <PayLaterPartnerInvitation submissionId={currentSubmissionId} businessName={businessName} ownerEmail={ownerEmail} ownerPhone={ownerContact} locale={locale} onBack={() => moveToWizardStep(inviteOrigin)} onCorrectEmail={() => moveToWizardStep("owner")} /> : null}
+        {wizardStep === "invite" ? <PayLaterPartnerInvitation submissionId={currentSubmissionId} businessName={businessName} ownerEmail={ownerEmail} ownerPhone={ownerContact} locale={locale} onBack={() => { setEmailCorrectionFromInvite(false); moveToWizardStep(inviteOrigin); }} onCorrectEmail={(nextEmail) => { if (nextEmail) { setOwnerEmail(nextEmail); setOwnerHasNoEmail(false); } setEmailCorrectionFromInvite(true); moveToWizardStep("owner"); }} /> : null}
 
         {wizardStep === "owner-review" ? <div className="grid gap-6"><div><p className="section-kicker">{ownerFlowCopy.ownerConfirmation}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{ownerName ? `${locale === "it" ? "Ciao" : "Hi"} ${ownerName.split(" ")[0]}` : locale === "it" ? "Ciao" : "Hi"}</h1><p className="mt-3 max-w-xl text-[var(--muted)]">{ownerFlowCopy.ownerPrepared}</p></div>{renderOwnerConfirmationSummary()}<label className="owner-confirmation-checkbox"><input type="checkbox" checked={ownerInformationConfirmed} onChange={(event) => setOwnerInformationConfirmed(event.target.checked)} className="mt-1 h-5 w-5 shrink-0 accent-[var(--primary)]" /><span>{locale === "it" ? "Confermo che questi dati dell'attività sono corretti." : "I confirm that these business details are correct."}</span></label><button type="button" onClick={() => moveToWizardStep("review")} className="owner-confirmation-help">{locale === "it" ? (isOwnerFlow ? "Qualcosa non va? Modifica i tuoi dati" : "Qualcosa non va? Chiedi al partner di modificare") : (isOwnerFlow ? "Something looks wrong? Edit your details" : "Something looks wrong? Ask the partner to edit")}</button></div> : null}
 
@@ -2662,13 +2711,38 @@ export function PublishForm({
 
         {wizardStep === "signature" ? <div className="grid gap-5"><div><p className="section-kicker">{locale === "it" ? "Firma" : "Sign"}</p><h1 className="font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? "Firma per continuare" : "Sign to continue"}</h1><p className="mt-3 text-[var(--muted)]">{locale === "it" ? "Inserisci i tuoi dati e firma per confermare l'autorizzazione." : "Enter your details and sign to confirm your authorisation."}</p></div><div className="grid gap-4 sm:grid-cols-2"><label className="field-label"><FieldLabel title={copy.signerName} required={copy.required} /><input value={signerFullName} onChange={(event) => setSignerFullName(event.target.value)} className="input-field" /></label><label className="field-label"><FieldLabel title={copy.signerRole} required={copy.required} /><select value={signerRole} onChange={(event) => setSignerRole(event.target.value)} className="input-field"><option value="">{copy.signerRolePlaceholder}</option>{signerRoleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label></div>{signerRoleRequiresOther ? <label className="field-label"><FieldLabel title={copy.signerRoleOther} required={copy.required} /><input value={signerRoleOther} onChange={(event) => setSignerRoleOther(event.target.value)} className="input-field" /></label> : null}<div className="field-label"><FieldLabel title={copy.signatureTitle} description={copy.signatureIntro} required={copy.required} /><SignaturePad clearLabel={copy.clearSignature} drawHint={copy.signatureDrawHint} hasError={hasFieldError("agreementSignature")} legacyValueNotice={copy.signatureLegacyNotice} value={signature} onChange={setSignature} /></div></div> : null}
 
-        {wizardStep === "payment" ? <div className="grid gap-6"><div><p className="section-kicker">{locale === "it" ? "Pagamento" : "Payment"}</p><h1 className="mt-2 font-serif text-4xl text-[var(--foreground)]">{locale === "it" ? (isOwnerFlow ? "Come preferisci pagare?" : "Come preferiscono pagare?") : (isOwnerFlow ? "How would you like to pay?" : "How would they like to pay?")}</h1><p className="mt-3 text-[var(--muted)]">{locale === "it" ? (isOwnerFlow ? "Scegli il metodo di pagamento per la tua scheda." : "Chiedi al titolare quale opzione preferisce.") : (isOwnerFlow ? "Choose how to pay for your listing." : "Ask the business owner which option they prefer.")}</p></div>{!adminMode ? <section className="rounded-[1.6rem] border border-[rgba(42,98,87,0.28)] bg-[rgba(237,248,242,0.52)] p-5 sm:p-6"><p className="text-sm font-bold uppercase tracking-[0.14em] text-[var(--primary)]">{locale === "it" ? "Rinnovo" : "Renewal"}</p><div className="mt-4 grid gap-3">{ownerEmail.trim() ? <label className={effectiveRenewalPreference === "AUTO" ? "block cursor-pointer rounded-[1.3rem] border border-[var(--primary)] bg-white p-4 shadow-[0_0_0_2px_rgba(42,98,87,0.12)] transition-colors sm:p-5" : "block cursor-pointer rounded-[1.3rem] border border-[var(--border)] bg-white p-4 transition-colors hover:border-[rgba(42,98,87,0.48)] sm:p-5"}><span className="flex items-start gap-3"><input type="radio" name="renewalChoice" value="AUTO" checked={renewalPreference === "AUTO"} onChange={() => setRenewalPreference("AUTO")} className="mt-1 h-5 w-5 shrink-0 accent-[var(--primary)]" /><span><span className="font-semibold text-[var(--foreground)]">{locale === "it" ? "Rinnovo automatico — Consigliato" : "Automatic renewal — Recommended"}</span><span className="mt-2 block text-sm leading-6 text-[var(--muted)]">{locale === "it" ? "€100/anno. Si rinnova automaticamente ogni anno. Puoi disattivare il rinnovo automatico in qualsiasi momento dal tuo account." : "€100/year. Renews automatically every year. Cancel automatic renewal anytime from your account."}</span></span></span></label> : null}<label className={effectiveRenewalPreference === "MANUAL" ? "block cursor-pointer rounded-[1.3rem] border border-[var(--primary)] bg-white p-4 shadow-[0_0_0_2px_rgba(42,98,87,0.12)] transition-colors sm:p-5" : "block cursor-pointer rounded-[1.3rem] border border-[var(--border)] bg-white p-4 transition-colors hover:border-[rgba(42,98,87,0.48)] sm:p-5"}><span className="flex items-start gap-3"><input type="radio" name="renewalChoice" value="MANUAL" checked={effectiveRenewalPreference === "MANUAL"} onChange={() => setRenewalPreference("MANUAL")} className="mt-1 h-5 w-5 shrink-0 accent-[var(--primary)]" /><span><span className="font-semibold text-[var(--foreground)]">{locale === "it" ? "Rinnovo manuale" : "Manual renewal"}</span><span className="mt-2 block text-sm leading-6 text-[var(--muted)]">{locale === "it" ? "€100/anno. Ti ricorderemo prima della scadenza. Dovrai rinnovare manualmente ogni anno." : "€100/year. We’ll remind you before your membership expires. You’ll need to renew manually each year."}</span></span></span></label></div></section> : null}{paymentOpeningError ? <p role="alert" className="rounded-2xl border border-[rgba(191,91,42,0.25)] bg-[rgba(255,248,243,0.96)] px-4 py-3 text-sm font-medium text-[var(--accent)]">{paymentOpeningError}</p> : null}{adminMode ? <div className="rounded-2xl bg-[rgba(42,98,87,0.08)] p-4 text-sm">{locale === "it" ? "Modalita admin: la pubblicazione non richiede il pagamento." : "Admin mode: publication does not require payment."}</div> : <div className="grid gap-5 lg:grid-cols-2"><article className="flex flex-col rounded-[1.6rem] border-[1.5px] border-[rgba(42,98,87,0.42)] bg-white p-5 shadow-[0_12px_30px_rgba(42,98,87,0.08)] sm:p-6"><div className="flex items-center justify-between gap-3"><span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(42,98,87,0.1)] text-[var(--primary)]"><IconQrcode size={23} /></span><span className="rounded-full bg-[rgba(42,98,87,0.1)] px-3 py-1.5 text-[0.68rem] font-bold tracking-[0.12em] text-[var(--primary)]">{locale === "it" ? "CONSIGLIATO" : "RECOMMENDED"}</span></div><h2 className="mt-5 font-serif text-2xl text-[var(--foreground)]">{locale === "it" ? "Paga ora dal telefono" : "Pay now by phone"}</h2><p className="mt-2 text-sm leading-6 text-[var(--muted)]">{locale === "it" ? (isOwnerFlow ? "Paga in sicurezza dal tuo telefono." : "Il titolare paga in sicurezza dal proprio telefono.") : (isOwnerFlow ? "Pay securely on your phone." : "The owner pays securely on their own phone.")}</p><div className="mt-5 grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-1 rounded-2xl bg-[rgba(247,244,239,0.65)] p-3 text-center text-[0.7rem] font-semibold text-[var(--foreground)] sm:gap-2 sm:p-4"><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[var(--primary)]">1</b>{locale === "it" ? "Mostra QR" : "Show QR"}</span><span className="text-[var(--muted)]">→</span><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[var(--primary)]">2</b>{locale === "it" ? "Scansiona" : (isOwnerFlow ? "Scan" : "Owner scans")}</span><span className="text-[var(--muted)]">→</span><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[var(--primary)]">3</b>{locale === "it" ? "Paga" : (isOwnerFlow ? "Pay" : "Owner pays")}</span></div><p className="mt-4 text-center text-xs text-[var(--muted)]">Card <span className="mx-1 text-[var(--border)]">•</span> Apple Pay <span className="mx-1 text-[var(--border)]">•</span> Google Pay</p><PaymentChoiceButton method="ONLINE" disabled={actionPending || Boolean(paymentOpeningMethod)} onSelect={continueWithPaymentMethod} className="btn-primary mt-5 min-h-12 w-full disabled:cursor-wait disabled:opacity-60"><IconQrcode size={18} />{paymentOpeningMethod === "ONLINE" ? (locale === "it" ? "Apertura..." : "Opening...") : locale === "it" ? "Mostra QR di pagamento" : "Show payment QR"}</PaymentChoiceButton></article><article className="flex flex-col rounded-[1.6rem] border border-[var(--border)] bg-white p-5 sm:p-6"><div className="flex items-center justify-between"><span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(128,110,85,0.1)] text-[#806e55]"><IconCashBanknote size={23} /></span></div><h2 className="mt-5 font-serif text-2xl text-[var(--foreground)]">{locale === "it" ? "Paga con bonifico" : "Pay by bank transfer"}</h2><p className="mt-2 text-sm leading-6 text-[var(--muted)]">{locale === "it" ? (isOwnerFlow ? "Usa questa opzione se preferisci fare un bonifico." : "Usa questa opzione se il titolare preferisce fare un bonifico.") : (isOwnerFlow ? "Use this if you prefer to make a transfer." : "Use this if the owner prefers to make a transfer.")}</p><div className="mt-5 grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-1 rounded-2xl bg-[rgba(247,244,239,0.65)] p-3 text-center text-[0.7rem] font-semibold text-[var(--foreground)] sm:gap-2 sm:p-4"><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[#806e55]">1</b>{locale === "it" ? "Mostra QR" : "Show QR"}</span><span className="text-[var(--muted)]">→</span><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[#806e55]">2</b>{locale === "it" ? "Scansiona" : (isOwnerFlow ? "Scan" : "Owner scans")}</span><span className="text-[var(--muted)]">→</span><span><b className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full border border-[var(--border)] bg-white text-[#806e55]">3</b>{locale === "it" ? "Segui le istruzioni" : "Follow instructions"}</span></div><div className="mt-4 flex items-start gap-2 text-xs leading-5 text-[var(--muted)]"><IconReceipt2 size={17} className="mt-0.5 shrink-0 text-[var(--accent)]" />{locale === "it" ? "La scheda va online dopo la ricezione del bonifico." : "The listing goes live after the transfer is received."}</div><PaymentChoiceButton method="BANK_TRANSFER" disabled={actionPending || Boolean(paymentOpeningMethod)} onSelect={continueWithPaymentMethod} className="btn-secondary mt-5 min-h-12 w-full disabled:cursor-wait disabled:opacity-60"><IconQrcode size={18} />{paymentOpeningMethod === "BANK_TRANSFER" ? (locale === "it" ? "Apertura..." : "Opening...") : locale === "it" ? "Mostra QR del bonifico" : "Show bank transfer QR"}</PaymentChoiceButton></article></div>}{payLaterEnabled && isPartnerFlow ? <article className="rounded-[1.6rem] border-[1.5px] border-[rgba(42,98,87,0.5)] bg-[rgba(237,248,242,0.35)] p-5 sm:p-6"><div className="flex items-start gap-4"><span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[rgba(42,98,87,0.1)] text-[var(--primary)]"><IconMail size={25} /></span><div><h2 className="font-serif text-2xl text-[var(--foreground)]">{locale === "it" ? "Decidi e paga più tardi" : "Decide and pay later"}</h2><p className="mt-2 text-sm leading-6 text-[var(--muted)]">{locale === "it" ? "Il titolare riceverà un'email con un link sicuro per controllare la scheda e completare il pagamento quando preferisce." : "The owner will receive an email with a secure link to review the listing and complete payment later."}</p><button type="button" disabled={draftSavePending || actionPending} onClick={() => { setInviteOrigin("payment"); requestDraftSave("autosave", false, "invite"); }} className="btn-secondary mt-5 border-[var(--primary)] text-[var(--primary)] disabled:opacity-50"><IconMail size={18} />{locale === "it" ? "Invia invito al pagamento" : "Send payment invitation"}<IconArrowRight size={18} /></button></div></div></article> : null}</div> : null}
+        {wizardStep === "payment" ? adminMode
+          ? <div className="rounded-2xl bg-[rgba(42,98,87,0.08)] p-4 text-sm">{locale === "it" ? "Modalità admin: la pubblicazione non richiede il pagamento." : "Admin mode: publication does not require payment."}</div>
+          : paymentSubstep === "decision"
+            ? <PaymentDecisionStep locale={locale}
+                allowLater={payLaterEnabled && isPartnerFlow}
+                busy={draftSavePending || actionPending}
+                onNow={() => navigatePayment("renewal")}
+                onLater={() => { setInviteOrigin("payment"); requestDraftSave("autosave", false, "invite"); }}
+                onBack={() => moveToWizardStep("signature")}
+              />
+            : paymentSubstep === "renewal" || !renewalChosen
+              ? <RenewalSelectionStep locale={locale}
+                  value={renewalChosen ? effectiveRenewalPreference : null}
+                  autoAvailable={Boolean(ownerEmail.trim())}
+                  onChange={selectRenewal}
+                  onContinue={() => navigatePayment("methods")}
+                  onBack={() => navigatePayment("decision")}
+                />
+              : <PaymentMethodStep locale={locale}
+                  renewal={effectiveRenewalPreference}
+                  busyMethod={paymentOpeningMethod}
+                  error={paymentOpeningError || draftNotice}
+                  onOnline={() => continueWithPaymentMethod("ONLINE")}
+                  onBank={() => continueWithPaymentMethod("BANK_TRANSFER")}
+                  onBack={() => navigatePayment("renewal")}
+                /> : null}
       </section>
 
       {showWizardFooter ? <div className={`publish-form-footer flex flex-wrap justify-end gap-3 border-t border-[rgba(42,98,87,0.12)] bg-[rgba(255,255,255,0.72)] p-3 sm:p-4 ${collectionIndex >= 0 ? `collection-wizard-footer ${previousWizardStep ? "collection-wizard-footer--with-back" : "collection-wizard-footer--without-back"}` : ""} ${specialFooterStep ? "special-wizard-footer" : ""}`}>
         {specialFooterStep ? <>
         {wizardStep === "agreement" ? <button type="button" disabled={!agreementAccepted || draftSavePending || actionPending} onClick={() => requestDraftSave("autosave", false, "signature")} className="special-wizard-footer__primary btn-primary min-h-12 w-full disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : locale === "it" ? "Continua alla firma" : "Continue to signature"}</button> : null}
-        {wizardStep === "signature" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => { if (!isPaymentApprovalReady({ signature, signerFullName, signerRole, signerRoleOther })) { setDraftNotice(locale === "it" ? "Completa il nome completo, il ruolo e la firma." : "Complete the full name, role, and signature."); return; } requestDraftSave("autosave", false, "payment"); }} className="special-wizard-footer__primary btn-primary min-h-12 w-full disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : locale === "it" ? "Continua al pagamento →" : "Continue to payment →"}</button> : null}
+        {wizardStep === "signature" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => { if (!isPaymentApprovalReady({ signature, signerFullName, signerRole, signerRoleOther })) { setDraftNotice(locale === "it" ? "Completa il nome completo, il ruolo e la firma." : "Complete the full name, role, and signature."); return; } navigatePayment("decision"); requestDraftSave("autosave", false, "payment"); }} className="special-wizard-footer__primary btn-primary min-h-12 w-full disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : locale === "it" ? "Continua al pagamento →" : "Continue to payment →"}</button> : null}
         <div className="special-wizard-footer__navigation flex w-full flex-nowrap items-center justify-between gap-3">
           {previousWizardStep ? <button type="button" disabled={draftSavePending || actionPending} onClick={goToPreviousStep} className="btn-secondary min-w-0 disabled:cursor-wait disabled:opacity-50"><IconArrowLeft size={18} aria-hidden="true" />{locale === "it" ? "Indietro" : "Back"}</button> : <span />}
           <button type="button" disabled={draftSavePending || actionPending} onClick={() => requestDraftSave("manual", true)} className="btn-secondary min-w-0 disabled:cursor-wait disabled:opacity-50"><IconDeviceFloppy size={18} aria-hidden="true" />{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : locale === "it" ? "Salva ed esci" : "Save & exit"}</button>
@@ -2678,7 +2752,7 @@ export function PublishForm({
         {!(isEditMode && wizardStep === "photos") ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => requestDraftSave("manual", true)} className="btn-secondary disabled:cursor-wait disabled:opacity-50">{showFooterButtonIcons && !(draftSavePending || actionPending) ? <IconDeviceFloppy size={18} aria-hidden="true" /> : null}{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : locale === "it" ? "Salva ed esci" : "Save & exit"}</button> : null}
         {wizardStep === "business" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep("contact")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
         {wizardStep === "contact" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep(skipOwnerStep ? "about" : "owner")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
-        {wizardStep === "owner" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep("about")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
+        {wizardStep === "owner" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep(emailCorrectionFromInvite ? "invite" : "about")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
         {wizardStep === "about" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep("hours")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
         {wizardStep === "hours" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => goToNextStep("photos")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : <>{locale === "it" ? "Continua" : "Continue"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}
         {wizardStep === "photos" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => isEditMode ? requestDraftSave("manual", true, null, "listing") : goToNextStep("review")} className="btn-primary disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : isEditMode ? (locale === "it" ? "Salva e visualizza la mia scheda" : "Save & view my listing") : <>{locale === "it" ? "Rivedi l'attività" : "Review business"}<IconArrowRight size={18} aria-hidden="true" /></>}</button> : null}

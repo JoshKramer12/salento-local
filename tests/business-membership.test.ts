@@ -165,10 +165,11 @@ test("annual membership pricing is €100 while the initial Partner commission r
 test("initial payment finalizers create the membership without changing QR or Checkout mechanics", () => {
   assert.match(paymentSync, /ensureInitialBusinessMembership/);
   assert.match(bankTransferAction, /ensureInitialBusinessMembership/);
-  assert.match(publishForm, /<PaymentChoiceButton method="ONLINE"/);
-  assert.match(publishForm, /<PaymentChoiceButton method="BANK_TRANSFER"/);
-  assert.match(publishForm, /Mostra QR di pagamento/);
-  assert.match(publishForm, /Show payment QR/);
+  assert.match(publishForm, /onOnline=\{\(\) => continueWithPaymentMethod\("ONLINE"\)\}/);
+  assert.match(publishForm, /onBank=\{\(\) => continueWithPaymentMethod\("BANK_TRANSFER"\)\}/);
+  const methods = readFileSync("src/components/account/pay-later-payment-steps.tsx", "utf8");
+  assert.match(methods, /Mostra QR di pagamento/);
+  assert.match(methods, /Show payment QR/);
 });
 
 test("public discovery and direct pages enforce membership eligibility on the server", () => {
@@ -246,7 +247,8 @@ test("owner controls use cancel-at-period-end and never claim a card-less subscr
   assert.match(renewalActions, /automaticRenewal: true/);
   assert.match(readFileSync("src/components/account/auto-renew-cancel-control.tsx", "utf8"), /Turn off automatic renewal/);
   assert.match(ownerDashboard, /Turn on automatic renewal/);
-  assert.match(publishForm, /Automatic renewal — Recommended/);
-  assert.match(publishForm, /Manual renewal/);
+  const renewalStep = readFileSync("src/components/account/pay-later-payment-steps.tsx", "utf8");
+  assert.match(renewalStep, /Automatic renewal/);
+  assert.match(renewalStep, /Manual renewal/);
   assert.match(readFileSync("src/app/(account)/actions.ts", "utf8"), /Choose automatic or manual renewal before continuing/);
 });

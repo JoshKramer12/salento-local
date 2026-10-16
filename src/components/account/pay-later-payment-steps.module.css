@@ -1,0 +1,102 @@
+.screen,.handoff{display:grid;gap:0;color:var(--foreground);min-width:0}
+.screen{max-width:850px;margin-inline:auto}
+.handoff{max-width:760px;margin-inline:auto;text-align:center;justify-items:center;padding:8px 0 2px}
+.topline{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px}
+.kicker{display:inline-flex;align-items:center;min-height:36px;padding:6px 14px;border:1px solid #dce8e9;border-radius:999px;color:#08718b;font-size:.78rem;font-weight:800;letter-spacing:.2em;text-transform:uppercase;background:#fff}
+.count{font-size:.92rem;color:var(--muted);white-space:nowrap}
+.title{margin:0;font-family:var(--font-serif),Georgia,serif;font-weight:400;font-size:clamp(2.35rem,7.8vw,4rem);line-height:1.08;letter-spacing:-.028em;text-wrap:balance}
+.subtitle{margin:13px 0 24px;color:var(--muted);font-size:clamp(1rem,3.8vw,1.24rem);line-height:1.45}
+.heroIcon{display:grid;place-items:center;width:76px;height:76px;margin:0 auto 22px;border-radius:50%;background:#e9f3ef;color:var(--primary)}
+.handoff .kicker{margin-bottom:24px}
+.handoff .subtitle{margin-bottom:25px}
+.choice{width:100%;min-height:90px;display:grid;grid-template-columns:36px minmax(0,1fr) 27px;gap:15px;align-items:center;padding:19px 23px;border-radius:24px;text-align:left;border:1px solid transparent;cursor:pointer;transition:transform .15s ease,border-color .15s ease}
+.choice:hover{transform:translateY(-2px)}
+.choice:disabled{opacity:.55;cursor:wait;transform:none}
+.choice>span{min-width:0;font-size:1.2rem;font-weight:750;line-height:1.23}
+.choice strong{display:block;font-size:1.28rem;line-height:1.2}
+.choice small{display:block;margin-top:7px;font-size:.95rem;font-weight:400;line-height:1.4}
+.choicePrimary{color:#fff;background:var(--primary)}
+.choicePrimary small{color:#e6f0ed}
+.choiceOutline{color:var(--primary);border-color:#bfd5ce;background:#fff}
+.choiceOutline small{color:var(--muted)}
+.choice:focus-visible,.back:focus-visible,.primaryAction:focus-visible,.secondaryAction:focus-visible,.renewalCard:focus-within{outline:3px solid #b8d5ca;outline-offset:3px}
+.handoffChoices,.decisionChoices{width:100%;display:grid;gap:13px;margin-bottom:22px}
+.choiceNote{margin:1px 0 0;color:var(--muted);font-size:.93rem;text-align:center}
+.footer{display:flex;justify-content:space-between;gap:12px;width:100%;margin-top:12px}
+.back{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;width:max-content;padding:9px 17px;border:1px solid #d9d9d7;border-radius:999px;background:#fff;color:var(--foreground);font-size:.94rem;font-weight:700;cursor:pointer}
+.decisionChoices{gap:16px}
+.decisionChoices .choice{min-height:112px}
+.info{margin:0;padding:18px 20px;border-radius:20px;background:#f7f5f2;color:var(--muted);line-height:1.5}
+.renewalChoices{display:grid;gap:13px;margin:8px 0 22px}
+.renewalCard{position:relative;display:grid;grid-template-columns:29px minmax(0,1fr);gap:18px;align-items:start;padding:23px;border:1px solid #e7dbcd;border-radius:24px;background:#fff;cursor:pointer}
+.renewalCard.selected{border-color:#95c0b2;background:#f9fcfa}
+.renewalCard input{position:absolute;width:1px;height:1px;opacity:0}
+.radioMark{display:block;width:25px;height:25px;margin-top:1px;border:2px solid #81878a;border-radius:50%}
+.selected .radioMark{border:8px solid var(--primary)}
+.cardHeading{display:flex;align-items:center;flex-wrap:wrap;gap:10px;font-size:1.15rem;font-weight:750;line-height:1.25}
+.cardDescription{display:block;margin-top:8px;color:var(--muted);font-size:1rem;line-height:1.5}
+.badge{display:inline-flex;align-items:center;width:max-content;padding:5px 10px;border-radius:999px;background:#e9f2ef;color:var(--primary);font-size:.66rem;font-weight:800;line-height:1;letter-spacing:.13em;text-transform:uppercase}
+.primaryAction,.secondaryAction{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:55px;padding:12px 18px;border-radius:999px;font-size:1.04rem;font-weight:750;cursor:pointer}
+.primaryAction{border:1px solid var(--primary);background:var(--primary);color:#fff}
+.secondaryAction{border:1px solid #e3d7c9;background:#fff;color:var(--foreground)}
+.primaryAction:disabled,.secondaryAction:disabled{opacity:.52;cursor:not-allowed}
+.screen>.back{margin-top:19px}
+.methods{display:grid;gap:15px;margin-top:2px}
+.methodCard{min-width:0;display:flex;flex-direction:column;padding:21px;border-radius:25px;background:#fff}
+.onlineCard{border:1px solid #9bc2b5}
+.bankCard{border:1px solid #e7dbcc}
+.methodHeader{display:grid;grid-template-columns:54px minmax(0,1fr);gap:15px;align-items:start}
+.methodIcon{display:grid;place-items:center;width:52px;height:52px;border-radius:19px;background:#e8f2ee;color:var(--primary)}
+.bankIcon{background:#f4f0e9;color:#817059}
+.methodHeader h2{margin:0;font-family:var(--font-serif),Georgia,serif;font-size:1.48rem;line-height:1.2}
+.methodHeader .badge{margin-bottom:7px}
+.methodHeader p{margin:8px 0 0;color:var(--muted);font-size:.95rem;line-height:1.42}
+.stepRow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;align-items:start;margin:17px 0 0;padding:11px 8px;border-radius:17px;background:#f8f6f2}
+.stepItem{position:relative;display:grid;justify-items:center;gap:5px;min-width:0;text-align:center;color:var(--foreground);font-size:.7rem;font-weight:700;line-height:1.2}
+.stepNumber{display:grid;place-items:center;width:23px;height:23px;border:1px solid #eadfd3;border-radius:50%;background:#fff;font-size:.8rem}
+.stepArrow{position:absolute;top:4px;right:-12px;color:var(--muted)}
+.accepts{text-align:center;margin:13px 0 15px;color:var(--muted);font-size:.78rem}
+.methodCard .primaryAction,.methodCard .secondaryAction{margin-top:auto}
+.bankNotice{display:flex;gap:7px;align-items:flex-start;margin:13px 0;color:var(--muted);font-size:.78rem;line-height:1.4}
+.bankNotice svg{flex:none;color:var(--accent)}
+.bankRestriction{margin:0 0 12px;color:var(--muted);font-size:.78rem;line-height:1.4}
+.error{padding:12px 15px;margin:0 0 15px;border:1px solid #edcfbd;border-radius:14px;background:#fff8f3;color:var(--accent)}
+@media(min-width:800px){.methods{grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch;gap:20px}.screen{padding-block:10px}.handoff{padding-block:24px}.decisionChoices{grid-template-columns:repeat(2,minmax(0,1fr))}.decisionChoices .choice{grid-template-columns:36px minmax(0,1fr) 22px;min-height:165px;align-items:start}.decisionChoices .choice>svg:last-child{align-self:center}.renewalChoices{grid-template-columns:repeat(2,minmax(0,1fr))}.renewalCard{min-height:170px}.methodCard{padding:25px}.choice{padding:24px}}
+@media(max-width:380px){.choice{padding:16px;gap:10px;grid-template-columns:30px minmax(0,1fr) 22px}.choice>span{font-size:1.04rem}.choice strong{font-size:1.15rem}.choice small{font-size:.85rem}.renewalCard{padding:18px;gap:12px}.methodCard{padding:17px}.methodHeader{grid-template-columns:46px minmax(0,1fr);gap:11px}.methodIcon{width:44px;height:44px}.methodHeader h2{font-size:1.32rem}}
+.emailScreen{display:grid;justify-items:center;max-width:720px;min-width:0;margin-inline:auto;text-align:center;color:var(--foreground)}
+.emailScreen>.topline{width:100%;margin-bottom:9px}
+.emailScreen>.heroIcon{margin-bottom:20px}
+.emailScreen>.title{margin-bottom:2px}
+.emailScreen>.subtitle{max-width:610px;margin-bottom:25px}
+.emailCard{display:flex;align-items:center;justify-content:space-between;gap:14px;width:100%;min-height:92px;padding:20px;border:1px solid #e2ddd7;border-radius:22px;background:#faf9f7;text-align:left}
+.emailCard>div{min-width:0;flex:1}
+.emailLabel{display:block;color:var(--muted);font-size:.75rem;letter-spacing:.09em;text-transform:uppercase}
+.emailValue{display:block;overflow-wrap:anywhere;margin-top:6px;font-size:1rem}
+.emailInput{width:100%;min-height:42px;margin-top:7px;padding:8px 11px;border:1px solid #b7cfc5;border-radius:10px;background:#fff;color:var(--foreground)}
+.emailHelp{display:block;margin-top:6px;color:var(--muted);font-size:.78rem;line-height:1.4}
+.editEmail{flex:none;border:0;border-radius:999px;padding:10px 13px;background:#e6efeb;color:var(--primary);font-size:.85rem;font-weight:750;cursor:pointer}
+.editEmail:disabled{opacity:.5;cursor:not-allowed}
+.sendButton{display:grid;grid-template-columns:30px minmax(0,1fr) 25px;gap:13px;align-items:center;width:100%;min-height:68px;margin-top:15px;padding:15px 19px;border:0;border-radius:20px;background:var(--primary);color:#fff;text-align:left;font-size:1.12rem;font-weight:750;cursor:pointer}
+.sendButton:disabled{opacity:.52;cursor:not-allowed}
+.emailInfo{display:flex;gap:15px;align-items:flex-start;width:100%;margin:16px 0 21px;padding:17px 19px;border-radius:20px;background:#f7f5f2;text-align:left}
+.emailInfo svg{flex:none;color:var(--muted)}
+.emailInfo p{margin:0;line-height:1.4}
+.emailInfo strong,.emailInfo span{display:block}
+.emailInfo span{margin-top:6px;color:var(--muted);font-size:.91rem}
+.emailScreen>.back{justify-self:start}
+.emailScreen>.primaryAction,.emailScreen>.secondaryAction{margin-top:14px}
+.successEmail{max-width:100%;margin:0 0 20px;overflow-wrap:anywhere;font-weight:750}
+.emailScreen>.info{width:100%;margin-bottom:5px}
+@media(max-width:380px){.emailCard{padding:16px}.sendButton{padding:14px;font-size:1rem}}
+.handoffResult{max-width:620px;margin-inline:auto}
+.qrImage{display:block;width:min(240px,100%);height:auto;margin:22px auto;border:8px solid #fff;border-radius:14px}
+.handoffResult .primaryAction{margin-top:20px}
+.progress{margin:24px -16px 0;padding:22px 12px;border-block:1px solid #eee5d9;background:#f8f3e9}
+.progress ol{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));max-width:760px;margin:0 auto;padding:0;list-style:none}
+.progress li{position:relative;display:grid;justify-items:center;gap:8px;min-width:0;color:var(--muted);text-align:center;font-size:.75rem;font-weight:700;line-height:1.2}
+.progress li:not(:last-child):after{content:"";position:absolute;top:18px;left:calc(50% + 20px);width:calc(100% - 40px);height:1px;background:#d8d3c9}
+.progressIcon{z-index:1;display:grid;place-items:center;width:38px;height:38px;border:1px solid #b8c8c4;border-radius:50%;background:#fff;color:var(--primary);font-size:.9rem}
+.progressCurrent{color:var(--foreground)!important}
+.progressCurrent .progressIcon{background:var(--primary);color:#fff;border-color:var(--primary)}
+.progressDone{color:var(--primary)!important}
+@media(min-width:640px){.progress{margin-inline:0;border-radius:22px;padding:25px}.progress li{font-size:.9rem}}

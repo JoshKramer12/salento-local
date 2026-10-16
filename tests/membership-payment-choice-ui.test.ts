@@ -5,6 +5,7 @@ import test from "node:test";
 import { buildStripeCheckoutMetadata } from "@/lib/payment";
 
 const publishForm = readFileSync("src/components/account/publish-form.tsx", "utf8");
+const paymentSteps = readFileSync("src/components/account/pay-later-payment-steps.tsx", "utf8");
 const submissionActions = readFileSync("src/app/(account)/actions.ts", "utf8");
 const stripeCheckout = readFileSync("src/lib/stripe-checkout.ts", "utf8");
 const paymentPage = readFileSync("src/app/(account)/publish/payment/page.tsx", "utf8");
@@ -14,14 +15,12 @@ const paymentForm = readFileSync("src/components/account/no-email-payment-form.t
 const successWatcher = readFileSync("src/components/account/no-email-success-watcher.tsx", "utf8");
 
 test("email owners retain both renewal options and no-email owners see manual alone", () => {
-  assert.match(publishForm, /useState<"AUTO" \| "MANUAL">\("AUTO"\)/);
-  assert.match(publishForm, /Automatic renewal — Recommended/);
-  assert.match(publishForm, /\{ownerEmail\.trim\(\) \? <label className=\{effectiveRenewalPreference === "AUTO"/);
-  assert.match(publishForm, /<label className=\{effectiveRenewalPreference === "MANUAL"/);
-  assert.doesNotMatch(publishForm, /disabled=\{role === "GETTER" && !ownerEmail\.trim\(\)\}/);
-  assert.match(publishForm, /onChange=\{\(\) => setRenewalPreference\("AUTO"\)\}/);
-  assert.match(publishForm, /onChange=\{\(\) => setRenewalPreference\("MANUAL"\)\}/);
-  assert.ok(publishForm.indexOf("Automatic renewal — Recommended") < publishForm.indexOf('<PaymentChoiceButton method="ONLINE"'));
+  assert.match(publishForm, /autoAvailable=\{Boolean\(ownerEmail\.trim\(\)\)\}/);
+  assert.match(publishForm, /value=\{renewalChosen \? effectiveRenewalPreference : null\}/);
+  assert.match(paymentSteps, /\{autoAvailable \? <label/);
+  assert.match(paymentSteps, /onChange=\{\(\) => onChange\("AUTO"\)\}/);
+  assert.match(paymentSteps, /onChange=\{\(\) => onChange\("MANUAL"\)\}/);
+  assert.match(paymentSteps, /disabled=\{!value\}/);
 });
 
 test("renewal controls are localized, stacked tap cards before the payment methods", () => {
@@ -29,25 +28,26 @@ test("renewal controls are localized, stacked tap cards before the payment metho
     "Renewal",
     "Manual renewal",
     "€100/year. Renews automatically every year.",
-    "€100/year. We’ll remind you before your membership expires.",
+    "€100/year. We'll remind you before expiry.",
     "Rinnovo",
-    "Rinnovo automatico — Consigliato",
+    "Rinnovo automatico",
     "Rinnovo manuale",
     "€100/anno. Si rinnova automaticamente ogni anno.",
     "€100/anno. Ti ricorderemo prima della scadenza.",
   ]) {
-    assert.ok(publishForm.includes(copy), `missing localized renewal copy: ${copy}`);
+    assert.ok(paymentSteps.includes(copy), `missing localized renewal copy: ${copy}`);
   }
-
-  assert.match(publishForm, /mt-4 grid gap-3/);
-  assert.match(publishForm, /h-5 w-5 shrink-0 accent-\[var\(--primary\)\]/);
-  assert.match(publishForm, /sm:p-5/);
+  assert.match(paymentSteps, /type="radio" name="renewalChoice" value="AUTO"/);
+  assert.match(paymentSteps, /type="radio" name="renewalChoice" value="MANUAL"/);
+  assert.match(publishForm, /<RenewalSelectionStep/);
+  assert.match(publishForm, /<PaymentMethodStep/);
 });
 
 test("card and bank-transfer choices pass the existing renewal mode into the current QR action", () => {
-  assert.match(publishForm, /const selectedRenewalPreference = method === "BANK_TRANSFER" \|\| !ownerEmail\.trim\(\) \? "MANUAL" : renewalPreference/);
+  assert.match(publishForm, /if \(method === "BANK_TRANSFER" && renewalPreference === "AUTO"\)/);
+  assert.match(publishForm, /const selectedRenewalPreference = !ownerEmail\.trim\(\) \? "MANUAL" : renewalPreference/);
   assert.match(publishForm, /formData\.set\("renewalPreference", selectedRenewalPreference\)/);
-  assert.match(publishForm, /if \(method === "BANK_TRANSFER" \|\| !ownerEmail\.trim\(\)\) \{\s*setRenewalPreference\("MANUAL"\)/);
+  assert.match(paymentSteps, /disabled=\{Boolean\(busyMethod\) \|\| renewal === "AUTO"\}/);
   assert.match(submissionActions, /Boolean\(parsed\.data\.ownerEmail\?\.trim\(\)\) && getStringValue\(formData\.get\("renewalPreference"\)\) === "AUTO"/);
   assert.match(submissionActions, /Choose manual renewal for an owner without email/);
   assert.match(submissionActions, /Choose automatic or manual renewal before continuing/);
@@ -103,8 +103,8 @@ test("the initial QR preparation routes automatic to Subscription and manual to 
 });
 
 test("the established QR, polling, webhook, and publication path remains in place", () => {
-  assert.match(publishForm, /<PaymentChoiceButton method="ONLINE"/);
-  assert.match(publishForm, /<PaymentChoiceButton method="BANK_TRANSFER"/);
+  assert.match(publishForm, /onOnline=\{\(\) => continueWithPaymentMethod\("ONLINE"\)\}/);
+  assert.match(publishForm, /onBank=\{\(\) => continueWithPaymentMethod\("BANK_TRANSFER"\)\}/);
   assert.match(paymentPage, /CheckoutStatusWatcher/);
   assert.doesNotMatch(paymentPage, /ensureStripeCheckoutSession/);
   assert.match(paymentPage, /ensureStripeBankTransferIntent/);
@@ -113,8 +113,8 @@ test("the established QR, polling, webhook, and publication path remains in plac
 });
 
 test("no-email automatic renewal is absent from the UI and rejected by the server", () => {
-  assert.match(publishForm, /\{ownerEmail\.trim\(\) \? <label className=\{effectiveRenewalPreference === "AUTO"/);
-  assert.match(publishForm, /<\/label> : null\}<label className=\{effectiveRenewalPreference === "MANUAL"/);
+  assert.match(publishForm, /autoAvailable=\{Boolean\(ownerEmail\.trim\(\)\)\}/);
+  assert.match(paymentSteps, /\{autoAvailable \? <label[\s\S]*?<\/label> : null\}/);
   assert.match(submissionActions, /parsed\.data\.paymentMethod === "ONLINE" && !parsed\.data\.ownerEmail\?\.trim\(\) &&\s*getStringValue\(formData\.get\("renewalPreference"\)\) !== "MANUAL"/);
   assert.match(submissionActions, /automaticRenewalAtAcceptance:.*Boolean\(parsed\.data\.ownerEmail\?\.trim\(\)\).*=== "AUTO"/);
 });

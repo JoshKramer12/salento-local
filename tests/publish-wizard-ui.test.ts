@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const publishForm = readFileSync("src/components/account/publish-form.tsx", "utf8");
+const paymentSteps = readFileSync("src/components/account/pay-later-payment-steps.tsx", "utf8");
 
 test("the collection wizard keeps Partner and edit steps and omits the standalone Owner step", () => {
   for (const step of ["business", "contact", "owner", "about", "hours", "photos"]) {
@@ -38,8 +39,9 @@ test("the partner-to-owner flow keeps distinct review, handoff, and owner confir
   assert.match(publishForm, /Review business/);
   assert.match(publishForm, /Everything look right\?/);
   assert.match(publishForm, /Hand phone to owner/);
-  assert.match(publishForm, /Partner section complete/);
-  assert.match(publishForm, /Now hand the phone to the business owner/);
+  assert.match(publishForm, /<PartnerHandoffStep/);
+  assert.match(paymentSteps, /Partner section complete/);
+  assert.match(paymentSteps, /How would you like to continue\?/);
   assert.match(publishForm, /owner-confirmation-card/);
   assert.match(publishForm, /ownerPrepared/);
   assert.match(publishForm, /moveToWizardStep\(step as WizardStep\)/);
@@ -94,7 +96,8 @@ test("owner-only progress follows confirmation, agreement, signature, and paymen
     assert.match(publishForm, new RegExp(`key: "${step}"`));
   }
 
-  assert.match(publishForm, /const ownerProgressIndex = ownerSteps\.findIndex\(\(step\) => step\.key === wizardStep\)/);
+  assert.match(publishForm, /const ownerProgressIndex = wizardStep === "invite" && inviteOrigin === "payment"/);
+  assert.match(publishForm, /ownerSteps\.findIndex\(\(step\) => step\.key === wizardStep\)/);
   assert.match(publishForm, /owner-flow-progress__step--active/);
   assert.match(publishForm, /owner-flow-progress__step--complete/);
 });

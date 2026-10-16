@@ -5,6 +5,26 @@ import { hasSameOriginOrNoOrigin } from "@/lib/request-security";
 import { attemptInvitationEmail, buildPayLaterWhatsAppUrl, createOrRotateInvitation, invitationIsOpen, isPayLaterEnabled } from "@/lib/pay-later-invitations";
 import { prisma } from "@/lib/prisma";
 
+export async function GET(request: Request) {
+  if (!isPayLaterEnabled()) return NextResponse.json({ error: "unavailable" }, { status: 404 });
+  if (!hasSameOriginOrNoOrigin(request)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const viewer = (await auth())?.user;
+  if (!viewer?.id || viewer.role !== "GETTER") return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const submissionId = new URL(request.url).searchParams.get("submissionId") ?? "";
+  if (!/^[a-z0-9_-]{20,40}$/i.test(submissionId)) return NextResponse.json({ error: "invalid_request" }, { status: 400 });
+  const invitation = await prisma.businessSubmissionInvitation.findFirst({
+    where: { businessSubmissionId: submissionId, partnerUserId: viewer.id },
+    include: { businessSubmission: { select: { ownerEmail: true, status: true, paymentMethod: true } } },
+  });
+  const recipientMatches = invitation?.recipientEmail === invitation?.businessSubmission.ownerEmail.trim().toLowerCase();
+  const open = Boolean(invitation && recipientMatches && !invitation.revokedAt && !invitation.declinedAt &&
+    !invitation.completedAt && invitation.tokenExpiresAt > new Date() &&
+    invitation.businessSubmission.status === "DRAFT" && !invitation.businessSubmission.paymentMethod);
+  const email = open && invitation?.emailAcceptedGeneration === invitation?.tokenGeneration
+    ? "accepted" : open && invitation?.emailFirstAttemptedAt ? "pending" : "idle";
+  return NextResponse.json({ email }, { headers: { "Cache-Control": "no-store" } });
+}
+
 export async function POST(request: Request) {
   if (!isPayLaterEnabled()) return NextResponse.json({ error: "unavailable" }, { status: 404 });
   if (!hasSameOriginOrNoOrigin(request)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
