@@ -3,6 +3,7 @@ import { LISTING_OFFER } from "@/lib/listing-offer";
 import { buildStripeCheckoutMetadata, getAppUrl, getStripeEuBankTransferCountry } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
+import { inspectMembershipRenewalRecovery } from "@/lib/membership-renewal-recovery";
 import { extractStripeBankTransferInstructions, type StripeBankTransferInstructions } from "@/lib/stripe-checkout";
 
 /** A deliberately separate Checkout path: it never touches submission status,
@@ -64,6 +65,7 @@ export async function ensureMembershipRenewalBankTransferIntent(params: {
   });
   const submission = membership?.business.submissions[0];
   if (!membership || !submission) return null;
+  if ((await inspectMembershipRenewalRecovery(params.businessId)).state !== "none") return null;
   if (await prisma.payment.findFirst({ where: { businessId: params.businessId, purpose: "INITIAL_MEMBERSHIP", refundRequestedAt: { not: null }, OR: [{ status: "PAID", method: "BANK_TRANSFER", refundRequestedByUserId: { not: null }, refundStatus: { not: "support_closed" } }, { status: "PAID", refundStatus: { notIn: ["failed", "canceled", "support_closed"] } }, { status: "REFUNDED", refundStatus: { not: "succeeded" } }] }, select: { id: true } })) return null;
   const stripe = getStripe();
   const pending = await prisma.payment.findFirst({

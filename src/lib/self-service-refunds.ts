@@ -6,7 +6,7 @@ import { canManageBusiness } from "@/lib/business-owner-access";
 import { reversePartnerCommissionForPayment } from "@/lib/partner-ledger";
 import { prisma } from "@/lib/prisma";
 import { sendInitialRefundNotifications } from "@/lib/refund-notifications";
-import { getStripe, isStripeSandboxMode } from "@/lib/stripe";
+import { canRequestOwnerRefunds, getStripe } from "@/lib/stripe";
 import { markStripePaymentRefunded } from "@/lib/stripe-payment-sync";
 import { requestBankRefundSupport } from "@/lib/bank-refund-support";
 
@@ -134,7 +134,7 @@ export async function requestInitialRefund(params: { businessId: string; userId:
   sandbox?: boolean;
   bankSupport?: typeof requestBankRefundSupport;
 } = {}) {
-  if (!(dependencies.sandbox ?? isStripeSandboxMode())) throw new Error("refund_requires_test_mode");
+  if (!(dependencies.sandbox ?? canRequestOwnerRefunds())) throw new Error("refund_not_enabled");
   if (!await (dependencies.authorize ?? canManageBusiness)(params)) throw new Error("refund_not_authorized");
   const db = dependencies.db ?? prisma;
   const owner = await db.user.findUnique({ where: { id: params.userId }, select: { email: true, role: true } });

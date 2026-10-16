@@ -23,6 +23,7 @@ import { HardNavigationLink } from "@/components/hard-navigation-link";
 import {
   startMembershipBankTransferAction,
   startMembershipRenewalAction,
+  recoverFailedMembershipRenewalAction,
   turnOnMembershipAutoRenewAction,
 } from "@/app/(account)/membership-actions";
 import type { Locale } from "@/lib/i18n";
@@ -223,6 +224,22 @@ function MembershipPanel({ business, c, locale }: { business: DashboardBusiness;
 function Info({ detail, icon, label, value }: { detail: string; icon: ReactNode; label: string; value: string }) { return <div className="border-b border-[rgba(42,98,87,0.12)] pb-4 last:border-0 md:border-b-0 md:border-r md:pr-4"><div className="flex gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[rgba(42,98,87,0.09)] text-[var(--primary)]">{icon}</span><div><p className="text-sm text-[var(--muted-strong)]">{label}</p><p className="mt-1 font-serif text-xl text-[var(--foreground)]">{value}</p><p className="mt-2 text-sm leading-5 text-[var(--muted)]">{detail}</p></div></div></div>; }
 
 function StatusAction({ business, c, healthyAuto, locale, state }: { business: DashboardBusiness; c: ReturnType<typeof copyFor>; healthyAuto: boolean; locale: Locale; state: State }) {
+  const failedRenewal = business.membership?.automaticRenewal &&
+    ["past_due", "unpaid"].includes(business.membership.stripeSubscriptionStatus ?? "") &&
+    !["PROCESSING", "ACTION_REQUIRED", "SUPPORT_REQUIRED", "FAILED"].includes(business.refundState);
+  if (failedRenewal) return <aside className="rounded-[1.4rem] bg-[rgba(255,246,224,0.92)] p-5" role="status">
+    <h4 className="font-serif text-2xl text-[var(--foreground)]">{locale === "it" ? "Pagamento del rinnovo non riuscito" : "Renewal payment failed"}</h4>
+    <p className="mt-2 text-sm leading-6 text-[var(--muted-strong)]">{locale === "it"
+      ? "Non siamo riusciti a completare il rinnovo della tua scheda. Aggiorna il metodo di pagamento per completare il pagamento."
+      : "We couldn't renew your listing. Update your payment method to complete the outstanding payment."}</p>
+    <form action={recoverFailedMembershipRenewalAction} className="mt-5">
+      <input name="businessId" type="hidden" value={business.id} />
+      <button className="btn-primary min-h-12 w-full justify-center" type="submit">{locale === "it" ? "Aggiorna metodo di pagamento" : "Update payment method"}</button>
+    </form>
+    <p className="mt-3 text-xs leading-5 text-[var(--muted)]">{locale === "it"
+      ? "Completa la fattura esistente sulla pagina sicura di Stripe. La scheda si aggiornerà dopo la conferma del pagamento."
+      : "Pay the existing invoice on Stripe's secure page. Your listing updates after payment is confirmed."}</p>
+  </aside>;
   if (business.refundState === "FAILED") return <aside className="rounded-[1.4rem] bg-white/80 p-5"><h4 className="font-serif text-2xl text-[var(--foreground)]">{locale === "it" ? "Rimborso non riuscito" : "Refund could not be completed"}</h4><p className="mt-2 text-sm leading-6 text-[var(--muted-strong)]">{locale === "it" ? "La richiesta richiede una verifica dell’assistenza. La scheda mantiene lo stato attuale." : "Your request needs support review. Your listing keeps its current status."}</p><HardNavigationLink className="btn-secondary mt-5 min-h-11 justify-center px-5" href={`/dashboard/refund/${encodeURIComponent(business.id)}`}>{locale === "it" ? "Visualizza dettagli" : "View details"}</HardNavigationLink></aside>;
   if ((business.refundState === "PROCESSING" || business.refundState === "ACTION_REQUIRED" || business.refundState === "SUPPORT_REQUIRED")) return <aside className="rounded-[1.4rem] bg-white/80 p-5"><h4 className="font-serif text-2xl text-[var(--foreground)]">{business.refundState === "SUPPORT_REQUIRED" ? locale === "it" ? "Rimborso in attesa dell’assistenza" : "Refund pending support" : c.refundProcessing}</h4><p className="mt-2 text-sm leading-6 text-[var(--muted-strong)]">{business.refundState === "SUPPORT_REQUIRED" ? locale === "it" ? "La richiesta è registrata e l’idoneità è preservata. La scheda resta attiva fino al completamento del rimborso." : "Your request is recorded and eligibility preserved. Your listing remains active until the refund is completed." : locale === "it" ? "Stiamo verificando il rimborso. Attendi l'esito prima di acquistare una nuova membership." : "We are checking your refund. Please wait for the result before buying a new membership."}</p><HardNavigationLink className="btn-secondary mt-5 min-h-11 justify-center px-5" href={`/dashboard/refund/${encodeURIComponent(business.id)}`}>{locale === "it" ? "Controlla lo stato" : "Check refund status"}</HardNavigationLink></aside>;
   const membership = business.membership!; const manual = state === "ACTIVE" && !healthyAuto; const danger = state === "GRACE" || state === "EXPIRED" || state === "REFUNDED" || (membership.automaticRenewal && !healthyAuto); const title = healthyAuto ? c.allSet : (state === "EXPIRED" || state === "REFUNDED") ? c.reactivateHeading : state === "GRACE" ? c.renewalNeeded : manual ? c.manual : c.renewalNeeded; const detail = healthyAuto ? `${c.nextRenewal} ${date(locale, membership.currentPeriodEnd)}. ${c.live}` : state === "REFUNDED" ? c.refundedSaved : state === "EXPIRED" ? `${c.saved} ${c.expiredCopy}` : state === "GRACE" ? `${c.graceCopy} ${date(locale, membership.graceEndsAt)}.` : membership.automaticRenewal ? c.unhealthy : c.manualCopy;

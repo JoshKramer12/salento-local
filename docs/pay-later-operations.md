@@ -309,14 +309,33 @@ the term once, and created one €15 commission. Production read-only inspection
 paid invoice renewals or missing PaymentIntent references requiring backfill. The
 original synthetic row remains as a known pre-fix test artifact.
 
-Apple Pay and Google Pay are active for the isolated domain and use the same Stripe
-PaymentIntent and signed webhook finalizer as card payments. A wallet authorization
-still requires a compatible device and wallet belonging to an authorized tester. Do not
-substitute a live charge. The owner interface has no saved-card update control; a
-payment method may be updated directly in Stripe Test mode for controlled tests.
+Apple Pay and Google Pay domains are active in the isolated Stripe test account, and
+wallet-funded card payments use the same signed webhook finalizer as card payments.
+Actual wallet authorization still requires a compatible authorized device. Do not
+substitute a live charge or claim an unperformed authorization passed. Card payments
+are independent of that device check.
 
-The owner self-service refund route currently requires Stripe test mode. Before a
-separate live-key launch, decide how live refunds will be authorized and implemented,
-and review recovery if an unpaid renewal is retried while an owner also makes a manual
-payment. Neither question is resolved by enabling Pay Later in production. A fresh
-verified database backup is required immediately before any production migration.
+The published 14-day self-service policy applies to the qualifying **initial** annual
+membership payment. Stripe card refunds use a stable idempotency key, provider status
+reconciliation, membership revocation and commission reversal. Bank-transfer requests
+record a timely claim and require Support to finish the return. A separate
+`LIVE_OWNER_REFUNDS_ENABLED=true` switch is required if the site is later moved to
+matching live Stripe keys; leave it absent for this test-key release. No live refund has
+been executed, so live provider settlement and webhook delivery remain unproven.
+
+For a failed automatic renewal, the authenticated owner dashboard directs the owner
+to the **existing** open Stripe-hosted invoice. The server checks the membership's
+customer and subscription, Stripe mode, latest invoice, exact EUR100 amount, and
+Stripe-hosted HTTPS URL before redirecting. The subscription must save the successful
+card as its default method. While that invoice is open, a second card or bank renewal
+is blocked. The existing `invoice.paid` finalizer alone grants the 365-day term and
+EUR15 Partner commission. If the invoice cannot be verified, use Support; do not
+create another payment or subscription.
+
+The canonical production origin is `https://www.salentolocal.ca`. On 16 October 2026,
+the apex `salentolocal.ca` still pointed to Namespro (`51.222.143.2`) and presented
+an expired `*.namespro.ca` certificate, while www had a valid Railway certificate.
+Repair the registrar's apex HTTPS forwarding or move the apex to a verified Railway
+domain configuration; confirm a valid HTTPS redirect to www. Do not change DNS without
+checking the registrar setup. A fresh verified database backup is required immediately
+before any production migration.

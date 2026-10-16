@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { addUtcDays } from "@/lib/business-membership";
 import { canManageBusiness } from "@/lib/business-owner-access";
-import { getStripe, isStripeSandboxMode } from "@/lib/stripe";
+import { canRequestOwnerRefunds, getStripe } from "@/lib/stripe";
 import { findInitialRefundForBusiness, reconcileInitialRefund } from "@/lib/self-service-refunds";
 import { sendBankRefundRequestNotifications } from "@/lib/bank-refund-notifications";
 
@@ -15,7 +15,7 @@ function refreshRefundViews(businessId: string) {
 export async function requestBankRefundSupport(params: { businessId: string; userId: string; instructionsEmail?: string; locale?: "en" | "it" }, dependencies: {
   stripe?: Stripe; now?: Date; sandbox?: boolean; reconcile?: typeof reconcileInitialRefund; revalidatePaths?: boolean; notify?: typeof sendBankRefundRequestNotifications;
 } = {}) {
-  if (!(dependencies.sandbox ?? isStripeSandboxMode())) throw new Error("refund_requires_test_mode");
+  if (!(dependencies.sandbox ?? canRequestOwnerRefunds())) throw new Error("refund_not_enabled");
   if (!await canManageBusiness(params)) throw new Error("refund_not_authorized");
   const owner = await prisma.user.findUnique({ where: { id: params.userId } });
   if (owner?.role !== "BUSINESS_OWNER") throw new Error("refund_not_authorized");
@@ -76,7 +76,7 @@ export async function requestBankRefundSupport(params: { businessId: string; use
 }
 
 async function requireBankRefundOperator(userId: string, paymentId: string, businessId: string) {
-  if (!isStripeSandboxMode()) throw new Error("refund_requires_test_mode");
+  if (!canRequestOwnerRefunds()) throw new Error("refund_not_enabled");
   const operator = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
   if (operator?.role !== "ADMIN") throw new Error("refund_not_authorized");
   const payment = await prisma.payment.findUnique({ where: { id: paymentId } });

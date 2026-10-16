@@ -9,6 +9,7 @@ import { matchesManualElementPaymentIntent } from "@/lib/no-email-payment";
 import { ensurePartnerRefundRepurchaseCommissionForPayment, ensurePartnerRenewalCommissionForPayment } from "@/lib/partner-ledger";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
+import { inspectMembershipRenewalRecovery } from "@/lib/membership-renewal-recovery";
 
 export const MEMBERSHIP_ELEMENT_FLOW = "MEMBERSHIP_PAYMENT_ELEMENT";
 type Dependencies = { db?: PrismaClient; stripe?: Stripe; now?: Date };
@@ -28,6 +29,7 @@ export async function ensureMembershipElementPayment(params: {
   });
   const submission = membership?.business.submissions[0];
   if (!membership || !submission || (params.automaticRenewal && !submission.ownerEmail.trim())) return null;
+  if ((await inspectMembershipRenewalRecovery(params.businessId, { db, stripe })).state !== "none") return null;
   // Do not start another subscription alongside an existing live recurring term.
   if (params.automaticRenewal && membership.stripeSubscriptionId) {
     const prior = await stripe.subscriptions.retrieve(membership.stripeSubscriptionId);

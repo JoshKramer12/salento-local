@@ -45,6 +45,16 @@ export function isStripeSandboxMode() {
   return secretKey.startsWith("sk_test_");
 }
 
+/** Live owner refunds require an independent release switch after live-mode review. */
+export function canRequestOwnerRefunds() {
+  if (isStripeSandboxMode()) return true;
+  const secret = normalizeEnvValue(process.env.STRIPE_SECRET_KEY);
+  const publishable = normalizeEnvValue(process.env.STRIPE_PUBLISHABLE_KEY) ||
+    normalizeEnvValue(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);
+  return secret.startsWith("sk_live_") && publishable.startsWith("pk_live_") &&
+    process.env.LIVE_OWNER_REFUNDS_ENABLED === "true";
+}
+
 export function getPaymentElementPublishableKey() {
   const secret = normalizeEnvValue(process.env.STRIPE_SECRET_KEY);
   if (!secret.startsWith("sk_test_") && !secret.startsWith("sk_live_")) return null;
