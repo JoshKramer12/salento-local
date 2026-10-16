@@ -39,6 +39,8 @@ test("renewal controls are localized, stacked tap cards before the payment metho
   }
   assert.match(paymentSteps, /type="radio" name="renewalChoice" value="AUTO"/);
   assert.match(paymentSteps, /type="radio" name="renewalChoice" value="MANUAL"/);
+  assert.match(paymentSteps, /Accetta: Carta/);
+  assert.match(paymentSteps, /Accepts: Card/);
   assert.match(publishForm, /<RenewalSelectionStep/);
   assert.match(publishForm, /<PaymentMethodStep/);
 });
