@@ -7,10 +7,11 @@ import styles from "./pay-later-payment-steps.module.css";
 
 type Props = {
   submissionId: string; businessName: string; ownerEmail: string; ownerPhone: string; locale: Locale;
+  financialPaymentPaused?: boolean;
   onBack: () => void; onCorrectEmail: (nextEmail?: string) => void;
 };
 
-export function PayLaterPartnerInvitation({ submissionId, businessName, ownerEmail, ownerPhone, locale, onBack, onCorrectEmail }: Props) {
+export function PayLaterPartnerInvitation({ submissionId, businessName, ownerEmail, ownerPhone, locale, financialPaymentPaused = false, onBack, onCorrectEmail }: Props) {
   const it = locale === "it";
   const [pending, setPending] = useState(false);
   const sending = useRef(false);
@@ -102,7 +103,8 @@ export function PayLaterPartnerInvitation({ submissionId, businessName, ownerEma
     <div className={styles.topline}><span className={styles.kicker}>{it ? "Pagamento" : "Payment"}</span><span className={styles.count}>{it ? "1 di 2" : "1 of 2"}</span></div>
     <span className={styles.heroIcon}><IconMail size={38} aria-hidden="true" /></span>
     <h1 className={styles.title}>{it ? "Vuoi pagare più tardi?" : "Would you like to pay later?"}</h1>
-    <p className={styles.subtitle}>{it ? "Ti invieremo un link sicuro via email per completare il pagamento quando vuoi." : "We'll send a secure email link so you can complete payment when you like."}</p>
+    <p className={styles.subtitle}>{it ? "Ti invieremo un link sicuro via email per continuare quando vuoi." : "We'll send a secure email link so you can continue when you like."}</p>
+    {financialPaymentPaused ? <p role="status" className="mb-5 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">{it ? "I pagamenti sono temporaneamente sospesi durante i test. L'invito, la verifica e la firma restano disponibili; non verrà addebitato nulla ora." : "Payments are temporarily paused during testing. The invitation, verification and signature remain available; no charge will be made now."}</p> : null}
     <div className={styles.emailCard}>
       <div><span className={styles.emailLabel}>{it ? "Email del titolare" : "Owner email"}</span>
         {validEmail ? <strong className={styles.emailValue}>{ownerEmail}</strong> : <><input type="email" inputMode="email" autoComplete="email" value={emailInput} onChange={(event) => setEmailInput(event.target.value)} placeholder={it ? "Email del titolare" : "Owner email"} className={styles.emailInput} aria-label={it ? "Email del titolare" : "Owner email"} /><small className={styles.emailHelp}>{it ? "Per pagare più tardi serve un’email controllata dal titolare." : "Pay Later requires an email controlled by the owner."}</small></>}</div>

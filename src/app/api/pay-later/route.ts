@@ -5,6 +5,7 @@ import { hasSameOriginOrNoOrigin } from "@/lib/request-security";
 import { closeInvitation, getInvitationByToken, getPayLaterSessionCookieName, isPayLaterEnabled, requireVerifiedInvitation, startInvitationOtp, verifyInvitationOtp } from "@/lib/pay-later-invitations";
 import { chooseVerifiedPayLaterPayment, resumeVerifiedPayLaterPayment, type PayLaterPaymentChoice } from "@/lib/pay-later-payment";
 import { prisma } from "@/lib/prisma";
+import { isPublicFinancialHold } from "@/lib/stripe";
 
 const noStore = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
 
@@ -22,14 +23,15 @@ export async function POST(request: Request) {
     const sessionToken = (await cookies()).get(getPayLaterSessionCookieName(invitation.id))?.value;
     const verified = await requireVerifiedInvitation(token, sessionToken);
     const submission = verified ? await prisma.businessSubmission.findUnique({
-      where: { id: verified.businessSubmissionId }, include: { town: true, category: true },
+      where: { id: verified.businessSubmissionId }, include: { town: true, category: true, user: { select: { role: true } } },
     }) : null;
     const photos = submission && Array.isArray(submission.photoUrls)
       ? submission.photoUrls.filter((url): url is string => typeof url === "string" && Boolean(url.trim())) : [];
-    return NextResponse.json({ verified: Boolean(verified),
+    return NextResponse.json({ verified: Boolean(verified), paymentPaused: isPublicFinancialHold(),
       emailHint: invitation.recipientEmail.replace(/^(.).+(@.*)$/, "$1•••$2"),
       submission: submission ? {
-        businessName: submission.businessName, address: submission.address, town: submission.town.name,
+        businessName: submission.businessName, ownerSubmitted: submission.user.role === "BUSINESS_OWNER",
+        address: submission.address, town: submission.town.name,
         category: submission.category.name, description: submission.longDescription,
         openingHours: submission.openingHours, phone: submission.phone, email: submission.email,
         photos, ownerName: submission.ownerName, signedEarlier: Boolean(invitation.partnerCapturedSignature),

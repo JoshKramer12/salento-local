@@ -3,7 +3,7 @@ import type Stripe from "stripe";
 
 import { DEFAULT_CURRENCY } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
-import { getStripe } from "@/lib/stripe";
+import { assertFinancialPaymentAllowed, getStripe } from "@/lib/stripe";
 import { normalizePhoneNumber } from "@/lib/validation";
 
 export const NO_EMAIL_PAYMENT_FLOW = "NO_EMAIL_PAYMENT_ELEMENT";
@@ -185,6 +185,7 @@ export async function ensureNoEmailPaymentIntent(submissionId: string, dependenc
 }
 
 export async function ensureManualElementPaymentIntent(submissionId: string, dependencies: { db?: typeof prisma; stripe?: Stripe } = {}) {
+  assertFinancialPaymentAllowed();
   const db = dependencies.db ?? prisma;
   const submission = await db.businessSubmission.findUnique({
     where: { id: submissionId },

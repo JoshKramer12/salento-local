@@ -126,6 +126,7 @@ type SubmissionDraft = {
 
 type PublishFormProps = {
   payLaterEnabled?: boolean;
+  financialPaymentPaused?: boolean;
   ownerContactDefaults?: OwnerContactDefaults;
   submissionUpdatedAt?: string;
   viewerId?: string;
@@ -732,6 +733,7 @@ function getResumeWizardStep(values: SubmissionFormValues, skipOwnerStep = false
 export function PublishForm({
   adminMode = false,
   payLaterEnabled = false,
+  financialPaymentPaused = false,
   categories,
   editMode,
   googlePlacesApiKey,
@@ -2689,7 +2691,7 @@ export function PublishForm({
           onSave={() => requestDraftSave("manual", true)}
         /> : null}
 
-        {wizardStep === "invite" ? <PayLaterPartnerInvitation submissionId={currentSubmissionId} businessName={businessName} ownerEmail={ownerEmail} ownerPhone={ownerContact} locale={locale} onBack={() => { setEmailCorrectionFromInvite(false); moveToWizardStep(inviteOrigin); }} onCorrectEmail={(nextEmail) => { if (nextEmail) { setOwnerEmail(nextEmail); setOwnerHasNoEmail(false); } setEmailCorrectionFromInvite(true); moveToWizardStep("owner"); }} /> : null}
+        {wizardStep === "invite" ? <PayLaterPartnerInvitation submissionId={currentSubmissionId} businessName={businessName} ownerEmail={ownerEmail} ownerPhone={ownerContact} locale={locale} financialPaymentPaused={financialPaymentPaused} onBack={() => { setEmailCorrectionFromInvite(false); moveToWizardStep(inviteOrigin); }} onCorrectEmail={(nextEmail) => { if (nextEmail) { setOwnerEmail(nextEmail); setOwnerHasNoEmail(false); } setEmailCorrectionFromInvite(true); moveToWizardStep("owner"); }} /> : null}
 
         {wizardStep === "owner-review" ? <div className="grid gap-6"><div><p className="section-kicker">{ownerFlowCopy.ownerConfirmation}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{ownerName ? `${locale === "it" ? "Ciao" : "Hi"} ${ownerName.split(" ")[0]}` : locale === "it" ? "Ciao" : "Hi"}</h1><p className="mt-3 max-w-xl text-[var(--muted)]">{ownerFlowCopy.ownerPrepared}</p></div>{renderOwnerConfirmationSummary()}<label className="owner-confirmation-checkbox"><input type="checkbox" checked={ownerInformationConfirmed} onChange={(event) => setOwnerInformationConfirmed(event.target.checked)} className="mt-1 h-5 w-5 shrink-0 accent-[var(--primary)]" /><span>{locale === "it" ? "Confermo che questi dati dell'attività sono corretti." : "I confirm that these business details are correct."}</span></label><button type="button" onClick={() => moveToWizardStep("review")} className="owner-confirmation-help">{locale === "it" ? (isOwnerFlow ? "Qualcosa non va? Modifica i tuoi dati" : "Qualcosa non va? Chiedi al partner di modificare") : (isOwnerFlow ? "Something looks wrong? Edit your details" : "Something looks wrong? Ask the partner to edit")}</button></div> : null}
 
@@ -2715,7 +2717,7 @@ export function PublishForm({
           ? <div className="rounded-2xl bg-[rgba(42,98,87,0.08)] p-4 text-sm">{locale === "it" ? "Modalità admin: la pubblicazione non richiede il pagamento." : "Admin mode: publication does not require payment."}</div>
           : paymentSubstep === "decision"
             ? <PaymentDecisionStep locale={locale}
-                allowLater={payLaterEnabled && isPartnerFlow}
+                allowLater={payLaterEnabled && (isPartnerFlow || isOwnerFlow)}
                 busy={draftSavePending || actionPending}
                 onNow={() => navigatePayment("renewal")}
                 onLater={() => { setInviteOrigin("payment"); requestDraftSave("autosave", false, "invite"); }}
@@ -2729,14 +2731,16 @@ export function PublishForm({
                   onContinue={() => navigatePayment("methods")}
                   onBack={() => navigatePayment("decision")}
                 />
-              : <PaymentMethodStep locale={locale}
+              : <>{financialPaymentPaused ? <p role="status" className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">{locale === "it" ? "I pagamenti sono temporaneamente sospesi mentre completiamo i test. La tua bozza resta salvata; nessuna quota sarà addebitata ora." : "Payments are temporarily paused while testing is completed. Your draft stays saved; no charge will be made now."}</p> : null}<PaymentMethodStep locale={locale}
                   renewal={effectiveRenewalPreference}
                   busyMethod={paymentOpeningMethod}
+                  paymentPaused={financialPaymentPaused}
+                  disableActions={financialPaymentPaused}
                   error={paymentOpeningError || draftNotice}
                   onOnline={() => continueWithPaymentMethod("ONLINE")}
                   onBank={() => continueWithPaymentMethod("BANK_TRANSFER")}
                   onBack={() => navigatePayment("renewal")}
-                /> : null}
+                />{financialPaymentPaused ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => requestDraftSave("manual", true)} className="btn-secondary mt-5 w-full">{locale === "it" ? "Salva la bozza ed esci" : "Save draft & exit"}</button> : null}</> : null}
       </section>
 
       {showWizardFooter ? <div className={`publish-form-footer flex flex-wrap justify-end gap-3 border-t border-[rgba(42,98,87,0.12)] bg-[rgba(255,255,255,0.72)] p-3 sm:p-4 ${collectionIndex >= 0 ? `collection-wizard-footer ${previousWizardStep ? "collection-wizard-footer--with-back" : "collection-wizard-footer--without-back"}` : ""} ${specialFooterStep ? "special-wizard-footer" : ""}`}>

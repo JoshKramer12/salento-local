@@ -33,7 +33,7 @@ import { prisma } from "@/lib/prisma";
 import { getReceiptData } from "@/lib/receipts";
 import { getOriginFromHeaders } from "@/lib/request-origin";
 import { getSingleParam } from "@/lib/site";
-import { canUseStripeBankTransferTestSimulation, getPaymentElementPublishableKey } from "@/lib/stripe";
+import { canUseStripeBankTransferTestSimulation, getPaymentElementPublishableKey, isPublicFinancialHold } from "@/lib/stripe";
 import { ensureStripeBankTransferIntent } from "@/lib/stripe-checkout";
 import {
   buildNoEmailPaymentQrPayload,
@@ -66,6 +66,7 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
   const appUrl = getOriginFromHeaders(requestHeaders);
   const locale = await getCurrentLocale();
   const viewer = await requireCompletedViewer();
+  if (isPublicFinancialHold()) return <main className="shell px-4 py-12"><section className="card mx-auto max-w-xl p-6 text-center"><h1 className="font-serif text-3xl">{locale === "it" ? "Pagamenti temporaneamente sospesi" : "Payments temporarily paused"}</h1><p className="mt-3 text-[var(--muted)]">{locale === "it" ? "La tua bozza resta salvata. Nessun pagamento di prova sarà registrato come quota reale." : "Your draft stays saved. No test payment will be recorded as a real membership fee."}</p></section></main>;
   const resolvedSearchParams = await searchParams;
   const submissionId = getSingleParam(resolvedSearchParams.submission);
   const bankTransferTestStatus = getSingleParam(resolvedSearchParams.bankTransferTest);

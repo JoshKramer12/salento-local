@@ -92,7 +92,7 @@ import {
 import {
   ensureStripeBankTransferIntent,
 } from "@/lib/stripe-checkout";
-import { getPaymentElementPublishableKey } from "@/lib/stripe";
+import { getPaymentElementPublishableKey, isPublicFinancialHold } from "@/lib/stripe";
 import { publishSubmissionAfterPayment } from "@/lib/submission-publication";
 import { ensureInitialBusinessMembership } from "@/lib/business-membership";
 import {
@@ -1255,6 +1255,11 @@ async function saveBusinessSubmission(
     whatsapp: getStringValue(formData.get("whatsapp")),
   };
   const wantsPaymentStep = intent === "submit" && Boolean(rawSubmission.paymentMethod);
+  if (wantsPaymentStep && isPublicFinancialHold()) return {
+    error: locale === "it"
+      ? "I pagamenti sono temporaneamente sospesi durante i test. Salva la bozza e riprova più tardi."
+      : "Payments are temporarily paused during testing. Save your draft and try again later.",
+  };
   // An untouched optional draft field arrives from the hidden form control as
   // an empty string. Normalize it for validation so early drafts can save; the
   // final-submit schema still requires a real signer role.

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { resolveStripePaymentQrDestination } from "@/lib/stripe-payment-qr";
+import { isPublicFinancialHold } from "@/lib/stripe";
 
 type RouteContext = {
   params: Promise<{
@@ -9,6 +10,8 @@ type RouteContext = {
 };
 
 export async function GET(_request: Request, context: RouteContext) {
+  if (isPublicFinancialHold()) return NextResponse.json({ error: "payments_temporarily_paused" },
+    { status: 503, headers: { "Cache-Control": "no-store" } });
   const { checkoutSessionId } = await context.params;
   const destination = await resolveStripePaymentQrDestination(checkoutSessionId);
 

@@ -9,7 +9,7 @@ export async function GET(request: Request) {
   if (!isPayLaterEnabled()) return NextResponse.json({ error: "unavailable" }, { status: 404 });
   if (!hasSameOriginOrNoOrigin(request)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const viewer = (await auth())?.user;
-  if (!viewer?.id || viewer.role !== "GETTER") return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!viewer?.id || (viewer.role !== "GETTER" && viewer.role !== "BUSINESS_OWNER")) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const submissionId = new URL(request.url).searchParams.get("submissionId") ?? "";
   if (!/^[a-z0-9_-]{20,40}$/i.test(submissionId)) return NextResponse.json({ error: "invalid_request" }, { status: 400 });
   const invitation = await prisma.businessSubmissionInvitation.findFirst({
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
   if (!isPayLaterEnabled()) return NextResponse.json({ error: "unavailable" }, { status: 404 });
   if (!hasSameOriginOrNoOrigin(request)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const viewer = (await auth())?.user;
-  if (!viewer?.id || viewer.role !== "GETTER") return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!viewer?.id || (viewer.role !== "GETTER" && viewer.role !== "BUSINESS_OWNER")) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const input: unknown = await request.json().catch(() => null);
   if (!input || typeof input !== "object") return NextResponse.json({ error: "invalid_request" }, { status: 400 });
   const { submissionId, mode, locale } = input as Record<string, unknown>;

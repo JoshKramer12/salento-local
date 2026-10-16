@@ -1,18 +1,20 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHmac } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after } from "node:test";
 
 import { prisma } from "@/lib/prisma";
-import { attemptInvitationEmail, createOrRotateInvitation, deriveInvitationToken,
+import { attemptInvitationEmail, buildInvitationEmail, createOrRotateInvitation, deriveInvitationToken,
   getInvitationByToken, getOwnerDetailsHash, requireVerifiedInvitation,
   startInvitationOtp, verifyInvitationOtp, closeInvitation, getInvitationUrl } from "@/lib/pay-later-invitations";
 import { isValidOwnerSignature, chooseVerifiedPayLaterPayment } from "@/lib/pay-later-payment";
 import { reminderSequenceDue, runPayLaterReminderJob } from "@/lib/pay-later-reminders";
 import { ensurePendingPartnerCommissionForSubmission } from "@/lib/partner-ledger";
 import { syncStripePaymentFromWebhook } from "@/lib/stripe-payment-sync";
+import { assertFinancialPaymentAllowed, isPublicFinancialHold } from "@/lib/stripe";
 
 const directory = mkdtempSync(join(tmpdir(), "salento-pay-later-"));
 writeFileSync(join(directory, "isolated.db"), "");
@@ -54,6 +56,73 @@ const sendEmail = async (message: { idempotencyKey?: string; text: string; to: s
   return { provider: "resend" as const, messageId: `test-mail-${sent.length}`, success: true };
 };
 const day = 86_400_000;
+
+test("owner-created invitation and approval stay unpaid in public Stripe sandbox", async () => {
+  const { partner: owner, submission } = await fixture();
+  await prisma.user.update({ where: { id: owner.id }, data: { role: "BUSINESS_OWNER" } });
+  const previousEnvironment = process.env.RAILWAY_ENVIRONMENT_NAME;
+  const previousKey = process.env.STRIPE_SECRET_KEY;
+  const previousWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  process.env.RAILWAY_ENVIRONMENT_NAME = "production";
+  process.env.STRIPE_SECRET_KEY = "sk_test_synthetic_only";
+  process.env.STRIPE_WEBHOOK_SECRET = "whsec_synthetic_public_hold";
+  try {
+    assert.equal(isPublicFinancialHold(), true);
+    assert.throws(assertFinancialPaymentAllowed, /public_financial_payment_paused/);
+    const created = await createOrRotateInvitation({ partnerUserId: owner.id, submissionId: submission.id, locale: "en" });
+    const token = deriveInvitationToken(created);
+    assert.equal(await attemptInvitationEmail(created.id, new Date(), sendEmail as never), "accepted");
+    assert.match(sent.at(-1)?.text ?? "", /temporarily paused/);
+    assert.match(buildInvitationEmail({ businessName: "Synthetic", townName: "Lecce",
+      ownerName: "Owner", locale: "en", url: "https://salento.example.test/pay-later",
+      ownerSubmitted: true, paymentPaused: true }).html, /you saved the listing/);
+    assert.equal(await startInvitationOtp(token, new Date(), sendEmail as never), "sent");
+    const code = sent.at(-1)?.text.match(/\b\d{6}\b/)?.[0];
+    assert.ok(code);
+    assert.ok(await verifyInvitationOtp(token, code));
+    const invitation = await getInvitationByToken(token);
+    assert.ok(invitation);
+    const signature = JSON.stringify({ version: 1, strokes: [[{ x: 1, y: 2 }, { x: 2, y: 3 }]] });
+    assert.deepEqual(await chooseVerifiedPayLaterPayment(invitation, {
+      method: "BANK_TRANSFER", renewal: "MANUAL", ownerConfirmed: true, termsAccepted: true,
+      signerFullName: "Test Owner", signerRole: "OWNER", signerRoleOther: "", signature,
+    }), { status: "paused" });
+    const saved = await prisma.businessSubmission.findUniqueOrThrow({ where: { id: submission.id } });
+    assert.equal(saved.status, "DRAFT");
+    assert.equal(saved.paymentStatus, "NOT_REQUIRED");
+    assert.equal(saved.paymentMethod, null);
+    assert.equal(saved.agreementSignature, signature);
+    assert.equal(saved.automaticRenewalAtAcceptance, false);
+    await assert.rejects(syncStripePaymentFromWebhook({ amountPaidCents: 10_000,
+      businessSubmissionId: submission.id, stripeEventId: "evt_synthetic_public_hold",
+      paymentIntentId: "pi_synthetic_public_hold" }), /public_financial_payment_paused/);
+    const payload = JSON.stringify({ id: `evt_public_hold_${submission.id}`, type: "checkout.session.completed",
+      livemode: false, data: { object: { id: `cs_test_${submission.id}`, object: "checkout.session",
+        metadata: { businessSubmissionId: submission.id, userId: owner.id }, amount_total: 10_000,
+        currency: "eur", payment_status: "paid" } } });
+    const timestamp = Math.floor(Date.now() / 1000);
+    const webhookSignature = createHmac("sha256", process.env.STRIPE_WEBHOOK_SECRET)
+      .update(`${timestamp}.${payload}`).digest("hex");
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    const response = await POST(new Request("https://salento.example.test/api/stripe/webhook", {
+      method: "POST", headers: { "stripe-signature": `t=${timestamp},v1=${webhookSignature}` }, body: payload,
+    }));
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).sandboxFinancialHold, true);
+    assert.equal(await prisma.payment.count({ where: { businessSubmissionId: submission.id } }), 0);
+    assert.equal(await prisma.businessMembership.count(), 0);
+    assert.equal(await prisma.partnerCommission.count({ where: { businessSubmissionId: submission.id } }), 0);
+    assert.equal((await runPayLaterReminderJob(new Date(Date.now() + 4 * day), sendEmail as never)).sent, 0);
+    await prisma.businessSubmissionInvitation.update({ where: { id: created.id }, data: { revokedAt: new Date() } });
+  } finally {
+    if (previousEnvironment === undefined) delete process.env.RAILWAY_ENVIRONMENT_NAME;
+    else process.env.RAILWAY_ENVIRONMENT_NAME = previousEnvironment;
+    if (previousKey === undefined) delete process.env.STRIPE_SECRET_KEY;
+    else process.env.STRIPE_SECRET_KEY = previousKey;
+    if (previousWebhookSecret === undefined) delete process.env.STRIPE_WEBHOOK_SECRET;
+    else process.env.STRIPE_WEBHOOK_SECRET = previousWebhookSecret;
+  }
+});
 
 test("invitation persists before mandatory email, OTP verifies once, rotation revokes old link", async () => {
   const { partner, submission } = await fixture();

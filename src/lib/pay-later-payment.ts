@@ -5,7 +5,7 @@ import { createNoEmailPaymentToken, ensureManualElementPaymentIntent } from "@/l
 import { getOwnerDetailsHash } from "@/lib/pay-later-invitations";
 import { prisma } from "@/lib/prisma";
 import { ensureStripeBankTransferIntent, extractStripeBankTransferInstructions } from "@/lib/stripe-checkout";
-import { getPaymentElementPublishableKey, getStripe } from "@/lib/stripe";
+import { getPaymentElementPublishableKey, getStripe, isPublicFinancialHold } from "@/lib/stripe";
 
 export type PayLaterPaymentChoice = {
   method: "ONLINE" | "BANK_TRANSFER";
@@ -52,7 +52,7 @@ export async function chooseVerifiedPayLaterPayment(invitation: BusinessSubmissi
       currentInvitation.completedAt || currentInvitation.recipientEmail !== submission.ownerEmail.trim().toLowerCase() ||
       currentInvitation.verifiedDetailsHash !== getOwnerDetailsHash(submission) ||
       submission.createdBusinessId || submission.paymentStatus === "PAID" || submission.status === "PUBLISHED" ||
-      submission.userId !== invitation.partnerUserId || partner?.role !== "GETTER")
+      submission.userId !== invitation.partnerUserId || (partner?.role !== "GETTER" && partner?.role !== "BUSINESS_OWNER"))
       throw new Error("pay_later_state_conflict");
     const conflictingPayment = await tx.payment.findFirst({
       where: { businessSubmissionId: submission.id, purpose: "INITIAL_MEMBERSHIP",
@@ -77,6 +77,25 @@ export async function chooseVerifiedPayLaterPayment(invitation: BusinessSubmissi
     }
     if (submission.status !== "DRAFT" || submission.paymentStatus !== "NOT_REQUIRED") throw new Error("pay_later_state_conflict");
     const detailsHash = getOwnerDetailsHash(submission);
+    if (isPublicFinancialHold()) {
+      const saved = await tx.businessSubmission.updateMany({
+        where: { id: submission.id, status: "DRAFT", paymentMethod: null,
+          paymentStatus: "NOT_REQUIRED", updatedAt: submission.updatedAt },
+        data: { agreementSignature: choice.signature, signerFullName: choice.signerFullName.trim(),
+          signerRole: choice.signerRole, signerRoleOther: choice.signerRoleOther.trim() || null,
+          signedAt: now, businessTermsAcceptedAt: now,
+          businessTermsVersion: LISTING_OFFER.businessTermsVersion,
+          privacyPolicyVersionPresented: LISTING_OFFER.privacyPolicyVersion,
+          firstYearPriceCentsAtAcceptance: LISTING_OFFER.annualPriceCents,
+          renewalPriceCentsAtAcceptance: LISTING_OFFER.renewalPriceCents,
+          listingTermMonthsAtAcceptance: LISTING_OFFER.termMonths,
+          automaticRenewalAtAcceptance: choice.method === "ONLINE" && choice.renewal === "AUTO",
+          payLaterConfirmedAt: now, payLaterVerifiedAt: currentInvitation.verifiedAt,
+          payLaterDetailsHash: detailsHash },
+      });
+      if (saved.count !== 1) throw new Error("pay_later_concurrent_change");
+      return { submissionId: submission.id, method: choice.method, prepared: true, paused: true } as const;
+    }
     const updated = await tx.businessSubmission.updateMany({
       where: { id: submission.id, status: "DRAFT", paymentMethod: null, paymentStatus: "NOT_REQUIRED",
         updatedAt: submission.updatedAt },
@@ -99,6 +118,7 @@ export async function chooseVerifiedPayLaterPayment(invitation: BusinessSubmissi
     if (updated.count !== 1) throw new Error("pay_later_concurrent_change");
     return { submissionId: submission.id, method: choice.method, prepared: false } as const;
   });
+  if ("paused" in result) return { status: "paused" as const };
   if (!result.prepared) {
     const submission = await prisma.businessSubmission.findUniqueOrThrow({ where: { id: result.submissionId } });
     if (choice.method === "ONLINE") {
@@ -107,13 +127,14 @@ export async function chooseVerifiedPayLaterPayment(invitation: BusinessSubmissi
         : await ensureManualElementPaymentIntent(submission.id);
       if (!prepared) throw new Error("pay_later_payment_setup_unavailable");
     } else {
+      const submitter = await prisma.user.findUniqueOrThrow({ where: { id: submission.userId }, select: { role: true } });
       await ensureStripeBankTransferIntent({
         idempotencyKey: `pay-later-bank:${submission.id}`,
         submission: { amountOwedCents: submission.amountOwedCents, businessName: submission.businessName,
           email: submission.email, id: submission.id, ownerEmail: submission.ownerEmail,
           ownerName: submission.ownerName, ownerPhone: submission.ownerPhone, userId: submission.userId },
-        // The submitter is the original Partner. The verified owner is never substituted here.
-        viewer: { id: invitation.partnerUserId, role: "GETTER", email: null },
+        // Preserve the original submitter's role for Partner attribution.
+        viewer: { id: submission.userId, role: submitter.role, email: null },
       });
     }
     await prisma.businessSubmission.updateMany({
@@ -126,6 +147,7 @@ export async function chooseVerifiedPayLaterPayment(invitation: BusinessSubmissi
 }
 
 export async function resumeVerifiedPayLaterPayment(invitation: BusinessSubmissionInvitation) {
+  if (isPublicFinancialHold()) return { status: "paused" as const };
   const submission = await prisma.businessSubmission.findUniqueOrThrow({ where: { id: invitation.businessSubmissionId } });
   if (submission.paymentMethod !== "ONLINE" && submission.paymentMethod !== "BANK_TRANSFER")
     throw new Error("pay_later_payment_unavailable");
@@ -143,6 +165,7 @@ export async function resumeVerifiedPayLaterPayment(invitation: BusinessSubmissi
 }
 
 export async function getVerifiedPayLaterPaymentDestination(submissionId: string, method: "ONLINE" | "BANK_TRANSFER") {
+  if (isPublicFinancialHold()) return { status: "paused" as const };
   const submission = await prisma.businessSubmission.findUnique({ where: { id: submissionId } });
   if (!submission || submission.paymentMethod !== method) throw new Error("pay_later_payment_unavailable");
   if (submission.paymentStatus === "PAID" || submission.status === "PUBLISHED") return { status: "paid" as const };

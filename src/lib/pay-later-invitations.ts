@@ -8,6 +8,7 @@ import type { Locale } from "@/lib/i18n";
 import { LISTING_OFFER } from "@/lib/listing-offer";
 import { getAppUrl } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
+import { isPublicFinancialHold } from "@/lib/stripe";
 import { getSupportContactEmail } from "@/lib/support-contact";
 import { normalizeEmail, normalizePhoneNumber } from "@/lib/validation";
 
@@ -106,7 +107,7 @@ export async function createOrRotateInvitation(params: {
       where: { id: params.submissionId, userId: params.partnerUserId },
       include: { user: { select: { role: true } }, payLaterInvitation: true },
     });
-    if (!submission || submission.user.role !== "GETTER" || submission.status !== "DRAFT" ||
+    if (!submission || !["GETTER", "BUSINESS_OWNER"].includes(submission.user.role) || submission.status !== "DRAFT" ||
       submission.paymentMethod || submission.paymentStatus !== "NOT_REQUIRED" ||
       submission.createdBusinessId || !isPartnerListingComplete(submission)) throw new Error("pay_later_submission_ineligible");
     const payment = await tx.payment.findFirst({ where: { businessSubmissionId: submission.id,
@@ -156,12 +157,18 @@ function escapeHtml(value: string) { return value.replace(/[&<>"']/g, (char) => 
 function emailFrame(headline: string, body: string, action: string, href: string, footer: string) {
   return `<div style="padding:28px 12px;background:#f7f2ea;color:#243b34;font-family:Arial,sans-serif"><table role="presentation" width="100%"><tr><td align="center"><table role="presentation" width="100%" style="max-width:620px;background:#fffdf9;border:1px solid #e5ddd1;border-radius:18px"><tr><td style="padding:32px"><p style="color:#2a6257;font-weight:700;letter-spacing:2px">SALENTO LOCAL</p><h1 style="font-family:Georgia,serif;font-size:30px">${escapeHtml(headline)}</h1><p style="line-height:1.65">${body}</p><p style="margin:30px 0"><a href="${escapeHtml(href)}" style="background:#2a6257;color:#fff;padding:14px 20px;border-radius:10px;text-decoration:none;font-weight:700">${escapeHtml(action)}</a></p><p style="font-size:13px;color:#65756d">${escapeHtml(footer)}</p></td></tr></table></td></tr></table></div>`;
 }
-export function buildInvitationEmail(params: { businessName: string; townName: string; ownerName: string; locale: Locale; url: string }) {
+export function buildInvitationEmail(params: { businessName: string; townName: string; ownerName: string; locale: Locale; url: string; ownerSubmitted?: boolean; paymentPaused?: boolean }) {
   const it = params.locale === "it";
   const greeting = params.ownerName.trim() ? `${it ? "Ciao" : "Hello"} ${escapeHtml(params.ownerName.trim().split(" ")[0])}, ` : "";
+  const origin = params.ownerSubmitted
+    ? (it ? "hai salvato la scheda" : "you saved the listing")
+    : (it ? "un Local Partner Salento Local ha preparato la scheda" : "a Salento Local Partner prepared the listing");
+  const hold = params.paymentPaused
+    ? (it ? " I pagamenti sono temporaneamente sospesi durante i test; non ti verrà addebitato nulla ora." : " Payments are temporarily paused during testing; you will not be charged now.")
+    : "";
   const body = it
-    ? `${greeting}un Local Partner Salento Local ha preparato la scheda di <strong>${escapeHtml(params.businessName)}</strong> a ${escapeHtml(params.townName)}. La scheda non è ancora attiva. Controlla i dati, verifica la tua email, accetta i termini, firma e scegli come pagare l’adesione annuale di <strong>€100</strong>.`
-    : `${greeting}a Salento Local Partner prepared the listing for <strong>${escapeHtml(params.businessName)}</strong> in ${escapeHtml(params.townName)}. It is not active yet. Review the details, verify your email, accept the terms, sign, and choose how to pay the <strong>€100 annual membership</strong>.`;
+    ? `${greeting}${origin} di <strong>${escapeHtml(params.businessName)}</strong> a ${escapeHtml(params.townName)}. La scheda non è ancora attiva. Controlla i dati, verifica la tua email, accetta i termini, firma e scegli come pagare l’adesione annuale di <strong>€100</strong>.${hold}`
+    : `${greeting}${origin} for <strong>${escapeHtml(params.businessName)}</strong> in ${escapeHtml(params.townName)}. It is not active yet. Review the details, verify your email, accept the terms, sign, and choose how to pay the <strong>€100 annual membership</strong>.${hold}`;
   const subject = it ? "La tua attività è pronta su Salento Local" : "Your business is ready on Salento Local";
   const headline = it ? "La tua attività è quasi pronta!" : "Your business is almost ready!";
   const action = it ? "Controlla e completa l’adesione" : "Review and complete membership";
@@ -170,7 +177,7 @@ export function buildInvitationEmail(params: { businessName: string; townName: s
     ? `Se non riconosci questa richiesta, apri il link e scegli di rifiutare. Per assistenza, ${support ? `scrivi a ${support}` : "rispondi a questa email"}.`
     : `If you do not recognize this request, open the link and decline. For help, ${support ? `write to ${support}` : "reply to this email"}.`;
   return { subject, html: emailFrame(headline, body, action, params.url, footer),
-    text: `${headline}\n\n${params.businessName} · ${params.townName}\n\n${it ? "La scheda non è ancora attiva. Verifica la tua email, controlla i dati e completa l’adesione annuale di €100." : "The listing is not active. Verify your email, review the details and complete the €100 annual membership."}\n\n${params.url}\n\n${footer}` };
+    text: `${headline}\n\n${params.businessName} · ${params.townName}\n\n${it ? "La scheda non è ancora attiva. Verifica la tua email, controlla i dati e completa l’adesione annuale di €100." : "The listing is not active. Verify your email, review the details and complete the €100 annual membership."}${hold}\n\n${params.url}\n\n${footer}` };
 }
 
 export async function attemptInvitationEmail(invitationId: string, now = new Date(), sendEmail = sendTransactionalEmail) {
@@ -199,14 +206,16 @@ export async function attemptInvitationEmail(invitationId: string, now = new Dat
   });
   if (!claimed.count) return "skipped" as const;
   const invitation = await prisma.businessSubmissionInvitation.findUniqueOrThrow({
-    where: { id: invitationId }, include: { businessSubmission: { include: { town: true } } },
+    where: { id: invitationId }, include: { businessSubmission: { include: { town: true, user: { select: { role: true } } } } },
   });
   if (invitation.tokenGeneration !== pending.tokenGeneration ||
     !invitationIsOpen(invitation, invitation.businessSubmission, now) ||
     normalizeEmail(invitation.businessSubmission.ownerEmail) !== invitation.recipientEmail) return "skipped" as const;
   const message = buildInvitationEmail({ businessName: invitation.businessSubmission.businessName,
     townName: invitation.businessSubmission.town.name, ownerName: invitation.businessSubmission.ownerName,
-    locale: invitation.locale === "en" ? "en" : "it", url: getInvitationUrl(invitation) });
+    locale: invitation.locale === "en" ? "en" : "it", url: getInvitationUrl(invitation),
+    ownerSubmitted: invitation.businessSubmission.user.role === "BUSINESS_OWNER",
+    paymentPaused: isPublicFinancialHold() });
   try {
     const sent = await sendEmail({ ...message, to: invitation.recipientEmail,
       idempotencyKey: `pay-later-invitation:${invitation.id}:${invitation.tokenGeneration}` });

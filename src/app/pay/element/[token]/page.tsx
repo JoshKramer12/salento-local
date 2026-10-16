@@ -9,7 +9,7 @@ import { formatCurrencyFromCents } from "@/lib/account";
 import { getCurrentLocale } from "@/lib/locale";
 import { EMAIL_MANUAL_PAYMENT_FLOW, findInitialElementTokenPayment, matchesManualElementPaymentIntent, NO_EMAIL_PAYMENT_FLOW } from "@/lib/no-email-payment";
 import { getOriginFromHeaders } from "@/lib/request-origin";
-import { getPaymentElementPublishableKey, getStripe } from "@/lib/stripe";
+import { getPaymentElementPublishableKey, getStripe, isPublicFinancialHold } from "@/lib/stripe";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { referrer: "no-referrer", robots: { index: false, follow: false } };
@@ -19,6 +19,7 @@ type Props = { params: Promise<{ token: string }> };
 export default async function NoEmailPaymentPage({ params }: Props) {
   const { token } = await params;
   const locale = await getCurrentLocale();
+  if (isPublicFinancialHold()) return <PaymentUnavailable locale={locale} />;
   const payment = await findInitialElementTokenPayment(token);
   const returnPath = `/publish/payment/success?payment_token=${encodeURIComponent(token)}&locale=${locale}`;
   const returnUrl = `${getOriginFromHeaders(await headers())}${returnPath}`;

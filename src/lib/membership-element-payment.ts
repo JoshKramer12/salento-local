@@ -8,7 +8,7 @@ import { attemptMembershipPaymentOutcomeDelivery } from "@/lib/membership-paymen
 import { matchesManualElementPaymentIntent } from "@/lib/no-email-payment";
 import { ensurePartnerRefundRepurchaseCommissionForPayment, ensurePartnerRenewalCommissionForPayment } from "@/lib/partner-ledger";
 import { prisma } from "@/lib/prisma";
-import { getStripe } from "@/lib/stripe";
+import { assertFinancialPaymentAllowed, getStripe, isPublicFinancialHold } from "@/lib/stripe";
 import { inspectMembershipRenewalRecovery } from "@/lib/membership-renewal-recovery";
 
 export const MEMBERSHIP_ELEMENT_FLOW = "MEMBERSHIP_PAYMENT_ELEMENT";
@@ -17,6 +17,7 @@ type Dependencies = { db?: PrismaClient; stripe?: Stripe; now?: Date };
 export async function ensureMembershipElementPayment(params: {
   businessId: string; userId: string; automaticRenewal?: boolean;
 }, dependencies: Dependencies = {}) {
+  assertFinancialPaymentAllowed();
   const db = dependencies.db ?? prisma;
   const stripe = dependencies.stripe ?? getStripe();
   const now = dependencies.now ?? new Date();
@@ -173,6 +174,7 @@ export async function syncMembershipElementPayment(paymentId: string, dependenci
   repurchaseCommission?: typeof ensurePartnerRefundRepurchaseCommissionForPayment;
   attemptOutcome?: typeof attemptMembershipPaymentOutcomeDelivery;
 } = {}) {
+  if (isPublicFinancialHold()) return null;
   const db = dependencies.db ?? prisma;
   const payment = await db.payment.findUnique({ where: { id: paymentId } });
   if (!payment || !payment.id.startsWith("membership-element:")) throw new Error("membership_element_payment_missing");

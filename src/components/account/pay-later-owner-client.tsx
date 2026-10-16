@@ -13,15 +13,16 @@ import type { Locale } from "@/lib/i18n";
 export type PayLaterOwnerSubmission = {
   businessName: string; address: string; town: string; category: string; description: string;
   openingHours: string; phone: string; email: string; photos: string[]; ownerName: string;
+  ownerSubmitted?: boolean;
   signedEarlier: boolean; paymentMethod: "ONLINE" | "BANK_TRANSFER" | null;
 };
-type Destination = { status: "paid" } | { status: "online"; href: string } | {
+type Destination = { status: "paid" } | { status: "paused" } | { status: "online"; href: string } | {
   status: "bank"; instructions: { accountHolderName: string; amountRemainingCents: number;
     bic: string; hostedInstructionsUrl: string; iban: string; reference: string };
 };
 
-export function PayLaterOwnerClient({ token, locale, verified, emailHint, submission }: {
-  token: string; locale: Locale; verified: boolean; emailHint: string; submission: PayLaterOwnerSubmission | null;
+export function PayLaterOwnerClient({ token, locale, verified, emailHint, paymentPaused, submission }: {
+  token: string; locale: Locale; verified: boolean; emailHint: string; paymentPaused: boolean; submission: PayLaterOwnerSubmission | null;
 }) {
   const it = locale === "it";
   const [otpSent, setOtpSent] = useState(false);
@@ -178,7 +179,7 @@ export function PayLaterOwnerClient({ token, locale, verified, emailHint, submis
   const privacyLink = getLegalLinks(locale).privacy;
   return <main className="shell px-4 py-9 sm:px-6 sm:py-14"><div className="mx-auto max-w-3xl">
     <nav aria-label={it ? "Avanzamento della procedura" : "Submission progress"} className={styles.progress}><ol>{["review", "agreement", "signature", "payment"].map((name, index) => <li key={name} className={stage === name ? styles.progressCurrent : ["review", "agreement", "signature", "payment", "complete"].indexOf(stage) > index ? styles.progressDone : ""}><span className={styles.progressIcon}>{index === 3 ? <IconCreditCard size={21} aria-hidden="true" /> : ["review", "agreement", "signature", "payment", "complete"].indexOf(stage) > index ? <IconCheck size={20} aria-hidden="true" /> : index + 1}</span><span>{it ? ["Conferma", "Accetta", "Firma", "Pagamento"][index] : ["Confirm", "Accept", "Sign", "Payment"][index]}</span></li>)}</ol></nav>
-    {stage !== "payment" ? <header className="mt-7"><p className="section-kicker">Salento Local · {it ? "Invito del Local Partner" : "Local Partner invitation"}</p>
+    {stage !== "payment" ? <header className="mt-7"><p className="section-kicker">Salento Local · {submission.ownerSubmitted ? (it ? "Il tuo invito" : "Your invitation") : (it ? "Invito del Local Partner" : "Local Partner invitation")}</p>
       <h1 className="mt-3 font-serif text-4xl">{title}</h1>
       <p className="mt-3 text-[var(--muted)]">{it ? "La tua scheda resta salvata e sarà pubblicata solo dopo la conferma del pagamento." : "Your listing is saved and will be published only after payment is confirmed."}</p></header> : null}
     {stage === "review" ? <section className={`${card} mt-7`}>
@@ -189,7 +190,9 @@ export function PayLaterOwnerClient({ token, locale, verified, emailHint, submis
       {photos.length ? <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">{photos.map((url, index) => <img key={`${url}-${index}`} src={url} alt={`${submission.businessName} · ${index + 1}`} className="aspect-[4/3] w-full rounded-xl object-cover" />)}</div> : null}
       <label className="mt-7 flex items-start gap-3"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} className="mt-1 h-5 w-5 accent-[var(--primary)]" /><span>{it ? "Confermo che le informazioni della mia attività sono corrette." : "I confirm that my business details are correct."}</span></label>
       <button type="button" disabled={!confirmed} onClick={() => setStage("agreement")} className="btn-primary mt-6 w-full disabled:opacity-50">{it ? "Continua" : "Continue"}<IconArrowRight size={18} /></button>
-      <p className="mt-4 text-sm text-[var(--muted)]">{it ? "Qualcosa non va? Chiedi al Local Partner di correggere la scheda prima di firmare." : "Something wrong? Ask the Local Partner to correct the listing before signing."}</p>
+      <p className="mt-4 text-sm text-[var(--muted)]">{submission.ownerSubmitted
+        ? (it ? "Qualcosa non va? Contatta l'assistenza prima di firmare." : "Something wrong? Contact support before signing.")
+        : (it ? "Qualcosa non va? Chiedi al Local Partner di correggere la scheda prima di firmare." : "Something wrong? Ask the Local Partner to correct the listing before signing.")}</p>
     </section> : null}
     {stage === "agreement" ? <section className={`${card} mt-7`}><OwnerAgreementStep accepted={accepted} businessName={submission.businessName}
       firstYearPriceLabel="€100" renewalPriceLabel="€100" keyTerms={[
@@ -210,7 +213,8 @@ export function PayLaterOwnerClient({ token, locale, verified, emailHint, submis
       <button type="button" disabled={!signerName.trim() || !signature || (signerRole === "OTHER_AUTHORIZED_REPRESENTATIVE" && !signerRoleOther.trim())} onClick={() => { setStage("payment"); navigatePayment(submission.signedEarlier ? "renewal" : "decision"); }} className="btn-primary mt-6 w-full disabled:opacity-50">{it ? "Continua al pagamento" : "Continue to payment"}<IconArrowRight size={18} /></button>
     </section> : null}
     {stage === "payment" ? <section className="mt-7">
-      {destination?.status === "paid" ? <div className={card}><IconCheck className="text-[var(--primary)]" size={36} /><h2 className="mt-3 font-serif text-3xl">{it ? "Pagamento ricevuto" : "Payment received"}</h2></div>
+      {destination?.status === "paused" ? <div role="status" className={card}><IconCheck className="text-[var(--primary)]" size={36} /><h2 className="mt-3 font-serif text-3xl">{it ? "Scelta salvata" : "Choice saved"}</h2><p className="mt-3 text-[var(--muted)]">{it ? "La tua conferma, firma e preferenza di rinnovo sono salvate. I pagamenti sono sospesi durante i test; non è stato addebitato nulla e la scheda non è ancora pubblicata." : "Your confirmation, signature and renewal choice are saved. Payments are paused during testing; nothing was charged and the listing is not yet published."}</p></div>
+        : destination?.status === "paid" ? <div className={card}><IconCheck className="text-[var(--primary)]" size={36} /><h2 className="mt-3 font-serif text-3xl">{it ? "Pagamento ricevuto" : "Payment received"}</h2></div>
         : destination?.status === "online" || destination?.status === "bank" ? <div className={`${card} ${styles.handoffResult}`}>
           <span className={styles.kicker}>{it ? "Pagamento" : "Payment"}</span>
           <h2 className="mt-5 font-serif text-3xl">{destination.status === "online" ? (it ? "Completa il pagamento" : "Complete payment") : (it ? "Istruzioni per il bonifico" : "Bank transfer instructions")}</h2>
@@ -221,7 +225,7 @@ export function PayLaterOwnerClient({ token, locale, verified, emailHint, submis
         </div> : submission.paymentMethod ? <div className={card}><p>{it ? "Hai già scelto un metodo di pagamento per questa adesione." : "A payment method has already been selected for this membership."}</p><button type="button" disabled={busy} onClick={continueExistingPayment} className="btn-primary mt-5 w-full">{it ? "Continua il pagamento" : "Continue payment"}</button></div>
         : paymentSubstep === "decision" ? <PaymentDecisionStep locale={locale} allowLater={false} alreadyInvited onNow={() => navigatePayment("renewal")} onBack={() => setStage("signature")} />
         : paymentSubstep === "renewal" || !renewalChosen ? <RenewalSelectionStep locale={locale} value={renewalChosen ? renewal : null} onChange={selectRenewal} onContinue={() => navigatePayment("methods")} onBack={() => submission.signedEarlier ? setStage("signature") : navigatePayment("decision")} />
-        : <PaymentMethodStep locale={locale} renewal={renewal} busyMethod={busyMethod} error={error} onOnline={() => choosePayment("ONLINE")} onBank={() => choosePayment("BANK_TRANSFER")} onBack={() => navigatePayment("renewal")} />}
+        : <>{paymentPaused ? <p role="status" className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">{it ? "I pagamenti sono temporaneamente sospesi. Puoi salvare la tua conferma, firma e scelta di rinnovo; non verrà creato alcun pagamento." : "Payments are temporarily paused. You can save your confirmation, signature and renewal choice; no payment will be created."}</p> : null}<PaymentMethodStep locale={locale} renewal={renewal} paymentPaused={paymentPaused} busyMethod={busyMethod} error={error} onOnline={() => choosePayment("ONLINE")} onBank={() => choosePayment("BANK_TRANSFER")} onBack={() => navigatePayment("renewal")} /></>}
     </section> : null}
 
     {stage === "complete" ? <section className={`${card} mt-7 text-center`}><IconCheck className="mx-auto text-[var(--primary)]" size={40} /><h2 className="mt-4 font-serif text-3xl">{stopped ? (it ? "Scelta salvata" : "Choice saved") : title}</h2></section> : null}

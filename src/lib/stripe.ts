@@ -45,6 +45,18 @@ export function isStripeSandboxMode() {
   return secretKey.startsWith("sk_test_");
 }
 
+/** Public production shares a real customer ledger. It remains financially
+ * closed until a separate live-payment release explicitly enables it. */
+export function isPublicFinancialHold() {
+  const liveKey = normalizeEnvValue(process.env.STRIPE_SECRET_KEY).startsWith("sk_live_");
+  return process.env.RAILWAY_ENVIRONMENT_NAME === "production" &&
+    (!liveKey || process.env.PUBLIC_LIVE_PAYMENTS_ENABLED !== "true");
+}
+
+export function assertFinancialPaymentAllowed() {
+  if (isPublicFinancialHold()) throw new Error("public_financial_payment_paused");
+}
+
 /** Live owner refunds require an independent release switch after live-mode review. */
 export function canRequestOwnerRefunds() {
   if (isStripeSandboxMode()) return true;

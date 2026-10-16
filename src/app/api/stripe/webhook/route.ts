@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { ensurePartnerRefundRepurchaseCommissionForPayment, ensurePartnerRenewalCommissionForPayment, reversePartnerCommissionForPayment } from "@/lib/partner-ledger";
-import { getStripe } from "@/lib/stripe";
+import { getStripe, isPublicFinancialHold } from "@/lib/stripe";
 import { markStripePaymentRefunded } from "@/lib/stripe-payment-sync";
 import { finalizeMembershipRenewalPayment, getVerifiedRenewalInvoiceIntentId } from "@/lib/membership-renewal";
 import { prisma } from "@/lib/prisma";
@@ -52,6 +52,12 @@ export async function POST(request: Request) {
 
   if (webhookLog.alreadyProcessed) {
     return NextResponse.json({ received: true, duplicate: true });
+  }
+
+  if (isPublicFinancialHold() && !event.livemode &&
+    ["checkout.session.completed", "invoice.paid", "payment_intent.succeeded"].includes(event.type)) {
+    await completeStripeWebhookProcessing({ id: webhookLog.id, status: "SKIPPED" });
+    return NextResponse.json({ received: true, sandboxFinancialHold: true });
   }
 
   try {

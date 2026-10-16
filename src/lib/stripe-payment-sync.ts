@@ -6,7 +6,7 @@ import { ensurePendingPartnerCommissionForSubmission } from "@/lib/partner-ledge
 import { getStatusAfterPayment, resolvePaymentMethodRecord } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
 import { runThrottledServerTask } from "@/lib/server-throttle";
-import { getStripe } from "@/lib/stripe";
+import { assertFinancialPaymentAllowed, getStripe, isPublicFinancialHold } from "@/lib/stripe";
 import { publishSubmissionAfterPayment } from "@/lib/submission-publication";
 import { ensureOwnerAccessForPublishedSubmission } from "@/lib/business-owner-access";
 import { ensureInitialBusinessMembership } from "@/lib/business-membership";
@@ -96,6 +96,7 @@ async function finalizeStripeManagedPayment(params: {
   stripeSubscriptionId?: string | null;
   stripeSubscriptionStatus?: string | null;
 }): Promise<SyncResult> {
+  assertFinancialPaymentAllowed();
   let publishedBusinessSlug = "";
   let publishedTownSlug = "";
   let finalizedPaymentId: string | null = null;
@@ -383,6 +384,10 @@ export async function syncStripePaymentForSubmission(params: {
     };
   }
 
+  if (isPublicFinancialHold()) return {
+    paymentReceived: false, publishedBusinessSlug: "", publishedTownSlug: "", status: "pending" as const,
+  };
+
   if (submission.paymentMethod !== "ONLINE") {
     if (submission.paymentMethod !== "BANK_TRANSFER") {
       return {
@@ -583,6 +588,8 @@ export async function syncStripePaymentFromReceiptAccess(params: {
       status: "paid" as const,
     };
   }
+
+  if (isPublicFinancialHold()) return { paymentReceived: false, status: "pending" as const };
 
   const retrieveCheckoutSession = dependencies.retrieveCheckoutSession ??
     ((checkoutSessionId: string) => getStripe().checkout.sessions.retrieve(

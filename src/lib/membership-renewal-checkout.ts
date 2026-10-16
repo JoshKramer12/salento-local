@@ -2,7 +2,7 @@ import type { PaymentPurpose } from "@prisma/client";
 import { LISTING_OFFER } from "@/lib/listing-offer";
 import { buildStripeCheckoutMetadata, getAppUrl, getStripeEuBankTransferCountry } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
-import { getStripe } from "@/lib/stripe";
+import { assertFinancialPaymentAllowed, getStripe } from "@/lib/stripe";
 import { inspectMembershipRenewalRecovery } from "@/lib/membership-renewal-recovery";
 import { extractStripeBankTransferInstructions, type StripeBankTransferInstructions } from "@/lib/stripe-checkout";
 
@@ -14,6 +14,7 @@ export async function ensureMembershipRenewalCheckout(params: {
   businessId: string;
   userId: string;
 }) {
+  assertFinancialPaymentAllowed();
   const membership = await prisma.businessMembership.findUnique({
     where: { businessId: params.businessId },
     include: { business: { select: { name: true, submissions: { orderBy: { createdAt: "asc" }, select: { id: true }, take: 1 } } } },
@@ -59,6 +60,7 @@ export async function ensureMembershipRenewalBankTransferIntent(params: {
   businessId: string;
   userId: string;
 }): Promise<{ instructions: StripeBankTransferInstructions | null; paymentIntentId: string; status: string } | null> {
+  assertFinancialPaymentAllowed();
   const membership = await prisma.businessMembership.findUnique({
     where: { businessId: params.businessId },
     include: { business: { select: { name: true, submissions: { orderBy: { createdAt: "asc" }, select: { id: true, ownerEmail: true, ownerName: true, ownerPhone: true }, take: 1 } } } },

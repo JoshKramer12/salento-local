@@ -2,20 +2,29 @@
 
 ## Scope
 
-Pay Later adds an invitation to an existing Partner `BusinessSubmission`. The submission's
-`userId` remains the original Partner. Sending or resending an invitation creates neither a
+Pay Later adds an invitation to an eligible Partner or business-owner `BusinessSubmission`. The submission's
+`userId` remains the original submitter. Sending or resending an invitation creates neither a
 payment nor a commission. After the verified owner selects a payment method, the method is
 locked on the submission and the existing initial Stripe or bank transfer flow is used. The
 existing paid payment finalizer publishes the listing, creates the membership, and creates
-the €50 commission. Its 14 day hold is based on the paid payment timestamp.
+the €50 commission only for an eligible original Partner. Its 14 day hold is based on the paid payment timestamp.
 Invitation links put the token in the URL fragment (`/pay-later#invite=...`); the browser
 sends it in a POST body after the page loads so it is not included in HTTP request paths.
 
 ## Configuration
 
-- `PAY_LATER_ENABLED=true` enables the Partner UI, owner routes and reminder job. Keep it
-  absent or `false` until production checks pass. Setting it back to `false` is the immediate
-  feature rollback; existing data and payment records remain intact.
+- `PAY_LATER_ENABLED=true` enables Partner and business-owner invitation UI, owner routes,
+  and the reminder job. Setting it back to `false` is the immediate feature rollback;
+  existing data and payment records remain intact.
+- Public production is financially held while Stripe uses test keys, and also when
+  `PUBLIC_LIVE_PAYMENTS_ENABLED` is absent or not `true`. Keep this variable absent until
+  a separately approved live-payment release verifies matching live keys, webhook,
+  accounting, refunds and rollout. Do not set it to `true` with test keys.
+- During this hold, production invitation, OTP, review, signature and renewal-choice
+  saving work. Initial and renewal Stripe resource creation, QR payment handoffs and
+  paid membership/commission finalization are blocked. Test financial completion only
+  in the isolated `pay-later-test` environment. Production invitation emails disclose
+  the temporary payment pause.
 - `PAY_LATER_TOKEN_SECRET`: a unique random secret of at least 32 characters. The code can
   fall back to `OWNER_ACCESS_TOKEN_SECRET`, but production should use a dedicated value.
   Do not change it while active invitations exist without a reissue plan.
@@ -43,7 +52,9 @@ or reminder remains unacknowledged after 23 hours, automatic retries stop with
 logs before any manual reissue or database remediation. Never restart its automatic
 retry without confirming whether the earlier message was accepted.
 Reminder milestones are elapsed UTC days 3, 6, 13, 20, 27 and 34 after the first accepted
-invitation email. Dates shown to Partners use Europe/Rome.
+invitation email. Dates shown to Partners use Europe/Rome. During the public financial hold,
+the daily scheduler still retries a failed initial invitation but suppresses Pay Later
+payment reminders; the isolated test environment exercises the full schedule.
 
 ## Database rollout
 
@@ -95,6 +106,39 @@ Do not delete invitation or financial rows.
    Confirm the deployed commit, scheduler and email provider state before reporting it live.
 
 If any check fails, keep the flag off and do not deploy or claim the feature is live.
+
+## Public invitation rollout with Stripe test keys — 16 October 2026
+
+This is a code-only release on top of the completed additive Pay Later migration. It
+does not change the database schema or activate Partner cash-out. The isolated
+`pay-later-test` environment continues to use Stripe test mode for financial tests.
+
+1. Record production Git SHA, Railway deployment ID, variable modes (never values),
+   migration state, SQLite integrity and counts for Business, BusinessSubmission,
+   Payment, BusinessMembership, PartnerCommission, PartnerPayout, and invitations.
+2. Create a consistent SQLite backup with `VACUUM INTO` on the production volume;
+   copy it to a private operator directory, verify SHA-256, `PRAGMA integrity_check`,
+   `PRAGMA foreign_key_check`, and restore it in isolation. Do not overwrite the live DB.
+3. Run all tests, TypeScript, lint and production build on the release commit. Verify
+   the public financial hold in source and with a synthetic payment finalization test.
+4. Deploy code while `PAY_LATER_ENABLED` is absent or `false`; confirm `/api/health`
+   and the exact deployment commit. `PUBLIC_LIVE_PAYMENTS_ENABLED` must remain absent.
+5. Set `PAY_LATER_ENABLED=true` only on production `web`. Confirm both owner and
+   Partner choices, invitation status and OTP, and the payment pause. Use controlled
+   synthetic accounts and recipient addresses only. Confirm no paid test record was
+   created in production. Never complete a test payment on public production.
+6. Keep the existing daily reminder and 15-minute outcome schedulers active. Pay Later
+   payment reminders are suppressed during the public financial hold; invitation email
+   delivery retries continue. Confirm the isolated test scheduler still exercises the
+   six reminder milestones and deduplication.
+
+Rollback: set `PAY_LATER_ENABLED=false` first and verify the invitation APIs return
+404. Leave the financial hold in force. Reconcile any accepted invitation emails and
+OTP sessions before a code rollback. Deploy the previous verified `main` commit only
+after checking in-flight requests. Leave migrations and all invitation/financial rows
+intact. A database restore is reserved for proven corruption after reconciling writes
+since the backup; never restore over new customer or financial records as a routine
+rollback.
 
 ## Production read-only audit — 14 October 2026
 

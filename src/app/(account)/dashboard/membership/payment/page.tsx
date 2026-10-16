@@ -13,7 +13,7 @@ import { getPaymentPurposeLabel } from "@/lib/membership-renewal";
 import { prisma } from "@/lib/prisma";
 import { getOriginFromHeaders } from "@/lib/request-origin";
 import { getSingleParam } from "@/lib/site";
-import { getPaymentElementPublishableKey } from "@/lib/stripe";
+import { getPaymentElementPublishableKey, isPublicFinancialHold } from "@/lib/stripe";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { referrer: "no-referrer", robots: { index: false, follow: false } };
@@ -23,6 +23,7 @@ export default async function MembershipPaymentPage({ searchParams }: {
 }) {
   const viewer = await requireCompletedViewer();
   const locale = await getCurrentLocale();
+  if (isPublicFinancialHold()) return <main className="shell px-4 py-12"><section className="card mx-auto max-w-xl p-6 text-center"><h1 className="font-serif text-3xl">{locale === "it" ? "Pagamenti temporaneamente sospesi" : "Payments temporarily paused"}</h1><p className="mt-3 text-[var(--muted)]">{locale === "it" ? "La tua membership esistente resta invariata." : "Your existing membership remains unchanged."}</p></section></main>;
   const italian = locale === "it";
   const id = getSingleParam((await searchParams).payment)?.trim();
   if (!id?.startsWith("membership-element:")) redirect("/dashboard");

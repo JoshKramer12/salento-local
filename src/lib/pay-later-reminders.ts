@@ -3,6 +3,7 @@ import { getAppUrl } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
 import { getSupportContactEmail } from "@/lib/support-contact";
 import { deriveInvitationToken, invitationIsOpen, isPayLaterEnabled, PAY_LATER_REMINDER_DAYS } from "@/lib/pay-later-invitations";
+import { isPublicFinancialHold } from "@/lib/stripe";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const LEASE_MS = 15 * 60 * 1000;
@@ -45,6 +46,9 @@ export async function runPayLaterReminderJob(now = new Date(), sendEmail = sendT
   // The invitation retry uses the same token and provider idempotency key.
   const { attemptInvitationEmail } = await import("@/lib/pay-later-invitations");
   for (const row of failedInvitations) await attemptInvitationEmail(row.id, now);
+
+  // Do not urge public owners to pay while production financial completion is paused.
+  if (isPublicFinancialHold()) return { due: 0, sent: 0, retriedInvitations: failedInvitations.length };
 
   const candidates = await prisma.businessSubmissionInvitation.findMany({
     where: { emailAcceptedAt: { not: null }, remindersStoppedAt: null,

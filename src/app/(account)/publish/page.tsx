@@ -16,6 +16,7 @@ import { buildPhoneCountryOptions } from "@/lib/phone-country-options";
 import { getPublishOwnerContactDefaults } from "@/lib/publish-owner-contact";
 import { prisma } from "@/lib/prisma";
 import { isPayLaterEnabled } from "@/lib/pay-later-invitations";
+import { isPublicFinancialHold } from "@/lib/stripe";
 import { getSingleParam } from "@/lib/site";
 import { buildDraftLikeSubmissionWhere } from "@/lib/submission-drafts";
 
@@ -141,7 +142,8 @@ export default async function PublishPage({ searchParams }: PublishPageProps) {
 
       <PublishForm
         adminMode={adminMode}
-        payLaterEnabled={viewer.role === "GETTER" && !adminMode && isPayLaterEnabled()}
+        payLaterEnabled={(viewer.role === "GETTER" || viewer.role === "BUSINESS_OWNER") && !adminMode && isPayLaterEnabled()}
+        financialPaymentPaused={isPublicFinancialHold()}
         ownerContactDefaults={ownerContactDefaults}
         viewerId={viewer.id}
         submissionUpdatedAt={submission?.updatedAt.toISOString()}

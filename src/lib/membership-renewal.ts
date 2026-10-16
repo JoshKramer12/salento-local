@@ -3,6 +3,7 @@ import type Stripe from "stripe";
 
 import { getBusinessMembershipPeriod, getBusinessMembershipStatus } from "@/lib/business-membership";
 import { LISTING_OFFER } from "@/lib/listing-offer";
+import { assertFinancialPaymentAllowed } from "@/lib/stripe";
 
 type RenewalDb = PrismaClient | Prisma.TransactionClient;
 
@@ -63,6 +64,7 @@ export async function finalizeMembershipRenewalPayment(params: {
   stripeSubscriptionStatus?: string | null;
   stripeCancelAtPeriodEnd?: boolean | null;
 }) {
+  assertFinancialPaymentAllowed();
   const membership = await params.db.businessMembership.findFirst({
     where: params.businessId
       ? { businessId: params.businessId }

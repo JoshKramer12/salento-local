@@ -10,7 +10,7 @@ import {
   getStripeEuBankTransferCountry,
 } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
-import { getStripe } from "@/lib/stripe";
+import { assertFinancialPaymentAllowed, getStripe } from "@/lib/stripe";
 
 type CheckoutViewer = {
   email?: string | null;
@@ -104,6 +104,7 @@ export async function ensureStripeCheckoutSession(params: {
   submission: CheckoutSubmission;
   viewer: CheckoutViewer;
 }) {
+  assertFinancialPaymentAllowed();
   const stripe = getStripe();
   const appUrl = params.appUrl?.trim().replace(/\/+$/, "") || getAppUrl();
   const ownerCheckoutCopy = getOwnerStripeCheckoutCopy(params.submission.businessName);
@@ -237,6 +238,7 @@ export async function ensureStripeBankTransferIntent(params: {
   viewer: CheckoutViewer;
   idempotencyKey?: string;
 }) : Promise<StripeBankTransferSession> {
+  assertFinancialPaymentAllowed();
   const stripe = getStripe();
   const latestPendingPayment = await prisma.payment.findFirst({
     where: {
