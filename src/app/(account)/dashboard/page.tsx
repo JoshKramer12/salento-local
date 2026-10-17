@@ -40,6 +40,7 @@ import {
 import { selectPartnerPaidBusinesses, selectPartnerPaidBusinessCommissions } from "@/lib/partner-dashboard-display";
 import { prisma } from "@/lib/prisma";
 import { getSingleParam } from "@/lib/site";
+import { areRealPartnerDisbursementsAllowed } from "@/lib/stripe";
 import { buildDraftLikeSubmissionWhere } from "@/lib/submission-drafts";
 
 type DashboardLocale = "it" | "en";
@@ -436,7 +437,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             earnedAt: true,
             eligibleAt: true,
             id: true,
-            payment: { select: { purpose: true, status: true, refundRequestedAt: true, refundStatus: true } },
+            payment: { select: { purpose: true, status: true, refundRequestedAt: true, refundStatus: true, stripeLivemode: true } },
             status: true,
             sourceKey: true,
             type: true,
@@ -654,6 +655,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         balances={partnerBalances}
         history={partnerHistory}
         locale={locale}
+        payoutsPaused={!areRealPartnerDisbursementsAllowed()}
         recentCommissions={paidBusinessCommissions}
         setup={partnerSetup}
         payableCommissionIds={partnerPayableCommissions.map((commission) => commission.id)}
@@ -1147,6 +1149,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           balances={partnerBalances}
           history={partnerHistory}
           locale={locale}
+          payoutsPaused={!areRealPartnerDisbursementsAllowed()}
           setup={partnerSetup}
         />
       ) : null}

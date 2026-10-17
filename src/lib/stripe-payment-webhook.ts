@@ -16,6 +16,7 @@ type PaidSubmissionWebhookParams = {
   stripeCustomerId?: string | null;
   stripeCancelAtPeriodEnd?: boolean | null;
   stripeEventId: string;
+  stripeLivemode?: boolean;
   stripeSubscriptionId?: string | null;
   stripeSubscriptionStatus?: string | null;
 };
@@ -55,6 +56,7 @@ export async function processPaidSubmissionWebhook(
     stripeCustomerId: params.stripeCustomerId,
     stripeCancelAtPeriodEnd: params.stripeCancelAtPeriodEnd,
     stripeEventId: params.stripeEventId,
+    stripeLivemode: params.stripeLivemode,
     stripeSubscriptionId: params.stripeSubscriptionId,
     stripeSubscriptionStatus: params.stripeSubscriptionStatus,
   });

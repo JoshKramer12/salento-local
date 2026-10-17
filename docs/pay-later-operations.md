@@ -16,15 +16,26 @@ sends it in a POST body after the page loads so it is not included in HTTP reque
 - `PAY_LATER_ENABLED=true` enables Partner and business-owner invitation UI, owner routes,
   and the reminder job. Setting it back to `false` is the immediate feature rollback;
   existing data and payment records remain intact.
-- Public production is financially held while Stripe uses test keys, and also when
-  `PUBLIC_LIVE_PAYMENTS_ENABLED` is absent or not `true`. Keep this variable absent until
-  a separately approved live-payment release verifies matching live keys, webhook,
-  accounting, refunds and rollout. Do not set it to `true` with test keys.
-- During this hold, production invitation, OTP, review, signature and renewal-choice
+- Public production remains financially held by default. With matching `sk_test_` and
+  `pk_test_` keys, `PRODUCTION_STRIPE_TEST_PAYMENTS_ENABLED=true` separately enables
+  simulated payments through the existing Pay Now, Pay Later and renewal paths. It
+  has no effect with live or mismatched keys. Keep `PUBLIC_LIVE_PAYMENTS_ENABLED`
+  absent until a separately approved live-payment release. Never set it to `true`
+  with test keys.
+- While the test-payment flag is absent, production invitation, OTP, review, signature and renewal-choice
   saving work. Initial and renewal Stripe resource creation, QR payment handoffs and
-  paid membership/commission finalization are blocked. Test financial completion only
-  in the isolated `pay-later-test` environment. Production invitation emails disclose
-  the temporary payment pause.
+  paid membership/commission finalization are blocked. Production invitation emails
+  disclose the temporary payment pause.
+- With the test-payment flag enabled, any eligible new customer or Partner submission
+  can publish after a Stripe test payment. Clearly identify the deployment as a test
+  before sharing payment invitations. Each finalized Payment stores Stripe's `livemode`
+  value. Test (`false`) and historical unverified (`null`) payments are excluded from
+  Partner payout selection, reservation and provider processing. Test payments and
+  commissions remain visible in payment documents and Partner history with test labels.
+  Production payout runs, admin-triggered runs, retries and PayPal provider calls are
+  also blocked unless matching Stripe live keys and the separate
+  `PUBLIC_LIVE_PAYMENTS_ENABLED=true` release are present. The Partner dashboard keeps
+  test and unverified historical activity separate from verified live payout balances.
 - `PAY_LATER_TOKEN_SECRET`: a unique random secret of at least 32 characters. The code can
   fall back to `OWNER_ACCESS_TOKEN_SECRET`, but production should use a dedicated value.
   Do not change it while active invitations exist without a reissue plan.
@@ -63,6 +74,12 @@ The migration `20261013160000_add_pay_later_invitations` is additive: five nulla
 reset or backfilled. It applies cleanly to an isolated schema-only clone of observed
 production, and the resulting schema has no diff against `schema.prisma`.
 
+The later `20261017190000_add_payment_stripe_livemode` migration adds one nullable
+Payment column. It does not classify or backfill historical payments. Run migration
+verification on a copy of the production database before enabling the test-payment
+flag. Do not run the repository's `db:deploy` script against production for this
+rollout because that script also runs the seed; apply the reviewed migration alone.
+
 The repository's historical migrations do **not** replay on a fresh empty database:
 `20260730143000_structured_business_addresses` fails because `BusinessSubmission` is absent
 at that point in the chain. This predates Pay Later. Before production deployment, compare
@@ -85,8 +102,10 @@ leaves the method locked; retries after a two minute lease reuse existing online
 keys or a deterministic Pay Later bank transfer key. Do not switch methods while a payment
 resource may exist. Investigate Stripe and the saved payment before manual remediation.
 
-To roll back before activation, keep the flag off. After activation, first set the flag
-off; the Pay Later reminder job then exits without sending. Keep both existing Railway
+To roll back test payments, remove `PRODUCTION_STRIPE_TEST_PAYMENTS_ENABLED` and
+reconcile any in-flight test intents and webhooks before rolling back code. To disable
+Pay Later invitations, set `PAY_LATER_ENABLED=false`; its reminder job then exits
+without sending. Keep both existing Railway
 cron services running because they also handle membership reminders and payment outcomes.
 Restore application code only after checking in-flight payments and webhook finalization;
 leave the additive database migration in place if any invitation or payment may depend on it.

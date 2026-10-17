@@ -3,7 +3,7 @@ import type Stripe from "stripe";
 
 import { getBusinessMembershipPeriod, getBusinessMembershipStatus } from "@/lib/business-membership";
 import { LISTING_OFFER } from "@/lib/listing-offer";
-import { assertFinancialPaymentAllowed } from "@/lib/stripe";
+import { assertFinancialPaymentAllowed, assertStripeObjectMode } from "@/lib/stripe";
 
 type RenewalDb = PrismaClient | Prisma.TransactionClient;
 
@@ -63,8 +63,10 @@ export async function finalizeMembershipRenewalPayment(params: {
   stripeCustomerId?: string | null;
   stripeSubscriptionStatus?: string | null;
   stripeCancelAtPeriodEnd?: boolean | null;
+  stripeLivemode?: boolean | null;
 }) {
   assertFinancialPaymentAllowed();
+  if (params.stripeLivemode != null) assertStripeObjectMode(params.stripeLivemode);
   const membership = await params.db.businessMembership.findFirst({
     where: params.businessId
       ? { businessId: params.businessId }
@@ -99,8 +101,10 @@ export async function finalizeMembershipRenewalPayment(params: {
   });
   if (existing) {
     const existingPayment = await params.db.payment.findUnique({
-      where: { id: existing.id }, select: { status: true, purpose: true, refundRequestedAt: true },
+      where: { id: existing.id }, select: { status: true, purpose: true, refundRequestedAt: true, stripeLivemode: true },
     });
+    if (existingPayment?.stripeLivemode != null && params.stripeLivemode != null &&
+      existingPayment.stripeLivemode !== params.stripeLivemode) throw new Error("stripe_payment_mode_mismatch");
     if (existingPayment?.status === "PAID" && !existingPayment.refundRequestedAt) {
       await params.db.membershipFailedPaymentDelivery.updateMany({
         where: { membershipId: membership.id, acceptedAt: null, canceledAt: null },
@@ -158,6 +162,7 @@ export async function finalizeMembershipRenewalPayment(params: {
         stripeInvoiceId: params.invoiceId ?? undefined,
         stripeLastEventId: params.eventId ?? undefined,
         stripePaymentIntentId: params.paymentIntentId ?? undefined,
+        stripeLivemode: params.stripeLivemode ?? undefined,
         stripeSubscriptionId: refundedRepurchase ? params.subscriptionId ?? undefined : undefined,
       },
     });
@@ -179,6 +184,7 @@ export async function finalizeMembershipRenewalPayment(params: {
       stripeInvoiceId: params.invoiceId ?? null,
       stripeLastEventId: params.eventId ?? null,
       stripePaymentIntentId: params.paymentIntentId ?? null,
+      stripeLivemode: params.stripeLivemode ?? null,
       stripeSubscriptionId: refundedRepurchase ? params.subscriptionId ?? null : null,
       userId: membership.business.submissions[0].userId,
       },

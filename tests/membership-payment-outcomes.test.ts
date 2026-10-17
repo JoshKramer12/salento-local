@@ -237,9 +237,10 @@ test("a paid renewal webhook acknowledges email failure and duplicate delivery w
   const f = await fixture();
   await prisma.businessMembership.update({ where: { id: f.membership.id }, data: { originatingPartnerUserId: null } });
   const secret = "whsec_local_outcome_test";
-  const old = { stripe: process.env.STRIPE_SECRET_KEY, webhook: process.env.STRIPE_WEBHOOK_SECRET,
+  const old = { stripe: process.env.STRIPE_SECRET_KEY, publishable: process.env.STRIPE_PUBLISHABLE_KEY, webhook: process.env.STRIPE_WEBHOOK_SECRET,
     host: process.env.SMTP_HOST, port: process.env.SMTP_PORT, resend: process.env.RESEND_API_KEY };
   process.env.STRIPE_SECRET_KEY = "sk_test_local_outcome_test";
+  process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_local_outcome_test";
   process.env.STRIPE_WEBHOOK_SECRET = secret;
   process.env.SMTP_HOST = "127.0.0.1";
   process.env.SMTP_PORT = "1";
@@ -263,7 +264,7 @@ test("a paid renewal webhook acknowledges email failure and duplicate delivery w
     assert.equal(await prisma.membershipPaymentOutcomeDelivery.count({ where: { paymentId: paid.id } }), 1);
     assert.equal((await prisma.businessMembership.findUniqueOrThrow({ where: { id: f.membership.id } })).currentPeriodEnd.toISOString(), addUtcDays(f.membership.currentPeriodEnd, 365).toISOString());
   } finally {
-    for (const [key, value] of Object.entries({ STRIPE_SECRET_KEY: old.stripe, STRIPE_WEBHOOK_SECRET: old.webhook,
+    for (const [key, value] of Object.entries({ STRIPE_SECRET_KEY: old.stripe, STRIPE_PUBLISHABLE_KEY: old.publishable, STRIPE_WEBHOOK_SECRET: old.webhook,
       SMTP_HOST: old.host, SMTP_PORT: old.port, RESEND_API_KEY: old.resend })) {
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
     }

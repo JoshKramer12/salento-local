@@ -12,9 +12,10 @@ import { attemptInvitationEmail, buildInvitationEmail, createOrRotateInvitation,
   startInvitationOtp, verifyInvitationOtp, closeInvitation, getInvitationUrl } from "@/lib/pay-later-invitations";
 import { isValidOwnerSignature, chooseVerifiedPayLaterPayment } from "@/lib/pay-later-payment";
 import { reminderSequenceDue, runPayLaterReminderJob } from "@/lib/pay-later-reminders";
-import { ensurePendingPartnerCommissionForSubmission } from "@/lib/partner-ledger";
+import { assertPartnerPayoutHasOnlyLivePayments, ensurePendingPartnerCommissionForSubmission, getPartnerBalanceSummary, payableCommissionWhere } from "@/lib/partner-ledger";
 import { syncStripePaymentFromWebhook } from "@/lib/stripe-payment-sync";
-import { assertFinancialPaymentAllowed, isPublicFinancialHold } from "@/lib/stripe";
+import { EMAIL_MANUAL_PAYMENT_FLOW } from "@/lib/no-email-payment";
+import { assertFinancialPaymentAllowed, assertStripeObjectMode, getStripe, isPublicFinancialHold } from "@/lib/stripe";
 
 const directory = mkdtempSync(join(tmpdir(), "salento-pay-later-"));
 writeFileSync(join(directory, "isolated.db"), "");
@@ -118,10 +119,12 @@ test("owner-created invitation preserves valid renewal choices and stays unpaid 
   const previousKey = process.env.STRIPE_SECRET_KEY;
   const previousPublishableKey = process.env.STRIPE_PUBLISHABLE_KEY;
   const previousWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const previousTestFlag = process.env.PRODUCTION_STRIPE_TEST_PAYMENTS_ENABLED;
   process.env.RAILWAY_ENVIRONMENT_NAME = "production";
   process.env.STRIPE_SECRET_KEY = "sk_test_synthetic_only";
   process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_synthetic_only";
   process.env.STRIPE_WEBHOOK_SECRET = "whsec_synthetic_public_hold";
+  delete process.env.PRODUCTION_STRIPE_TEST_PAYMENTS_ENABLED;
   try {
     assert.equal(isPublicFinancialHold(), true);
     assert.throws(assertFinancialPaymentAllowed, /public_financial_payment_paused/);
@@ -197,6 +200,8 @@ test("owner-created invitation preserves valid renewal choices and stays unpaid 
     else process.env.STRIPE_PUBLISHABLE_KEY = previousPublishableKey;
     if (previousWebhookSecret === undefined) delete process.env.STRIPE_WEBHOOK_SECRET;
     else process.env.STRIPE_WEBHOOK_SECRET = previousWebhookSecret;
+    if (previousTestFlag === undefined) delete process.env.PRODUCTION_STRIPE_TEST_PAYMENTS_ENABLED;
+    else process.env.PRODUCTION_STRIPE_TEST_PAYMENTS_ENABLED = previousTestFlag;
   }
 });
 
@@ -313,6 +318,94 @@ test("paid webhook creates one published membership and original Partner commiss
   assert.equal(commission.earnedAt?.getTime(), payment.paidAt!.getTime());
   assert.equal(await prisma.partnerCommission.count({ where: { businessSubmissionId: submission.id } }), 1);
   assert.ok((await prisma.businessSubmissionInvitation.findUniqueOrThrow({ where: { id: invitation.id } })).completedAt);
+});
+
+test("verified Stripe test events publish Pay Now and Pay Later once, with commissions excluded from payouts", async () => {
+  const names = ["RAILWAY_ENVIRONMENT_NAME", "STRIPE_SECRET_KEY", "STRIPE_PUBLISHABLE_KEY", "STRIPE_WEBHOOK_SECRET", "PRODUCTION_STRIPE_TEST_PAYMENTS_ENABLED"] as const;
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  Object.assign(process.env, {
+    RAILWAY_ENVIRONMENT_NAME: "production", STRIPE_SECRET_KEY: "sk_test_synthetic_only",
+    STRIPE_PUBLISHABLE_KEY: "pk_test_synthetic_only", STRIPE_WEBHOOK_SECRET: "whsec_synthetic_payments",
+    PRODUCTION_STRIPE_TEST_PAYMENTS_ENABLED: "true",
+  });
+  try {
+    assert.equal(isPublicFinancialHold(), false);
+    assert.doesNotThrow(assertFinancialPaymentAllowed);
+    assert.throws(() => assertStripeObjectMode(true), /stripe_payment_mode_mismatch/);
+    process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_mismatched";
+    assert.equal(isPublicFinancialHold(), true);
+    process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_synthetic_only";
+    assert.match(buildInvitationEmail({ businessName: "Synthetic", townName: "Lecce", ownerName: "Owner",
+      locale: "en", url: "https://salento.example.test/pay-later", paymentTestMode: true }).text,
+      /Stripe TEST.*No real money/);
+    for (const flow of ["Pay Now", "Pay Later"]) {
+      const { partner, submission } = await fixture();
+      if (flow === "Pay Later") {
+        const invitation = await createOrRotateInvitation({ partnerUserId: partner.id, submissionId: submission.id, locale: "it" });
+        const token = deriveInvitationToken(invitation);
+        await attemptInvitationEmail(invitation.id, new Date(), sendEmail as never);
+        assert.equal(await startInvitationOtp(token, new Date(), sendEmail as never), "sent");
+        const code = sent.at(-1)?.text.match(/\b\d{6}\b/)?.[0];
+        assert.ok(code);
+        assert.ok(await verifyInvitationOtp(token, code));
+      }
+      await prisma.businessSubmission.update({ where: { id: submission.id }, data: {
+        paymentMethod: "ONLINE", paymentStatus: "PENDING_PAYMENT", status: "AWAITING_PAYMENT",
+        amountOwedCents: 10000, agreementSignature: JSON.stringify({ version: 1, strokes: [[{ x: 1, y: 2 }]] }),
+        signedAt: new Date(), businessTermsAcceptedAt: new Date(), automaticRenewalAtAcceptance: false,
+      } });
+      const paymentId = `initial-element:${submission.id}`;
+      const intentId = `pi_test_${submission.id}`;
+      await prisma.payment.create({ data: { id: paymentId, businessSubmissionId: submission.id,
+        userId: partner.id, partnerUserId: partner.id, method: "STRIPE_CHECKOUT", amountCents: 10000,
+        status: "PENDING_PAYMENT", stripePaymentIntentId: intentId } });
+      const event = JSON.stringify({ id: `evt_test_${submission.id}`, type: "payment_intent.succeeded", livemode: false,
+        data: { object: { id: intentId, object: "payment_intent", livemode: false, amount: 10000,
+          amount_received: 10000, currency: "eur", status: "succeeded", metadata: {
+            businessSubmissionId: submission.id, partnerId: partner.id, paymentFlow: EMAIL_MANUAL_PAYMENT_FLOW,
+            paymentId, userId: partner.id,
+          } } } });
+      const timestamp = Math.floor(Date.now() / 1000);
+      const signature = createHmac("sha256", process.env.STRIPE_WEBHOOK_SECRET!)
+        .update(`${timestamp}.${event}`).digest("hex");
+      const verified = getStripe().webhooks.constructEvent(event, `t=${timestamp},v1=${signature}`, process.env.STRIPE_WEBHOOK_SECRET!);
+      assert.equal(verified.livemode, false);
+      assertStripeObjectMode(verified.livemode);
+      const coreEvent = { amountPaidCents: 10000, businessSubmissionId: submission.id,
+        paymentIntentId: intentId, stripeEventId: verified.id, stripeLivemode: verified.livemode,
+        revalidatePaths: false };
+      await syncStripePaymentFromWebhook(coreEvent);
+      await syncStripePaymentFromWebhook(coreEvent);
+      const paid = await prisma.payment.findUniqueOrThrow({ where: { id: paymentId } });
+      assert.equal(paid.status, "PAID");
+      assert.equal(paid.stripeLivemode, false);
+      assert.equal((await prisma.businessSubmission.findUniqueOrThrow({ where: { id: submission.id } })).status, "PUBLISHED");
+      assert.equal(await prisma.businessMembership.count({ where: { business: { submissions: { some: { id: submission.id } } } } }), 1);
+      assert.equal(await prisma.partnerCommission.count({ where: { businessSubmissionId: submission.id, amountCents: 5000 } }), 1);
+      assert.equal(await prisma.partnerCommission.count({ where: { ...payableCommissionWhere(new Date(Date.now() + 30 * day)), businessSubmissionId: submission.id } }), 0);
+      const balance = await getPartnerBalanceSummary(partner.id);
+      assert.equal(balance.available, 0);
+      assert.equal(balance.pending, 0);
+      assert.equal(balance.testActivity, 5000);
+      assert.equal(balance.unverifiedActivity, 0);
+    }
+  } finally {
+    for (const name of names) {
+      if (previous[name] === undefined) delete process.env[name];
+      else process.env[name] = previous[name];
+    }
+  }
+});
+
+test("provider payout boundary rejects test and historical payments even when already reserved", async () => {
+  for (const stripeLivemode of [false, null, true]) {
+    const db = { partnerPayout: { findUnique: async () => ({ amountCents: 5000,
+      commissions: [{ amountCents: 5000, status: "RESERVED", type: "COMMISSION",
+        payment: { status: "PAID", stripeLivemode } }] }) } };
+    if (stripeLivemode === true) await assertPartnerPayoutHasOnlyLivePayments("synthetic-payout", db as never);
+    else await assert.rejects(assertPartnerPayoutHasOnlyLivePayments("synthetic-payout", db as never),
+      /partner_payout_requires_verified_live_payments/);
+  }
 });
 
 test("email failure remains pending and retries with the same invitation, without a payment or commission", async () => {

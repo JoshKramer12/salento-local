@@ -33,7 +33,7 @@ import { prisma } from "@/lib/prisma";
 import { getReceiptData } from "@/lib/receipts";
 import { getOriginFromHeaders } from "@/lib/request-origin";
 import { getSingleParam } from "@/lib/site";
-import { canUseStripeBankTransferTestSimulation, getPaymentElementPublishableKey, isPublicFinancialHold } from "@/lib/stripe";
+import { canUseStripeBankTransferTestSimulation, getPaymentElementPublishableKey, isPublicFinancialHold, isStripeSandboxMode } from "@/lib/stripe";
 import { ensureStripeBankTransferIntent } from "@/lib/stripe-checkout";
 import {
   buildNoEmailPaymentQrPayload,
@@ -227,6 +227,7 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
   return (
     <main className={submission.paymentMethod !== "BANK_TRANSFER" && !isPaid ? "mx-auto w-full max-w-[1180px] px-5 py-7 sm:px-6 sm:py-12" : "shell px-4 py-9 sm:px-6 sm:py-12"}>
       <div className="mx-auto max-w-3xl">
+        {isStripeSandboxMode() ? <p role="status" className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-950">{locale === "it" ? "TEST STRIPE: pagamento simulato, nessun addebito reale. La commissione Partner non è pagabile." : "STRIPE TEST: simulated payment, no real charge. Partner commission is not payable."}</p> : null}
         {isPaid ? (
           <section className="card overflow-hidden p-5 sm:p-8">
             <div className="mx-auto max-w-xl text-center">

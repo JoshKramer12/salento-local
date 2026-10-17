@@ -61,6 +61,7 @@ type ReceiptPayment = {
   stripeCheckoutSessionId: string | null;
   stripeInvoiceId: string | null;
   stripePaymentIntentId: string | null;
+  stripeLivemode: boolean | null;
   status: PaymentStatus;
 };
 
@@ -488,6 +489,7 @@ const receiptPaymentSelect = {
   stripeCheckoutSessionId: true,
   stripeInvoiceId: true,
   stripePaymentIntentId: true,
+  stripeLivemode: true,
 } as const;
 
 export function resolvePaymentBusinessId(payment: {
@@ -584,6 +586,7 @@ export async function getReceiptData(params: {
       stripeCheckoutSessionId: payment.stripeCheckoutSessionId,
       stripeInvoiceId: payment.stripeInvoiceId,
       stripePaymentIntentId: payment.stripePaymentIntentId,
+      stripeLivemode: payment.stripeLivemode,
     },
     recipientEmail: resolveReceiptRecipient({ businessEmail: submission.email, ownerEmail: submission.ownerEmail }),
     receiptFileName: buildReceiptFileName(submission.businessName, receiptNumber),
@@ -716,6 +719,16 @@ export async function buildReceiptPdf(params: {
     x: 48,
     y: 730,
   });
+
+  if (receipt.payment.stripeLivemode === false) {
+    page.drawText(locale === "it" ? "TEST STRIPE · Nessun addebito reale" : "STRIPE TEST · No real charge", {
+      color: rgb(0.65, 0.22, 0.15), font: bodyBold, size: 12, x: 48, y: 702,
+    });
+  } else if (receipt.payment.stripeLivemode === null) {
+    page.drawText(locale === "it" ? "Modalita Stripe non verificata" : "Stripe mode unverified", {
+      color: rgb(0.45, 0.35, 0.25), font: bodyBold, size: 12, x: 48, y: 702,
+    });
+  }
 
   const lines = [
     [locale === "it" ? "Ricevuta n." : "Receipt no.", receipt.receiptNumber],
@@ -976,12 +989,16 @@ export async function sendReceiptEmail(params: {
     headers: {
       "X-Transactional-Message": "receipt",
     },
-    html: emailCopy.html,
+    html: params.receipt.payment.stripeLivemode === false
+      ? `<p><strong>${params.locale === "it" ? "Pagamento di prova Stripe: nessun addebito reale." : "Stripe test payment: no real charge."}</strong></p>${emailCopy.html}`
+      : emailCopy.html,
     idempotencyKey: params.ownerActions
       ? `owner-listing/${params.receipt.submission.id}`
       : undefined,
-    subject: emailCopy.subject,
-    text: emailCopy.text,
+    subject: params.receipt.payment.stripeLivemode === false ? `[TEST] ${emailCopy.subject}` : emailCopy.subject,
+    text: params.receipt.payment.stripeLivemode === false
+      ? `${params.locale === "it" ? "Pagamento di prova Stripe: nessun addebito reale." : "Stripe test payment: no real charge."} ${emailCopy.text}`
+      : emailCopy.text,
     to: recipientEmail,
   });
 

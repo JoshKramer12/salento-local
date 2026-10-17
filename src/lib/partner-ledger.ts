@@ -19,7 +19,7 @@ import {
 } from "@/lib/partner-connect";
 import { prisma } from "@/lib/prisma";
 import { runThrottledServerTask } from "@/lib/server-throttle";
-import { getStripe, isStripeSandboxMode } from "@/lib/stripe";
+import { areRealPartnerDisbursementsAllowed, assertRealPartnerDisbursementsAllowed, getStripe, isStripeSandboxMode } from "@/lib/stripe";
 import { createPaypalPayout, getPaypalPayoutBatch, isPaypalPayoutConfigured } from "@/lib/partner-payout-methods";
 
 function revalidatePartnerLedgerPaths() {
@@ -221,6 +221,7 @@ async function settleSandboxPartnerPayout(params: {
     | "stripeTransferId"
   >;
 }) {
+  await assertPartnerPayoutHasOnlyLivePayments(params.payout.id);
   const settledAt = new Date();
   const stripeTransferId = params.payout.stripeTransferId || `sandbox-transfer-${params.payout.id}`;
   const stripePayoutId = params.payout.stripePayoutId || `sandbox-payout-${params.payout.id}`;
@@ -287,6 +288,9 @@ export function payableCommissionWhere(now: Date): Prisma.PartnerCommissionWhere
   return {
     amountCents: { gt: 0 },
     eligibleAt: { lte: now },
+    // Null (historical/unverified) and false (Stripe test mode) never fund a
+    // payout, even if the deployment later switches to live credentials.
+    payment: { is: { stripeLivemode: true } },
     payoutId: null,
     status: { in: ["PENDING", "AVAILABLE"] },
     type: "COMMISSION",
@@ -295,6 +299,29 @@ export function payableCommissionWhere(now: Date): Prisma.PartnerCommissionWhere
       { payment: { is: { purpose: { in: ["ANNUAL_RENEWAL", "REACTIVATION"] }, status: "PAID" } } },
     ],
   };
+}
+
+/** Final provider boundary for reserved payouts, including old reservations
+ * made before payment mode was stored. No provider transfer may precede this. */
+export async function assertPartnerPayoutHasOnlyLivePayments(
+  payoutId: string,
+  db: Pick<typeof prisma, "partnerPayout"> = prisma,
+) {
+  assertRealPartnerDisbursementsAllowed();
+  const payout = await db.partnerPayout.findUnique({
+    where: { id: payoutId },
+    select: { amountCents: true, commissions: { select: {
+      amountCents: true, status: true, type: true,
+      payment: { select: { status: true, stripeLivemode: true } },
+    } } },
+  });
+  if (!payout || !payout.commissions.length ||
+    payout.commissions.some((commission) => commission.type !== "COMMISSION" ||
+      commission.status !== "RESERVED" || commission.payment?.status !== "PAID" ||
+      commission.payment.stripeLivemode !== true) ||
+    payout.commissions.reduce((sum, commission) => sum + commission.amountCents, 0) !== payout.amountCents) {
+    throw new Error("partner_payout_requires_verified_live_payments");
+  }
 }
 
 type InitialMembershipPayment = {
@@ -485,7 +512,7 @@ export async function getPartnerBalanceSummary(userId: string) {
       select: {
         amountCents: true,
         eligibleAt: true,
-        payment: { select: { paidAt: true, purpose: true, status: true, refundRequestedAt: true, refundStatus: true } },
+        payment: { select: { paidAt: true, purpose: true, status: true, refundRequestedAt: true, refundStatus: true, stripeLivemode: true } },
         status: true,
         type: true,
       },
@@ -505,7 +532,13 @@ export async function getPartnerBalanceSummary(userId: string) {
 
   return commissions.reduce(
     (summary, commission) => {
-      const payable = commission.payment?.status === "PAID" && commission.eligibleAt && commission.eligibleAt <= new Date() &&
+      if (commission.type === "COMMISSION" && commission.amountCents > 0 && commission.status !== "REVERSED") {
+        if (commission.payment?.stripeLivemode === false) summary.testActivity += commission.amountCents;
+        else if (commission.payment?.stripeLivemode == null) summary.unverifiedActivity += commission.amountCents;
+      }
+      if (commission.payment?.stripeLivemode !== true) return summary;
+      const payable = commission.payment?.status === "PAID" && commission.payment.stripeLivemode === true &&
+        commission.eligibleAt && commission.eligibleAt <= new Date() &&
         (commission.payment.purpose !== "INITIAL_MEMBERSHIP" || Boolean((!commission.payment.refundRequestedAt || commission.payment.refundStatus === "support_closed") && commission.payment.paidAt && addUtcDays(commission.payment.paidAt, INITIAL_COMMISSION_HOLD_DAYS) <= new Date()));
       if (commission.type === "COMMISSION" && commission.amountCents > 0) {
         if (commission.status !== "REVERSED" && (payable || commission.status === "PAID" || commission.status === "RESERVED")) {
@@ -538,7 +571,9 @@ export async function getPartnerBalanceSummary(userId: string) {
       nextPayoutDate: getNextPartnerPayoutDate(),
       paid: 0,
       pending: 0,
+      testActivity: 0,
       totalEarned: 0,
+      unverifiedActivity: 0,
     },
   );
 }
@@ -755,6 +790,7 @@ export async function getPartnerOutstandingCommissionItems(
         in: ["PENDING", "AVAILABLE"],
       },
       type: "COMMISSION",
+      payment: { is: { stripeLivemode: true } },
     },
     orderBy: [
       {
@@ -810,6 +846,7 @@ export async function getPartnerPayoutHistory(userId: string) {
       attemptCount: true,
       bankAccountLast4: true,
       bankName: true,
+      commissions: { select: { payment: { select: { stripeLivemode: true } } } },
       failureMessage: true,
       id: true,
       initiatedAt: true,
@@ -1217,6 +1254,7 @@ async function retryReservedPartnerPayout(payout: Pick<
   | "partnerUserId"
   | "stripeConnectedAccountId"
 >) {
+  await assertPartnerPayoutHasOnlyLivePayments(payout.id);
   if (!payout.stripeConnectedAccountId) {
     return null;
   }
@@ -1278,6 +1316,8 @@ async function settleInFlightSandboxPayouts() {
   });
 
   for (const payout of payouts) {
+    try { await assertPartnerPayoutHasOnlyLivePayments(payout.id); }
+    catch { continue; }
     await settleSandboxPartnerPayout({
       email: payout.localPartnerProfile?.user.email ?? "",
       locale: getLocale(payout.localPartnerProfile?.preferredLanguage),
@@ -1294,6 +1334,7 @@ async function syncPendingPaypalPayouts() {
   });
   for (const payout of payouts) {
     try {
+      await assertPartnerPayoutHasOnlyLivePayments(payout.id);
       const paypal = await getPaypalPayoutBatch(payout.providerBatchId!);
       if (paypal.itemStatus === "SUCCESS") {
         await prisma.$transaction(async (tx) => {
@@ -1318,6 +1359,7 @@ async function createTransferAndPayout(params: {
   paypalPayoutEmail?: string | null;
   payout: PartnerPayout;
 }) {
+  await assertPartnerPayoutHasOnlyLivePayments(params.payout.id);
   if (params.payout.payoutMethod === "PAYPAL") {
     if (!params.paypalPayoutEmail) throw new Error("missing_paypal_email");
     try {
@@ -1609,6 +1651,14 @@ export async function runWeeklyPartnerPayouts(params?: {
   const now = new Date();
   const isManualRun = Boolean(params?.force);
   const targetDate = isManualRun ? now : getNextPartnerPayoutDate(now);
+  if (!areRealPartnerDisbursementsAllowed()) {
+    return {
+      processedPartners: 0,
+      runKey: buildRunKey(targetDate),
+      scheduledFor: targetDate,
+      status: "skipped-payouts-disabled" as const,
+    };
+  }
   const isScheduledDay =
     new Intl.DateTimeFormat("en-US", {
       timeZone: getPartnerPayoutTimezone(),
@@ -2006,10 +2056,14 @@ export async function handleConnectedPayoutEvent(params: {
     return;
   }
 
+  // A duplicate or late provider event must not reopen an already settled payout.
+  if (payout.status === "PAID") return;
+
   const locale = getLocale(payout.localPartnerProfile?.preferredLanguage);
   const email = payout.localPartnerProfile?.user.email;
 
   if (params.eventType === "payout.paid") {
+    await assertPartnerPayoutHasOnlyLivePayments(payout.id);
     await prisma.$transaction(async (tx) => {
       await tx.partnerPayout.update({
         where: {
@@ -2136,6 +2190,7 @@ export async function getPartnerPayoutAdminOverview(selectedRunKey?: string | nu
         amountCents: {
           gt: 0,
         },
+        payment: { is: { stripeLivemode: true } },
         type: "COMMISSION",
       },
       orderBy: {

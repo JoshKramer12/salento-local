@@ -13,6 +13,7 @@ import { getPartnerNextRoute } from "@/lib/partner-onboarding";
 import { getPartnerPayoutSetupSummary } from "@/lib/partner-connect";
 import { prisma } from "@/lib/prisma";
 import { getSingleParam } from "@/lib/site";
+import { areRealPartnerDisbursementsAllowed } from "@/lib/stripe";
 import { buildDraftLikeSubmissionWhere } from "@/lib/submission-drafts";
 import type { PartnerPayoutRunSummaryItem } from "@/lib/partner-ledger";
 import {
@@ -43,6 +44,10 @@ function formatDate(date: Date | null | undefined, locale: DashboardLocale) {
 
 function getPayoutBannerCopy(status: string, locale: DashboardLocale) {
   switch (status) {
+    case "skipped-payouts-disabled":
+      return locale === "it"
+        ? "I pagamenti reali ai Partner sono sospesi durante i test. Nessun pagamento è stato inviato."
+        : "Real Partner payouts are paused during testing. No payout was sent.";
     case "completed":
       return locale === "it"
         ? "Pagamento partner avviato in modalita test Stripe."
@@ -269,10 +274,17 @@ export default async function DashboardEarningsPage({
           </h1>
         </div>
 
+        <p className="mb-6 max-w-5xl rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+          {locale === "it" ? "Solo le commissioni da pagamenti live verificati entrano nei saldi pagabili. Attività test e storico non verificato sono registrati, ma non pagabili." : "Only commissions from verified live payments enter payable balances. Test activity and unverified history are recorded, but are not payable."}
+        </p>
+        <p className="mb-6 text-sm text-[var(--muted)]">
+          {locale === "it" ? "Attività test" : "Test activity"}: {formatCurrencyFromCents(balances.testActivity, locale)} · {locale === "it" ? "Storico non verificato" : "Unverified history"}: {formatCurrencyFromCents(balances.unverifiedActivity, locale)}
+        </p>
+
         <section className="mx-auto grid max-w-5xl gap-4 md:grid-cols-3">
           <article className="card p-5">
             <p className="text-sm text-[var(--muted)]">
-              {locale === "it" ? "Guadagni totali" : "Total earnings"}
+              {locale === "it" ? "Guadagni live verificati" : "Verified live earnings"}
             </p>
             <p className="mt-3 font-serif text-3xl text-[var(--foreground)]">
               {formatCurrencyFromCents(balances.totalEarned, locale)}
@@ -285,7 +297,7 @@ export default async function DashboardEarningsPage({
           />
           <article className="card p-5">
             <p className="text-sm text-[var(--muted)]">
-              {locale === "it" ? "Pagato" : "Paid"}
+              {locale === "it" ? "Pagamenti live verificati" : "Verified live payouts"}
             </p>
             <p className="mt-3 font-serif text-3xl text-[var(--foreground)]">
               {formatCurrencyFromCents(balances.paid, locale)}
@@ -297,6 +309,7 @@ export default async function DashboardEarningsPage({
           balances={balances}
           history={history}
           locale={locale}
+          payoutsPaused={!areRealPartnerDisbursementsAllowed()}
           setup={setup}
         />
         </main>

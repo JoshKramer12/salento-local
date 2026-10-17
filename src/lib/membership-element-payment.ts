@@ -190,6 +190,7 @@ export async function syncMembershipElementPayment(paymentId: string, dependenci
     result = await db.$transaction((tx) => finalizeMembershipRenewalPayment({
       db: tx, businessId: payment.businessId, amountPaidCents: payment.amountCents,
       method: "STRIPE_CHECKOUT", paymentIntentId: snapshot.intent.id,
+      stripeLivemode: snapshot.intent.livemode,
       invoiceId: snapshot.invoice?.id, subscriptionId: snapshot.subscription?.id,
       stripeCustomerId: payment.stripeCustomerId,
       automaticRenewal: Boolean(snapshot.subscription && !snapshot.subscription.cancel_at_period_end &&
