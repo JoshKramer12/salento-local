@@ -42,6 +42,8 @@ function validateChoice(choice: PayLaterPaymentChoice) {
 
 export async function chooseVerifiedPayLaterPayment(invitation: BusinessSubmissionInvitation, choice: PayLaterPaymentChoice) {
   if (!validateChoice(choice)) throw new Error("owner_approval_incomplete");
+  if (choice.method === "BANK_TRANSFER" && choice.renewal === "AUTO")
+    throw new Error("bank_transfer_requires_manual_renewal");
   if (choice.method === "ONLINE" && !getPaymentElementPublishableKey()) throw new Error("online_payment_unavailable");
   const now = new Date();
   const result = await prisma.$transaction(async (tx) => {

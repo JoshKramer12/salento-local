@@ -111,14 +111,16 @@ test("owner email correction is persisted on the same submission before invitati
   assert.equal(await prisma.businessSubmission.count({ where: { id: submission.id } }), 1);
 });
 
-test("owner-created invitation and approval stay unpaid in public Stripe sandbox", async () => {
+test("owner-created invitation preserves valid renewal choices and stays unpaid in public Stripe sandbox", async () => {
   const { partner: owner, submission } = await fixture();
   await prisma.user.update({ where: { id: owner.id }, data: { role: "BUSINESS_OWNER" } });
   const previousEnvironment = process.env.RAILWAY_ENVIRONMENT_NAME;
   const previousKey = process.env.STRIPE_SECRET_KEY;
+  const previousPublishableKey = process.env.STRIPE_PUBLISHABLE_KEY;
   const previousWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   process.env.RAILWAY_ENVIRONMENT_NAME = "production";
   process.env.STRIPE_SECRET_KEY = "sk_test_synthetic_only";
+  process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_synthetic_only";
   process.env.STRIPE_WEBHOOK_SECRET = "whsec_synthetic_public_hold";
   try {
     assert.equal(isPublicFinancialHold(), true);
@@ -137,15 +139,33 @@ test("owner-created invitation and approval stay unpaid in public Stripe sandbox
     const invitation = await getInvitationByToken(token);
     assert.ok(invitation);
     const signature = JSON.stringify({ version: 1, strokes: [[{ x: 1, y: 2 }, { x: 2, y: 3 }]] });
-    assert.deepEqual(await chooseVerifiedPayLaterPayment(invitation, {
-      method: "BANK_TRANSFER", renewal: "MANUAL", ownerConfirmed: true, termsAccepted: true,
+    const approval = {
+      method: "BANK_TRANSFER" as const, renewal: "MANUAL" as const, ownerConfirmed: true, termsAccepted: true,
       signerFullName: "Test Owner", signerRole: "OWNER", signerRoleOther: "", signature,
-    }), { status: "paused" });
-    const saved = await prisma.businessSubmission.findUniqueOrThrow({ where: { id: submission.id } });
+    };
+    assert.deepEqual(await chooseVerifiedPayLaterPayment(invitation, approval), { status: "paused" });
+    let saved = await prisma.businessSubmission.findUniqueOrThrow({ where: { id: submission.id } });
     assert.equal(saved.status, "DRAFT");
     assert.equal(saved.paymentStatus, "NOT_REQUIRED");
     assert.equal(saved.paymentMethod, null);
     assert.equal(saved.agreementSignature, signature);
+    assert.equal(saved.automaticRenewalAtAcceptance, false);
+    assert.deepEqual(await chooseVerifiedPayLaterPayment(invitation, {
+      ...approval, method: "ONLINE", renewal: "AUTO",
+    }), { status: "paused" });
+    saved = await prisma.businessSubmission.findUniqueOrThrow({ where: { id: submission.id } });
+    assert.equal(saved.automaticRenewalAtAcceptance, true);
+    await assert.rejects(chooseVerifiedPayLaterPayment(invitation, {
+      ...approval, method: "BANK_TRANSFER", renewal: "AUTO",
+      signature: JSON.stringify({ version: 1, strokes: [[{ x: 3, y: 4 }, { x: 5, y: 6 }]] }),
+    }), /bank_transfer_requires_manual_renewal/);
+    saved = await prisma.businessSubmission.findUniqueOrThrow({ where: { id: submission.id } });
+    assert.equal(saved.automaticRenewalAtAcceptance, true);
+    assert.equal(saved.agreementSignature, signature);
+    assert.deepEqual(await chooseVerifiedPayLaterPayment(invitation, {
+      ...approval, method: "ONLINE", renewal: "MANUAL",
+    }), { status: "paused" });
+    saved = await prisma.businessSubmission.findUniqueOrThrow({ where: { id: submission.id } });
     assert.equal(saved.automaticRenewalAtAcceptance, false);
     await assert.rejects(syncStripePaymentFromWebhook({ amountPaidCents: 10_000,
       businessSubmissionId: submission.id, stripeEventId: "evt_synthetic_public_hold",
@@ -173,6 +193,8 @@ test("owner-created invitation and approval stay unpaid in public Stripe sandbox
     else process.env.RAILWAY_ENVIRONMENT_NAME = previousEnvironment;
     if (previousKey === undefined) delete process.env.STRIPE_SECRET_KEY;
     else process.env.STRIPE_SECRET_KEY = previousKey;
+    if (previousPublishableKey === undefined) delete process.env.STRIPE_PUBLISHABLE_KEY;
+    else process.env.STRIPE_PUBLISHABLE_KEY = previousPublishableKey;
     if (previousWebhookSecret === undefined) delete process.env.STRIPE_WEBHOOK_SECRET;
     else process.env.STRIPE_WEBHOOK_SECRET = previousWebhookSecret;
   }

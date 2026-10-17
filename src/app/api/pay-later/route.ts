@@ -80,7 +80,8 @@ export async function POST(request: Request) {
     return NextResponse.json(destination, { headers: noStore });
   } catch (error) {
     const code = error instanceof Error ? error.message : "payment_unavailable";
-    const publicError = ["owner_approval_incomplete", "online_payment_unavailable", "pay_later_state_conflict",
+    const publicError = ["owner_approval_incomplete", "bank_transfer_requires_manual_renewal",
+      "online_payment_unavailable", "pay_later_state_conflict",
       "pay_later_payment_locked", "pay_later_payment_conflict", "pay_later_payment_unavailable"].includes(code) ? code : "payment_unavailable";
     return NextResponse.json({ error: publicError }, { status: 409, headers: noStore });
   }
