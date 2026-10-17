@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { IconArrowRight, IconBuildingStore, IconCheck, IconCreditCard, IconMail } from "@tabler/icons-react";
 import QRCode from "qrcode";
-import { PaymentDecisionStep, PaymentMethodStep, RenewalSelectionStep } from "@/components/account/pay-later-payment-steps";
+import { PaymentMethodStep, RenewalSelectionStep } from "@/components/account/pay-later-payment-steps";
 import styles from "./pay-later-payment-steps.module.css";
 import { OwnerAgreementStep } from "@/components/account/owner-agreement-step";
 import { SignaturePad } from "@/components/account/signature-pad";
@@ -41,24 +41,35 @@ export function PayLaterOwnerClient({ token, locale, verified, emailHint, paymen
     typeof window !== "undefined" && new URLSearchParams(window.location.hash.replace(/^#/, "")).get("renewal") === "MANUAL" ? "MANUAL" : "AUTO");
   const [renewalChosen, setRenewalChosen] = useState(() => typeof window !== "undefined" &&
     ["AUTO", "MANUAL"].includes(new URLSearchParams(window.location.hash.replace(/^#/, "")).get("renewal") ?? ""));
-  const [paymentSubstep, setPaymentSubstep] = useState<"decision" | "renewal" | "methods">(() => {
-    if (typeof window === "undefined") return "decision";
+  const [paymentSubstep, setPaymentSubstep] = useState<"renewal" | "methods">(() => {
+    if (typeof window === "undefined") return "renewal";
     const value = new URLSearchParams(window.location.hash.replace(/^#/, "")).get("step");
-    return value === "renewal" || value === "methods" ? value : "decision";
+    return value === "methods" ? "methods" : "renewal";
   });
   const [destination, setDestination] = useState<Destination | null>(null);
   const [qrImage, setQrImage] = useState("");
   const [stopped, setStopped] = useState(false);
+  const approvalReady = confirmed && accepted && Boolean(signerName.trim()) && Boolean(signature) &&
+    (signerRole !== "OTHER_AUTHORIZED_REPRESENTATIVE" || Boolean(signerRoleOther.trim()));
   const started = useRef(false);
   const endpoint = "/api/pay-later";
 
-  function navigatePayment(next: "decision" | "renewal" | "methods") {
+  function navigatePayment(next: "renewal" | "methods") {
     setPaymentSubstep(next);
     const url = new URL(window.location.href);
     const hash = new URLSearchParams(url.hash.replace(/^#/, ""));
     hash.set("step", next);
     url.hash = hash.toString();
     window.history.pushState({ paymentStep: next }, "", url);
+  }
+
+  function returnToSignature() {
+    setStage("signature");
+    const url = new URL(window.location.href);
+    const hash = new URLSearchParams(url.hash.replace(/^#/, ""));
+    hash.delete("step");
+    url.hash = hash.toString();
+    window.history.replaceState(window.history.state, "", url);
   }
 
   function selectRenewal(next: "AUTO" | "MANUAL") {
@@ -74,14 +85,17 @@ export function PayLaterOwnerClient({ token, locale, verified, emailHint, paymen
     const restorePaymentNavigation = () => {
       const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
       const step = hash.get("step");
-      setPaymentSubstep(step === "renewal" || step === "methods" ? step : "decision");
+      setPaymentSubstep(step === "methods" ? "methods" : "renewal");
+      if (submission?.paymentMethod || ((step === "renewal" || step === "methods" || step === "decision") && approvalReady))
+        setStage((current) => current === "complete" ? current : "payment");
+      else setStage((current) => current === "payment" ? "signature" : current);
       const preference = hash.get("renewal");
       setRenewalChosen(preference === "AUTO" || preference === "MANUAL");
       if (preference === "AUTO" || preference === "MANUAL") setRenewal(preference);
     };
     window.addEventListener("popstate", restorePaymentNavigation);
     return () => window.removeEventListener("popstate", restorePaymentNavigation);
-  }, []);
+  }, [approvalReady, submission?.paymentMethod]);
 
   useEffect(() => {
     const href = destination?.status === "online" ? destination.href
@@ -210,7 +224,7 @@ export function PayLaterOwnerClient({ token, locale, verified, emailHint, paymen
         <label className="field-label"><span>{it ? "Ruolo" : "Role"}</span><select className="input-field mt-2" value={signerRole} onChange={(event) => setSignerRole(event.target.value)}><option value="OWNER">{it ? "Titolare" : "Owner"}</option><option value="LEGAL_REPRESENTATIVE">{it ? "Rappresentante legale" : "Legal representative"}</option><option value="MANAGER_AUTHORIZED_BY_OWNER">{it ? "Responsabile autorizzato" : "Authorized manager"}</option><option value="OTHER_AUTHORIZED_REPRESENTATIVE">{it ? "Altro rappresentante autorizzato" : "Other authorized representative"}</option></select></label></div>
       {signerRole === "OTHER_AUTHORIZED_REPRESENTATIVE" ? <label className="field-label mt-4 block"><span>{it ? "Specifica il ruolo" : "Specify role"}</span><input className="input-field mt-2" value={signerRoleOther} onChange={(event) => setSignerRoleOther(event.target.value)} /></label> : null}
       <div className="mt-6"><SignaturePad clearLabel={it ? "Cancella firma" : "Clear signature"} drawHint={it ? "Firma nel riquadro" : "Sign in the box"} legacyValueNotice="" value={signature} onChange={setSignature} /></div>
-      <button type="button" disabled={!signerName.trim() || !signature || (signerRole === "OTHER_AUTHORIZED_REPRESENTATIVE" && !signerRoleOther.trim())} onClick={() => { setStage("payment"); navigatePayment(submission.signedEarlier ? "renewal" : "decision"); }} className="btn-primary mt-6 w-full disabled:opacity-50">{it ? "Continua al pagamento" : "Continue to payment"}<IconArrowRight size={18} /></button>
+      <button type="button" disabled={!approvalReady} onClick={() => { setStage("payment"); navigatePayment("renewal"); }} className="btn-primary mt-6 w-full disabled:opacity-50">{it ? "Continua al pagamento" : "Continue to payment"}<IconArrowRight size={18} /></button>
     </section> : null}
     {stage === "payment" ? <section className="mt-7">
       {destination?.status === "paused" ? <div role="status" className={card}><IconCheck className="text-[var(--primary)]" size={36} /><h2 className="mt-3 font-serif text-3xl">{it ? "Scelta salvata" : "Choice saved"}</h2><p className="mt-3 text-[var(--muted)]">{it ? "La tua conferma, firma e preferenza di rinnovo sono salvate. I pagamenti sono sospesi durante i test; non è stato addebitato nulla e la scheda non è ancora pubblicata." : "Your confirmation, signature and renewal choice are saved. Payments are paused during testing; nothing was charged and the listing is not yet published."}</p></div>
@@ -223,8 +237,7 @@ export function PayLaterOwnerClient({ token, locale, verified, emailHint, paymen
           {destination.status === "online" ? <a href={destination.href} className={styles.primaryAction}>{it ? "Paga su questo dispositivo" : "Pay on this device"}<IconArrowRight size={20} /></a>
             : <><dl className="mt-5 grid gap-3 break-all text-sm"><div><dt className="font-semibold">IBAN</dt><dd>{destination.instructions.iban}</dd></div><div><dt className="font-semibold">BIC</dt><dd>{destination.instructions.bic}</dd></div><div><dt className="font-semibold">{it ? "Beneficiario" : "Beneficiary"}</dt><dd>{destination.instructions.accountHolderName}</dd></div><div><dt className="font-semibold">{it ? "Riferimento" : "Reference"}</dt><dd>{destination.instructions.reference}</dd></div></dl><a href={destination.instructions.hostedInstructionsUrl} className={styles.primaryAction} target="_blank" rel="noopener noreferrer">{it ? "Apri istruzioni Stripe" : "Open Stripe instructions"}</a></>}
         </div> : submission.paymentMethod ? <div className={card}><p>{it ? "Hai già scelto un metodo di pagamento per questa adesione." : "A payment method has already been selected for this membership."}</p><button type="button" disabled={busy} onClick={continueExistingPayment} className="btn-primary mt-5 w-full">{it ? "Continua il pagamento" : "Continue payment"}</button></div>
-        : paymentSubstep === "decision" ? <PaymentDecisionStep locale={locale} allowLater={false} alreadyInvited onNow={() => navigatePayment("renewal")} onBack={() => setStage("signature")} />
-        : paymentSubstep === "renewal" || !renewalChosen ? <RenewalSelectionStep locale={locale} value={renewalChosen ? renewal : null} onChange={selectRenewal} onContinue={() => navigatePayment("methods")} onBack={() => submission.signedEarlier ? setStage("signature") : navigatePayment("decision")} />
+        : paymentSubstep === "renewal" || !renewalChosen ? <RenewalSelectionStep locale={locale} value={renewalChosen ? renewal : null} onChange={selectRenewal} onContinue={() => navigatePayment("methods")} onBack={returnToSignature} />
         : <>{paymentPaused ? <p role="status" className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">{it ? "I pagamenti sono temporaneamente sospesi. Puoi salvare la tua conferma, firma e scelta di rinnovo; non verrà creato alcun pagamento." : "Payments are temporarily paused. You can save your confirmation, signature and renewal choice; no payment will be created."}</p> : null}<PaymentMethodStep locale={locale} renewal={renewal} paymentPaused={paymentPaused} busyMethod={busyMethod} error={error} onOnline={() => choosePayment("ONLINE")} onBank={() => choosePayment("BANK_TRANSFER")} onBack={() => navigatePayment("renewal")} /></>}
     </section> : null}
 
