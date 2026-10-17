@@ -788,6 +788,9 @@ model Payment {
   stripeSetupStartedAt   DateTime?
   stripeSetupGeneration  Int                 @default(0)
   stripeLastEventId      String?             @unique
+  // Null means historical or unverified. Only an explicitly live Stripe
+  // payment may ever fund a real Partner payout.
+  stripeLivemode         Boolean?
   bankTransferReference  String?
   paidAt                 DateTime?
   refundInstructionsEmail String?

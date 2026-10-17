@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type { Locale } from "@/lib/i18n";
 import { PayLaterOwnerClient, type PayLaterOwnerSubmission } from "@/components/account/pay-later-owner-client";
 
-type Loaded = { token: string; verified: boolean; emailHint: string; paymentPaused: boolean; submission: PayLaterOwnerSubmission | null };
+type Loaded = { token: string; verified: boolean; emailHint: string; paymentPaused: boolean; paymentTestMode: boolean; submission: PayLaterOwnerSubmission | null };
 
 export function PayLaterInvitationShell({ locale }: { locale: Locale }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);

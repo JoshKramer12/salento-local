@@ -10,6 +10,7 @@ type PartnerPayoutHistoryItem = {
   attemptCount: number;
   bankAccountLast4: string | null;
   bankName: string | null;
+  commissions: { payment: { stripeLivemode: boolean | null } | null }[];
   failureMessage: string | null;
   id: string;
   initiatedAt: Date;
@@ -32,6 +33,7 @@ type PartnerPayoutSummaryProps = {
   };
   history: PartnerPayoutHistoryItem[];
   locale: Locale;
+  payoutsPaused: boolean;
   setup: {
     bankAccountLast4?: string | null;
     bankName?: string | null;
@@ -63,6 +65,7 @@ export function PartnerPayoutSummary({
   balances,
   history,
   locale,
+  payoutsPaused,
   setup,
 }: PartnerPayoutSummaryProps) {
   const copy =
@@ -136,7 +139,9 @@ export function PartnerPayoutSummary({
     HYPE: "HYPE",
   }[payoutMethod];
   const setupCopy =
-    setupState === "ready"
+    payoutsPaused
+      ? { body: locale === "it" ? "I pagamenti reali ai Partner sono sospesi durante i test. Le commissioni test e lo storico non verificato non sono pagabili." : "Real Partner payouts are paused during testing. Test commissions and unverified history are not payable.", cta: null, title: locale === "it" ? "Pagamenti reali sospesi" : "Real payouts paused" }
+      : setupState === "ready"
       ? { body: copy.readyBody, cta: null, title: copy.readyTitle }
       : setupState === "action-required"
         ? { body: copy.actionRequiredBody, cta: copy.update, title: copy.actionRequiredTitle }
@@ -168,7 +173,7 @@ export function PartnerPayoutSummary({
             </Link>
           </div>
         ) : null}
-        {setupState === "ready" ? (
+        {setupState === "ready" && !payoutsPaused ? (
           <div className="mt-5">
             <Link href="/partner/payout" className="text-sm font-medium text-[var(--primary)] hover:underline">
               {locale === "it" ? "Cambia metodo di pagamento" : "Change payout method"}
@@ -197,13 +202,13 @@ export function PartnerPayoutSummary({
               {copy.nextPayout}
             </p>
             <p className="mt-2 text-base font-medium text-[var(--foreground)]">
-              {new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-US", {
+              {payoutsPaused ? (locale === "it" ? "Sospeso durante i test" : "Paused during testing") : new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-US", {
                 dateStyle: "medium",
               }).format(balances.nextPayoutDate)}
             </p>
           </div>
         </div>
-        <p className="mt-5 text-sm leading-7 text-[var(--muted)]">{copy.payoutNote}</p>
+        <p className="mt-5 text-sm leading-7 text-[var(--muted)]">{payoutsPaused ? (locale === "it" ? "Nessun pagamento reale ai Partner verrà inviato durante i test." : "No real Partner payout will be sent during testing.") : copy.payoutNote}</p>
       </article>
 
       <article className="card p-6">
@@ -231,6 +236,13 @@ export function PartnerPayoutSummary({
                       : getStatusLabel(entry.status, locale)}
                   </p>
                 </div>
+                {!entry.commissions.length || entry.commissions.some((commission) => commission.payment?.stripeLivemode !== true) ? (
+                  <p className="mt-1 text-xs font-semibold text-amber-800">
+                    {entry.commissions.some((commission) => commission.payment?.stripeLivemode === false)
+                      ? (locale === "it" ? "Storico test · Non pagabile" : "Test history · Not payable")
+                      : (locale === "it" ? "Storico non verificato · Non pagabile" : "Unverified history · Not payable")}
+                  </p>
+                ) : null}
                 <p className="mt-2 text-sm text-[var(--muted)]">
                   {entry.payoutMethod} · {" "}
                   {isPayoutNotSent(entry)

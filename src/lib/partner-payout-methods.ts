@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypto";
 import type { PartnerPayoutMethod, PartnerPayoutSetupStatus } from "@prisma/client";
+import { assertRealPartnerDisbursementsAllowed } from "@/lib/stripe";
 
 const payoutMethods = ["STRIPE", "PAYPAL", "POSTEPAY", "HYPE"] as const;
 
@@ -112,6 +113,7 @@ export async function createPaypalPayout(params: {
   payoutId: string;
   recipientEmail: string;
 }) {
+  assertRealPartnerDisbursementsAllowed();
   const token = await getPaypalAccessToken();
   const senderBatchId = `salento-${params.payoutId}`.slice(0, 36);
   const response = await fetch(`${getPaypalApiBaseUrl()}/v1/payments/payouts`, {

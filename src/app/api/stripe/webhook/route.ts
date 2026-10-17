@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { ensurePartnerRefundRepurchaseCommissionForPayment, ensurePartnerRenewalCommissionForPayment, reversePartnerCommissionForPayment } from "@/lib/partner-ledger";
-import { getStripe, isPublicFinancialHold } from "@/lib/stripe";
+import { assertStripeObjectMode, getStripe, isPublicFinancialHold } from "@/lib/stripe";
 import { markStripePaymentRefunded } from "@/lib/stripe-payment-sync";
 import { finalizeMembershipRenewalPayment, getVerifiedRenewalInvoiceIntentId } from "@/lib/membership-renewal";
 import { prisma } from "@/lib/prisma";
@@ -37,6 +37,12 @@ export async function POST(request: Request) {
       { error: "invalid_signature" },
       { status: 400 },
     );
+  }
+
+  try {
+    assertStripeObjectMode(event.livemode);
+  } catch {
+    return NextResponse.json({ error: "stripe_payment_mode_mismatch" }, { status: 400 });
   }
 
   const webhookLog = await beginStripeWebhookProcessing({
@@ -78,6 +84,7 @@ export async function POST(request: Request) {
           method: "STRIPE_CHECKOUT",
           paidAt: new Date(),
           paymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : null,
+          stripeLivemode: event.livemode,
           sessionId: session.id,
           stripeCustomerId: typeof session.customer === "string" ? session.customer : null,
           subscriptionId: typeof session.subscription === "string" ? session.subscription : null,
@@ -122,6 +129,7 @@ export async function POST(request: Request) {
         stripeCustomerId: typeof session.customer === "string" ? session.customer : null,
         stripeCancelAtPeriodEnd: subscription?.cancel_at_period_end ?? null,
         stripeEventId: event.id,
+        stripeLivemode: event.livemode,
         stripeSubscriptionId: subscriptionId,
         stripeSubscriptionStatus: subscription?.status ?? null,
       });
@@ -172,6 +180,7 @@ export async function POST(request: Request) {
             paymentIntentId: verified.payment.stripePaymentIntentId,
             stripeCustomerId: verified.payment.stripeCustomerId,
             stripeEventId: event.id,
+            stripeLivemode: event.livemode,
             stripeSubscriptionId: verified.subscription.id,
             stripeSubscriptionStatus: verified.subscription.status,
             stripeCancelAtPeriodEnd: verified.subscription.cancel_at_period_end,
@@ -207,6 +216,7 @@ export async function POST(request: Request) {
         method: "STRIPE_CHECKOUT",
         paidAt: new Date(invoice.status_transitions.paid_at ? invoice.status_transitions.paid_at * 1000 : Date.now()),
         paymentIntentId,
+        stripeLivemode: event.livemode,
         subscriptionId,
       }));
       if (result?.paymentId) {
@@ -260,6 +270,7 @@ export async function POST(request: Request) {
           method: "STRIPE_CHECKOUT",
           paymentIntentId: paymentIntent.id,
           stripeEventId: event.id,
+          stripeLivemode: event.livemode,
         });
         await completeStripeWebhookProcessing({ id: webhookLog.id, status: "PROCESSED" });
         return NextResponse.json({ received: true });
@@ -274,6 +285,7 @@ export async function POST(request: Request) {
           method: "BANK_TRANSFER",
           paidAt: new Date(),
           paymentIntentId: paymentIntent.id,
+          stripeLivemode: event.livemode,
         }));
         if (result?.paymentId) {
           await ensurePartnerRenewalCommissionForPayment({ paymentId: result.paymentId, sourceEventId: event.id, sourceEventType: event.type });
@@ -301,6 +313,7 @@ export async function POST(request: Request) {
         method: "BANK_TRANSFER",
         paymentIntentId: paymentIntent.id,
         stripeEventId: event.id,
+        stripeLivemode: event.livemode,
       });
       await completeStripeWebhookProcessing({
         id: webhookLog.id,

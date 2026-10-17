@@ -60,6 +60,7 @@ const adminUserOverviewSelect = {
   partnerCommissions: {
     select: {
       amountCents: true,
+      payment: { select: { stripeLivemode: true } },
       status: true,
       type: true,
     },
@@ -153,6 +154,7 @@ const adminUserDetailSelect = {
       earnedAt: true,
       eligibleAt: true,
       paidAt: true,
+      payment: { select: { stripeLivemode: true } },
       reversedAt: true,
       sourceEventType: true,
       status: true,
@@ -287,6 +289,8 @@ function summarizePartnerCommissions(
 ): CommissionSummary {
   return commissions.reduce(
     (summary, commission) => {
+      // Admin payout totals use the same verified-live boundary as the ledger.
+      if (commission.payment?.stripeLivemode !== true) return summary;
       if (commission.type === "COMMISSION" && commission.amountCents > 0) {
         if (commission.status !== "REVERSED") {
           summary.totalEarned += commission.amountCents;

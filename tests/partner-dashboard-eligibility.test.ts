@@ -76,6 +76,18 @@ test("exact day 14 eligibility is green from the authoritative payout query, eve
   assert.match(d.display(f.commission.id, "it").label, /Disponibile/);
 });
 
+test("test and unverified payments never become payable after the hold period", async () => {
+  for (const stripeLivemode of [false, null]) {
+    const f = await fixture(30);
+    await prisma.payment.update({ where: { id: f.payment.id }, data: { stripeLivemode } });
+    const eligible = await prisma.partnerCommission.count({ where: {
+      ...payableCommissionWhere(now), partnerUserId: f.partner.id,
+    } });
+    assert.equal(eligible, 0);
+    assert.equal((await dashboard(f.partner.id)).display(f.commission.id).tone, "yellow");
+  }
+});
+
 test("requested, processing, action-required, support and failed refunds remain yellow, never cancelled", async () => {
   const f = await fixture(30);
   for (const refundStatus of ["requested", "pending", "requires_action", "support_required", "failed", "canceled"]) {
@@ -127,7 +139,7 @@ test("paid reversal debt is matched by exact commission ID; missing attribution 
 
 test("renewal stays payment-specific and neither creates nor rewrites the initial commission", async () => {
   const f = await fixture(400);
-  const payment = await prisma.payment.create({ data: { businessSubmissionId: f.submission.id, businessId: f.business.id, userId: f.partner.id, partnerUserId: f.partner.id, method: "STRIPE_CHECKOUT", amountCents: 10000, purpose: "REACTIVATION", status: "PAID", paidAt: now } });
+  const payment = await prisma.payment.create({ data: { businessSubmissionId: f.submission.id, businessId: f.business.id, userId: f.partner.id, partnerUserId: f.partner.id, method: "STRIPE_CHECKOUT", amountCents: 10000, purpose: "REACTIVATION", status: "PAID", paidAt: now, stripeLivemode: true } });
   const commission = await prisma.partnerCommission.create({ data: { businessSubmissionId: f.submission.id, businessId: f.business.id, paymentId: payment.id, partnerUserId: f.partner.id, amountCents: 1500, type: "COMMISSION", status: "PENDING", eligibleAt: now, sourceKey: `commission:renewal:${payment.id}` } });
   const d = await dashboard(f.partner.id);
   assert.equal(d.paid.length, 1); assert.equal(d.display(commission.id).tone, "green");

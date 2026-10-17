@@ -5,7 +5,7 @@ import { hasSameOriginOrNoOrigin } from "@/lib/request-security";
 import { closeInvitation, getInvitationByToken, getPayLaterSessionCookieName, isPayLaterEnabled, requireVerifiedInvitation, startInvitationOtp, verifyInvitationOtp } from "@/lib/pay-later-invitations";
 import { chooseVerifiedPayLaterPayment, resumeVerifiedPayLaterPayment, type PayLaterPaymentChoice } from "@/lib/pay-later-payment";
 import { prisma } from "@/lib/prisma";
-import { isPublicFinancialHold } from "@/lib/stripe";
+import { isPublicFinancialHold, isStripeSandboxMode } from "@/lib/stripe";
 
 const noStore = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
 
@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     }) : null;
     const photos = submission && Array.isArray(submission.photoUrls)
       ? submission.photoUrls.filter((url): url is string => typeof url === "string" && Boolean(url.trim())) : [];
-    return NextResponse.json({ verified: Boolean(verified), paymentPaused: isPublicFinancialHold(),
+    return NextResponse.json({ verified: Boolean(verified), paymentPaused: isPublicFinancialHold(), paymentTestMode: isStripeSandboxMode(),
       emailHint: invitation.recipientEmail.replace(/^(.).+(@.*)$/, "$1•••$2"),
       submission: submission ? {
         businessName: submission.businessName, ownerSubmitted: submission.user.role === "BUSINESS_OWNER",

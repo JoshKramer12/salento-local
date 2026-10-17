@@ -6,7 +6,7 @@ import { ensurePendingPartnerCommissionForSubmission } from "@/lib/partner-ledge
 import { getStatusAfterPayment, resolvePaymentMethodRecord } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
 import { runThrottledServerTask } from "@/lib/server-throttle";
-import { assertFinancialPaymentAllowed, getStripe, isPublicFinancialHold } from "@/lib/stripe";
+import { assertFinancialPaymentAllowed, assertStripeObjectMode, getStripe, isPublicFinancialHold } from "@/lib/stripe";
 import { publishSubmissionAfterPayment } from "@/lib/submission-publication";
 import { ensureOwnerAccessForPublishedSubmission } from "@/lib/business-owner-access";
 import { ensureInitialBusinessMembership } from "@/lib/business-membership";
@@ -20,7 +20,7 @@ type SyncResult = {
 
 type ReceiptCheckoutSession = Pick<
   Stripe.Checkout.Session,
-  "amount_total" | "currency" | "id" | "metadata" | "payment_intent" | "payment_status"
+  "amount_total" | "currency" | "id" | "livemode" | "metadata" | "payment_intent" | "payment_status"
 >;
 
 const USER_PAYMENT_SYNC_MIN_INTERVAL_MS = 45 * 1000;
@@ -93,10 +93,12 @@ async function finalizeStripeManagedPayment(params: {
   stripeCustomerId?: string | null;
   stripeCancelAtPeriodEnd?: boolean | null;
   stripeEventId?: string | null;
+  stripeLivemode?: boolean | null;
   stripeSubscriptionId?: string | null;
   stripeSubscriptionStatus?: string | null;
 }): Promise<SyncResult> {
   assertFinancialPaymentAllowed();
+  if (params.stripeLivemode != null) assertStripeObjectMode(params.stripeLivemode);
   let publishedBusinessSlug = "";
   let publishedTownSlug = "";
   let finalizedPaymentId: string | null = null;
@@ -118,6 +120,7 @@ async function finalizeStripeManagedPayment(params: {
         paidAt: true,
         status: true,
         refundRequestedAt: true,
+        stripeLivemode: true,
       },
     });
 
@@ -134,6 +137,10 @@ async function finalizeStripeManagedPayment(params: {
         existingPayment.businessId !== params.businessId
       ) {
         throw new Error("payment_business_association_conflict");
+      }
+      if (existingPayment.stripeLivemode != null && params.stripeLivemode != null &&
+        existingPayment.stripeLivemode !== params.stripeLivemode) {
+        throw new Error("stripe_payment_mode_mismatch");
       }
 
       await tx.payment.update({
@@ -154,6 +161,8 @@ async function finalizeStripeManagedPayment(params: {
           stripeLastEventId: params.stripeEventId ?? undefined,
           stripePaymentIntentId: params.paymentIntentId ?? undefined,
           stripeSubscriptionId: params.stripeSubscriptionId ?? undefined,
+          // A replay must not reclassify an already-paid historical row.
+          stripeLivemode: existingPayment.status === "PAID" ? undefined : params.stripeLivemode ?? undefined,
         },
       });
       finalizedPaymentId = existingPayment.id;
@@ -181,6 +190,7 @@ async function finalizeStripeManagedPayment(params: {
             stripeLastEventId: params.stripeEventId ?? null,
             stripePaymentIntentId: params.paymentIntentId ?? null,
             stripeSubscriptionId: params.stripeSubscriptionId ?? null,
+            stripeLivemode: params.stripeLivemode ?? null,
             userId: submissionForPayment.userId,
           },
           select: {
@@ -440,6 +450,7 @@ export async function syncStripePaymentForSubmission(params: {
       currency: paymentIntent.currency,
       method: "BANK_TRANSFER",
       paymentIntentId: paymentIntent.id,
+      stripeLivemode: paymentIntent.livemode,
       revalidatePaths: params.revalidatePaths,
     });
 
@@ -470,6 +481,7 @@ export async function syncStripePaymentForSubmission(params: {
       currency: intent.currency,
       method: "STRIPE_CHECKOUT",
       paymentIntentId: intent.id,
+      stripeLivemode: intent.livemode,
       revalidatePaths: params.revalidatePaths,
     });
     return { ...synced, status: "paid" as const };
@@ -539,6 +551,7 @@ export async function syncStripePaymentForSubmission(params: {
       typeof session.payment_intent === "string" ? session.payment_intent : null,
     revalidatePaths: params.revalidatePaths,
     sessionId: session.id,
+    stripeLivemode: session.livemode,
     stripeCustomerId: typeof session.customer === "string" ? session.customer : null,
     stripeCancelAtPeriodEnd: subscription?.cancel_at_period_end ?? null,
     stripeSubscriptionId: subscriptionId,
@@ -633,6 +646,7 @@ export async function syncStripePaymentFromReceiptAccess(params: {
       typeof session.payment_intent === "string" ? session.payment_intent : null,
     revalidatePaths: params.revalidatePaths,
     sessionId: session.id,
+    stripeLivemode: session.livemode,
   });
 
   return {
@@ -693,6 +707,7 @@ export async function syncStripePaymentFromWebhook(params: {
   stripeCustomerId?: string | null;
   stripeCancelAtPeriodEnd?: boolean | null;
   stripeEventId: string;
+  stripeLivemode?: boolean | null;
   stripeSubscriptionId?: string | null;
   stripeSubscriptionStatus?: string | null;
 }) {
@@ -708,6 +723,7 @@ export async function syncStripePaymentFromWebhook(params: {
     stripeCustomerId: params.stripeCustomerId,
     stripeCancelAtPeriodEnd: params.stripeCancelAtPeriodEnd,
     stripeEventId: params.stripeEventId,
+    stripeLivemode: params.stripeLivemode,
     stripeSubscriptionId: params.stripeSubscriptionId,
     stripeSubscriptionStatus: params.stripeSubscriptionStatus,
   });

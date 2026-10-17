@@ -21,8 +21,8 @@ type Destination = { status: "paid" } | { status: "paused" } | { status: "online
     bic: string; hostedInstructionsUrl: string; iban: string; reference: string };
 };
 
-export function PayLaterOwnerClient({ token, locale, verified, emailHint, paymentPaused, submission }: {
-  token: string; locale: Locale; verified: boolean; emailHint: string; paymentPaused: boolean; submission: PayLaterOwnerSubmission | null;
+export function PayLaterOwnerClient({ token, locale, verified, emailHint, paymentPaused, paymentTestMode, submission }: {
+  token: string; locale: Locale; verified: boolean; emailHint: string; paymentPaused: boolean; paymentTestMode: boolean; submission: PayLaterOwnerSubmission | null;
 }) {
   const it = locale === "it";
   const [otpSent, setOtpSent] = useState(false);
@@ -227,6 +227,7 @@ export function PayLaterOwnerClient({ token, locale, verified, emailHint, paymen
       <button type="button" disabled={!approvalReady} onClick={() => { setStage("payment"); navigatePayment("renewal"); }} className="btn-primary mt-6 w-full disabled:opacity-50">{it ? "Continua al pagamento" : "Continue to payment"}<IconArrowRight size={18} /></button>
     </section> : null}
     {stage === "payment" ? <section className="mt-7">
+      {paymentTestMode && !paymentPaused ? <p role="status" className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-950">{it ? "TEST STRIPE: usa solo una carta di prova. Nessun addebito reale; la commissione Partner non è pagabile." : "STRIPE TEST: use a test card only. No real charge; the Partner commission is not payable."}</p> : null}
       {destination?.status === "paused" ? <div role="status" className={card}><IconCheck className="text-[var(--primary)]" size={36} /><h2 className="mt-3 font-serif text-3xl">{it ? "Scelta salvata" : "Choice saved"}</h2><p className="mt-3 text-[var(--muted)]">{it ? "La tua conferma, firma e preferenza di rinnovo sono salvate. I pagamenti sono sospesi durante i test; non è stato addebitato nulla e la scheda non è ancora pubblicata." : "Your confirmation, signature and renewal choice are saved. Payments are paused during testing; nothing was charged and the listing is not yet published."}</p></div>
         : destination?.status === "paid" ? <div className={card}><IconCheck className="text-[var(--primary)]" size={36} /><h2 className="mt-3 font-serif text-3xl">{it ? "Pagamento ricevuto" : "Payment received"}</h2></div>
         : destination?.status === "online" || destination?.status === "bank" ? <div className={`${card} ${styles.handoffResult}`}>

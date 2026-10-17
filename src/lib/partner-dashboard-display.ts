@@ -48,7 +48,7 @@ export type DashboardCommission = {
   sourceKey: string;
   status: string;
   type: string;
-  payment: { purpose: PaymentPurpose; status: PaymentStatus; refundRequestedAt: Date | null; refundStatus: string | null } | null;
+  payment: { purpose: PaymentPurpose; status: PaymentStatus; refundRequestedAt: Date | null; refundStatus: string | null; stripeLivemode?: boolean | null } | null;
 };
 
 /** Availability comes from payableCommissionWhere on the server, including its
@@ -63,18 +63,22 @@ export function getPartnerCommissionDisplay(
 ): { tone: "green" | "yellow" | "red"; label: string } {
   const it = locale === "it";
   const amount = formatCurrencyFromCents(entry.amountCents, locale);
+  const modeLabel = entry.payment?.stripeLivemode === false ? "TEST · " :
+    entry.payment?.stripeLivemode == null ? (it ? "Storico/non verificato · " : "Historical/unverified · ") : "";
   const reversal = ledger.some((row) => row.type === "REVERSAL" &&
     row.sourceKey === `commission:reversal:${entry.id}` && ["REVERSED", "DEBT"].includes(row.status));
   if (entry.status === "REVERSED" || entry.status === "DEBT" || reversal) {
-    return { tone: "red", label: `${amount} · ${entry.payment?.status === "REFUNDED" ? (it ? "Rimborsata · commissione annullata" : "Refunded · commission cancelled") : (it ? "Commissione annullata" : "Commission cancelled")}` };
+    return { tone: "red", label: `${amount} · ${modeLabel}${entry.payment?.status === "REFUNDED" ? (it ? "Rimborsata · commissione annullata" : "Refunded · commission cancelled") : (it ? "Commissione annullata" : "Commission cancelled")}` };
   }
   if (entry.payment?.refundRequestedAt && entry.payment.refundStatus !== "support_closed") {
-    return { tone: "yellow", label: `${amount} · ${it ? "Richiesta di rimborso in sospeso" : "Refund request pending"}` };
+    return { tone: "yellow", label: `${amount} · ${modeLabel}${it ? "Richiesta di rimborso in sospeso" : "Refund request pending"}` };
   }
   // A refunded payment alone cannot establish that its commission was reversed.
   if (entry.payment?.status === "REFUNDED") {
-    return { tone: "yellow", label: `${amount} · ${it ? "In sospeso" : "On hold"}` };
+    return { tone: "yellow", label: `${amount} · ${modeLabel}${it ? "In sospeso" : "On hold"}` };
   }
+  if (entry.payment?.stripeLivemode === false) return { tone: "yellow", label: `${amount} · ${it ? "TEST · Non pagabile" : "TEST · Not payable"}` };
+  if (entry.payment?.stripeLivemode == null) return { tone: "yellow", label: `${amount} · ${it ? "Storico/non verificato · Non pagabile" : "Historical/unverified · Not payable"}` };
   if (entry.status === "PAID") return { tone: "green", label: `${amount} · ${it ? "Pagata" : "Paid"}` };
   if (payableIds.has(entry.id)) return { tone: "green", label: `${amount} · ${it ? "Disponibile" : "Available"}` };
   if (entry.status === "RESERVED") return { tone: "yellow", label: `${amount} · ${it ? "Pagamento in corso" : "Payout processing"}` };

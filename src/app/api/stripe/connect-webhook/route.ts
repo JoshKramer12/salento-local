@@ -4,7 +4,7 @@ import { handleConnectedPayoutEvent } from "@/lib/partner-ledger";
 import {
   syncPartnerStripeAccountStatusByConnectedAccountId,
 } from "@/lib/partner-connect";
-import { getStripe } from "@/lib/stripe";
+import { assertStripeObjectMode, getStripe } from "@/lib/stripe";
 import {
   beginStripeWebhookProcessing,
   completeStripeWebhookProcessing,
@@ -31,6 +31,12 @@ export async function POST(request: Request) {
       { error: "invalid_signature" },
       { status: 400 },
     );
+  }
+
+  try {
+    assertStripeObjectMode(event.livemode);
+  } catch {
+    return NextResponse.json({ error: "stripe_payment_mode_mismatch" }, { status: 400 });
   }
 
   const webhookLog = await beginStripeWebhookProcessing({

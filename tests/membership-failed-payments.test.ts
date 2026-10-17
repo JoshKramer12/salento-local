@@ -284,10 +284,12 @@ test("failed-invoice webhook acknowledges a durable obligation despite missing e
   await prisma.businessSubmission.update({ where: { id: f.submission.id }, data: { ownerEmail: "invalid" } });
   const secret = "whsec_local_failed_invoice_test";
   const oldSecret = process.env.STRIPE_SECRET_KEY;
+  const oldPublishable = process.env.STRIPE_PUBLISHABLE_KEY;
   const oldWebhook = process.env.STRIPE_WEBHOOK_SECRET;
   const oldMail = { resendKey: process.env.RESEND_API_KEY, resendFrom: process.env.RESEND_FROM,
     host: process.env.SMTP_HOST, port: process.env.SMTP_PORT, from: process.env.SMTP_FROM };
   process.env.STRIPE_SECRET_KEY = "sk_test_local_failed_invoice_test";
+  process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_local_failed_invoice_test";
   process.env.STRIPE_WEBHOOK_SECRET = secret;
   const stripe = getStripe();
   const oldInvoiceRead = stripe.invoices.retrieve;
@@ -348,6 +350,7 @@ test("failed-invoice webhook acknowledges a durable obligation despite missing e
     (stripe.invoices as unknown as { retrieve: typeof oldInvoiceRead }).retrieve = oldInvoiceRead;
     (stripe.subscriptions as unknown as { retrieve: typeof oldSubscriptionRead }).retrieve = oldSubscriptionRead;
     if (oldSecret === undefined) delete process.env.STRIPE_SECRET_KEY; else process.env.STRIPE_SECRET_KEY = oldSecret;
+    if (oldPublishable === undefined) delete process.env.STRIPE_PUBLISHABLE_KEY; else process.env.STRIPE_PUBLISHABLE_KEY = oldPublishable;
     if (oldWebhook === undefined) delete process.env.STRIPE_WEBHOOK_SECRET; else process.env.STRIPE_WEBHOOK_SECRET = oldWebhook;
     for (const [key, value] of Object.entries({ RESEND_API_KEY: oldMail.resendKey,
       RESEND_FROM: oldMail.resendFrom, SMTP_HOST: oldMail.host, SMTP_PORT: oldMail.port,

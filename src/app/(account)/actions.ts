@@ -3542,6 +3542,17 @@ export async function runPartnerPayoutNowAction(
       0,
     );
 
+    if (result.status === "skipped-payouts-disabled") {
+      return {
+        message: locale === "it"
+          ? "I pagamenti reali ai Partner sono sospesi durante i test. Nessun pagamento è stato inviato."
+          : "Real Partner payouts are paused during testing. No payout was sent.",
+        processedPartners: 0,
+        sentAmountCents: 0,
+        status: "failed",
+      };
+    }
+
     if (result.status === "failed") {
       return {
         failedPartners: result.failedPartners ?? 0,

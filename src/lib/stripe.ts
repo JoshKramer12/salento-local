@@ -45,16 +45,43 @@ export function isStripeSandboxMode() {
   return secretKey.startsWith("sk_test_");
 }
 
+export function configuredStripeMode() {
+  const secret = normalizeEnvValue(process.env.STRIPE_SECRET_KEY);
+  const publishable = normalizeEnvValue(process.env.STRIPE_PUBLISHABLE_KEY) ||
+    normalizeEnvValue(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);
+  if (secret.startsWith("sk_test_") && publishable.startsWith("pk_test_")) return "test" as const;
+  if (secret.startsWith("sk_live_") && publishable.startsWith("pk_live_")) return "live" as const;
+  return null;
+}
+
+export function assertStripeObjectMode(livemode: boolean | undefined | null) {
+  if (typeof livemode !== "boolean" || configuredStripeMode() !== (livemode ? "live" : "test")) {
+    throw new Error("stripe_payment_mode_mismatch");
+  }
+}
+
 /** Public production shares a real customer ledger. It remains financially
  * closed until a separate live-payment release explicitly enables it. */
 export function isPublicFinancialHold() {
-  const liveKey = normalizeEnvValue(process.env.STRIPE_SECRET_KEY).startsWith("sk_live_");
-  return process.env.RAILWAY_ENVIRONMENT_NAME === "production" &&
-    (!liveKey || process.env.PUBLIC_LIVE_PAYMENTS_ENABLED !== "true");
+  if (process.env.RAILWAY_ENVIRONMENT_NAME !== "production") return false;
+  const mode = configuredStripeMode();
+  return !((mode === "test" && process.env.PRODUCTION_STRIPE_TEST_PAYMENTS_ENABLED === "true") ||
+    (mode === "live" && process.env.PUBLIC_LIVE_PAYMENTS_ENABLED === "true"));
 }
 
 export function assertFinancialPaymentAllowed() {
   if (isPublicFinancialHold()) throw new Error("public_financial_payment_paused");
+}
+
+/** Test payments may run on the public site, but Partner disbursements require
+ * a separate live financial release. This also protects PayPal payouts. */
+export function areRealPartnerDisbursementsAllowed() {
+  return process.env.RAILWAY_ENVIRONMENT_NAME !== "production" ||
+    (configuredStripeMode() === "live" && process.env.PUBLIC_LIVE_PAYMENTS_ENABLED === "true");
+}
+
+export function assertRealPartnerDisbursementsAllowed() {
+  if (!areRealPartnerDisbursementsAllowed()) throw new Error("partner_real_payouts_paused");
 }
 
 /** Live owner refunds require an independent release switch after live-mode review. */

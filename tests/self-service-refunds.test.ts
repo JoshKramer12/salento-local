@@ -114,6 +114,7 @@ test("payout reservation requires a paid exact payment, elapsed hold, and no ref
   const now = addUtcDays(paidAt, 13);
   assert.equal(INITIAL_COMMISSION_HOLD_DAYS, 14);
   const where = payableCommissionWhere(now);
+  assert.deepEqual(where.payment, { is: { stripeLivemode: true } });
   assert.deepEqual(where.status, { in: ["PENDING", "AVAILABLE"] });
   assert.deepEqual(where.eligibleAt, { lte: now });
   assert.deepEqual(where.OR?.[0], { payment: { is: { purpose: "INITIAL_MEMBERSHIP", status: "PAID", OR: [{ refundRequestedAt: null }, { refundStatus: "support_closed" }], paidAt: { lte: addUtcDays(now, -14) } } } });
