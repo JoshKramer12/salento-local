@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getRequestClientAddress, consumeSecurityRateLimit } from "@/lib/security-rate-limit";
 import { hasSameOriginOrNoOrigin } from "@/lib/request-security";
-import { attemptInvitationEmail, buildPayLaterWhatsAppUrl, createOrRotateInvitation, invitationIsOpen, isPayLaterEnabled } from "@/lib/pay-later-invitations";
+import { assertInvitationDraftEligible, attemptInvitationEmail, buildPayLaterWhatsAppUrl, createOrRotateInvitation, invitationIsOpen, isPayLaterEnabled, PayLaterMissingFieldsError } from "@/lib/pay-later-invitations";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(request: Request) {
@@ -22,7 +22,8 @@ export async function GET(request: Request) {
     invitation.businessSubmission.status === "DRAFT" && !invitation.businessSubmission.paymentMethod);
   const email = open && invitation?.emailAcceptedGeneration === invitation?.tokenGeneration
     ? "accepted" : open && invitation?.emailFirstAttemptedAt ? "pending" : "idle";
-  return NextResponse.json({ email }, { headers: { "Cache-Control": "no-store" } });
+  const whatsappAvailable = Boolean(open && invitation && buildPayLaterWhatsAppUrl(invitation));
+  return NextResponse.json({ email, whatsappAvailable }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function POST(request: Request) {
@@ -36,6 +37,22 @@ export async function POST(request: Request) {
   if (typeof submissionId !== "string" || !/^[a-z0-9_-]{20,40}$/i.test(submissionId) ||
     (mode !== "email" && mode !== "email_whatsapp" && mode !== "share" && mode !== "revoke") || (locale !== "it" && locale !== "en")) {
     return NextResponse.json({ error: "invalid_request" }, { status: 400 });
+  }
+  if (mode === "email" || mode === "email_whatsapp") {
+    // A rejected draft must not spend the send cooldown. Recheck inside the
+    // invitation transaction as well, since the draft could change meanwhile.
+    const candidate = await prisma.businessSubmission.findFirst({
+      where: { id: submissionId, userId: viewer.id },
+      include: { user: { select: { role: true } } },
+    });
+    try {
+      assertInvitationDraftEligible(candidate, candidate?.user.role ?? "");
+    } catch (error) {
+      if (error instanceof PayLaterMissingFieldsError) {
+        return NextResponse.json({ error: error.message, invalidFields: error.fields }, { status: 409 });
+      }
+      return NextResponse.json({ error: "pay_later_submission_ineligible" }, { status: 409 });
+    }
   }
   const limit = await consumeSecurityRateLimit({ clientAddress: getRequestClientAddress(request.headers),
     namespace: mode === "share" ? "pay-later-partner-share" : mode === "revoke" ? "pay-later-partner-revoke" : "pay-later-partner-invitation",
@@ -81,6 +98,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ email, whatsappUrl, invitationId: invitation.id },
       { status: email === "accepted" ? 200 : 202, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
+    if (error instanceof PayLaterMissingFieldsError) {
+      return NextResponse.json({ error: error.message, invalidFields: error.fields }, { status: 409 });
+    }
     const code = error instanceof Error ? error.message : "unavailable";
     return NextResponse.json({ error: code === "pay_later_submission_ineligible" ? code : "unavailable" },
       { status: code === "pay_later_submission_ineligible" ? 409 : 503 });

@@ -8,7 +8,7 @@ import test, { after } from "node:test";
 
 import { prisma } from "@/lib/prisma";
 import { attemptInvitationEmail, buildInvitationEmail, createOrRotateInvitation, deriveInvitationToken,
-  getInvitationByToken, getOwnerDetailsHash, requireVerifiedInvitation,
+  getInvitationByToken, getOwnerDetailsHash, getPartnerListingMissingFields, PayLaterMissingFieldsError, requireVerifiedInvitation,
   startInvitationOtp, verifyInvitationOtp, closeInvitation, getInvitationUrl } from "@/lib/pay-later-invitations";
 import { isValidOwnerSignature, chooseVerifiedPayLaterPayment } from "@/lib/pay-later-payment";
 import { reminderSequenceDue, runPayLaterReminderJob } from "@/lib/pay-later-reminders";
@@ -56,6 +56,60 @@ const sendEmail = async (message: { idempotencyKey?: string; text: string; to: s
   return { provider: "resend" as const, messageId: `test-mail-${sent.length}`, success: true };
 };
 const day = 86_400_000;
+
+test("saved Partner draft with possible phone numbers sends before signature without financial records", async () => {
+  const { partner, submission } = await fixture();
+  await prisma.businessSubmission.update({ where: { id: submission.id }, data: {
+    phone: "+393000000000", ownerPhone: "+441000000000",
+  } });
+  const saved = await prisma.businessSubmission.findUniqueOrThrow({ where: { id: submission.id } });
+  assert.deepEqual(getPartnerListingMissingFields(saved), []);
+  assert.notEqual(getOwnerDetailsHash(saved), getOwnerDetailsHash({ ...saved, ownerPhone: "+441000000001" }));
+  assert.equal(saved.agreementSignature, null);
+  assert.equal(saved.businessTermsAcceptedAt, null);
+  const created = await createOrRotateInvitation({ partnerUserId: partner.id, submissionId: submission.id, locale: "en" });
+  const token = deriveInvitationToken(created);
+  const before = sent.length;
+  assert.equal(await attemptInvitationEmail(created.id, new Date(), sendEmail as never), "accepted");
+  assert.equal(await attemptInvitationEmail(created.id, new Date(), sendEmail as never), "skipped");
+  assert.equal(sent.length, before + 1);
+  assert.equal(await startInvitationOtp(token, new Date(), sendEmail as never), "sent");
+  const code = sent.at(-1)?.text.match(/\b\d{6}\b/)?.[0];
+  assert.ok(code);
+  assert.equal(await verifyInvitationOtp(token, code + "0"), null);
+  assert.ok(await verifyInvitationOtp(token, code));
+  assert.equal(await prisma.payment.count({ where: { businessSubmissionId: submission.id } }), 0);
+  assert.equal(await prisma.businessMembership.count(), 0);
+  assert.equal(await prisma.partnerCommission.count({ where: { businessSubmissionId: submission.id } }), 0);
+  assert.equal((await prisma.businessSubmission.findUniqueOrThrow({ where: { id: submission.id } })).status, "DRAFT");
+  await prisma.businessSubmissionInvitation.update({ where: { id: created.id }, data: { revokedAt: new Date() } });
+});
+
+test("missing saved details report the exact field and local edits require a confirmed save", async () => {
+  const { partner, submission } = await fixture();
+  await prisma.businessSubmission.update({ where: { id: submission.id }, data: { photoUrls: ["/test/exterior.jpg"] } });
+  const saved = await prisma.businessSubmission.findUniqueOrThrow({ where: { id: submission.id } });
+  assert.deepEqual(getPartnerListingMissingFields(saved), ["photoUrls"]);
+  assert.deepEqual(getPartnerListingMissingFields({ ...saved, photoUrls: ["/test/exterior.jpg", "/test/interior.jpg"] }), []);
+  await assert.rejects(createOrRotateInvitation({ partnerUserId: partner.id, submissionId: submission.id, locale: "en" }),
+    (error) => error instanceof PayLaterMissingFieldsError && error.fields.join() === "photoUrls");
+  assert.equal(await prisma.businessSubmissionInvitation.count({ where: { businessSubmissionId: submission.id } }), 0);
+  await prisma.businessSubmission.update({ where: { id: submission.id }, data: { photoUrls: ["/test/exterior.jpg", "/test/interior.jpg"] } });
+  assert.ok(await createOrRotateInvitation({ partnerUserId: partner.id, submissionId: submission.id, locale: "en" }));
+});
+
+test("owner email correction is persisted on the same submission before invitation", async () => {
+  const { partner, submission } = await fixture();
+  await prisma.businessSubmission.update({ where: { id: submission.id }, data: { ownerEmail: "" } });
+  await assert.rejects(createOrRotateInvitation({ partnerUserId: partner.id, submissionId: submission.id, locale: "en" }),
+    (error) => error instanceof PayLaterMissingFieldsError && error.fields.includes("ownerEmail"));
+  const correctedEmail = `corrected-${submission.id}@example.test`;
+  await prisma.businessSubmission.update({ where: { id: submission.id }, data: { ownerEmail: correctedEmail } });
+  const created = await createOrRotateInvitation({ partnerUserId: partner.id, submissionId: submission.id, locale: "en" });
+  assert.equal(created.recipientEmail, correctedEmail);
+  assert.equal((await prisma.businessSubmission.findUniqueOrThrow({ where: { id: submission.id } })).ownerEmail, correctedEmail);
+  assert.equal(await prisma.businessSubmission.count({ where: { id: submission.id } }), 1);
+});
 
 test("owner-created invitation and approval stay unpaid in public Stripe sandbox", async () => {
   const { partner: owner, submission } = await fixture();

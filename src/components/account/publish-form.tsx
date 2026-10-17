@@ -2196,6 +2196,12 @@ export function PublishForm({
       return;
     }
 
+    if (wizardStep === "owner" && emailCorrectionFromInvite) {
+      const ownerError = getOwnerStepError({ locale, ownerEmail, ownerHasNoEmail, ownerName, ownerPhone: ownerContact, submitterRole: role });
+      if (ownerError) { setDraftNotice(ownerError); return; }
+      requestDraftSave("autosave", false, "invite");
+      return;
+    }
     setDraftNotice("");
     moveToWizardStep(previousStep);
   }
@@ -2691,7 +2697,7 @@ export function PublishForm({
           onSave={() => requestDraftSave("manual", true)}
         /> : null}
 
-        {wizardStep === "invite" ? <PayLaterPartnerInvitation submissionId={currentSubmissionId} businessName={businessName} ownerEmail={ownerEmail} ownerPhone={ownerContact} locale={locale} financialPaymentPaused={financialPaymentPaused} onBack={() => { setEmailCorrectionFromInvite(false); moveToWizardStep(inviteOrigin); }} onCorrectEmail={(nextEmail) => { if (nextEmail) { setOwnerEmail(nextEmail); setOwnerHasNoEmail(false); } setEmailCorrectionFromInvite(true); moveToWizardStep("owner"); }} /> : null}
+        {wizardStep === "invite" ? <PayLaterPartnerInvitation submissionId={currentSubmissionId} businessName={businessName} ownerEmail={ownerEmail} ownerPhone={ownerContact} locale={locale} financialPaymentPaused={financialPaymentPaused} onBack={() => { setEmailCorrectionFromInvite(false); moveToWizardStep(inviteOrigin); }} onCorrectEmail={(nextEmail) => { if (nextEmail) { setOwnerEmail(nextEmail); setOwnerHasNoEmail(false); } setEmailCorrectionFromInvite(true); moveToWizardStep("owner"); }} onFixField={(field) => { const step: WizardStep = ["businessName", "categoryId", "townId", "address"].includes(field) ? "business" : field === "phone" ? "contact" : ["ownerName", "ownerPhone", "ownerEmail"].includes(field) ? (skipOwnerStep ? "contact" : "owner") : field === "longDescription" ? "about" : field === "openingHours" ? "hours" : "photos"; setEmailCorrectionFromInvite(step === "owner"); moveToWizardStep(step); }} /> : null}
 
         {wizardStep === "owner-review" ? <div className="grid gap-6"><div><p className="section-kicker">{ownerFlowCopy.ownerConfirmation}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{ownerName ? `${locale === "it" ? "Ciao" : "Hi"} ${ownerName.split(" ")[0]}` : locale === "it" ? "Ciao" : "Hi"}</h1><p className="mt-3 max-w-xl text-[var(--muted)]">{ownerFlowCopy.ownerPrepared}</p></div>{renderOwnerConfirmationSummary()}<label className="owner-confirmation-checkbox"><input type="checkbox" checked={ownerInformationConfirmed} onChange={(event) => setOwnerInformationConfirmed(event.target.checked)} className="mt-1 h-5 w-5 shrink-0 accent-[var(--primary)]" /><span>{locale === "it" ? "Confermo che questi dati dell'attività sono corretti." : "I confirm that these business details are correct."}</span></label><button type="button" onClick={() => moveToWizardStep("review")} className="owner-confirmation-help">{locale === "it" ? (isOwnerFlow ? "Qualcosa non va? Modifica i tuoi dati" : "Qualcosa non va? Chiedi al partner di modificare") : (isOwnerFlow ? "Something looks wrong? Edit your details" : "Something looks wrong? Ask the partner to edit")}</button></div> : null}
 

@@ -10,7 +10,7 @@ import { getAppUrl } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
 import { isPublicFinancialHold } from "@/lib/stripe";
 import { getSupportContactEmail } from "@/lib/support-contact";
-import { normalizeEmail, normalizePhoneNumber } from "@/lib/validation";
+import { isPossiblePhoneNumber, normalizeEmail, normalizePhoneNumber } from "@/lib/validation";
 
 export const PAY_LATER_TOKEN_DAYS = 45;
 export const PAY_LATER_OTP_MINUTES = 10;
@@ -50,7 +50,7 @@ export function getOwnerDetailsHash(submission: BusinessSubmission) {
     businessName: submission.businessName, categoryId: submission.categoryId,
     email: submission.email, longDescription: submission.longDescription,
     openingHours: submission.openingHours, ownerEmail: normalizeEmail(submission.ownerEmail),
-    ownerName: submission.ownerName, ownerPhone: normalizePhoneNumber(submission.ownerPhone),
+    ownerName: submission.ownerName, ownerPhone: normalizePhoneNumber(submission.ownerPhone) ?? submission.ownerPhone.trim(),
     phone: submission.phone, photoUrls: submission.photoUrls, shortDescription: submission.shortDescription,
     townId: submission.townId, whatsapp: submission.whatsapp,
     businessTermsVersion: LISTING_OFFER.businessTermsVersion,
@@ -59,17 +59,42 @@ export function getOwnerDetailsHash(submission: BusinessSubmission) {
   }));
 }
 
-export function isPartnerListingComplete(submission: BusinessSubmission) {
+export type PayLaterMissingField = "businessName" | "categoryId" | "townId" | "address" | "phone" |
+  "ownerName" | "ownerPhone" | "ownerEmail" | "longDescription" | "openingHours" | "photoUrls";
+
+export class PayLaterMissingFieldsError extends Error {
+  constructor(readonly fields: PayLaterMissingField[]) {
+    super("pay_later_missing_fields");
+  }
+}
+
+export function getPartnerListingMissingFields(submission: BusinessSubmission): PayLaterMissingField[] {
+  const missing: PayLaterMissingField[] = [];
   const photos = Array.isArray(submission.photoUrls) ? submission.photoUrls.filter((url) => typeof url === "string" && url.trim()) : [];
   const selectedAddress = buildSelectedAddressFromStoredFields(submission);
-  return Boolean(
-    submission.businessName.trim().length >= 2 && submission.categoryId && submission.townId &&
-    selectedAddress && submission.address.trim() === selectedAddress.formattedAddress.trim() &&
-    normalizePhoneNumber(submission.phone) && submission.ownerName.trim().length >= 2 &&
-    normalizePhoneNumber(submission.ownerPhone) && submission.longDescription.trim() &&
-    submission.openingHours.trim() && photos.length >= 2 &&
-    z.email().safeParse(normalizeEmail(submission.ownerEmail)).success,
-  );
+  if (submission.businessName.trim().length < 2) missing.push("businessName");
+  if (!submission.categoryId) missing.push("categoryId");
+  if (!submission.townId) missing.push("townId");
+  if (!selectedAddress || submission.address.trim() !== selectedAddress.formattedAddress.trim()) missing.push("address");
+  // Match the wizard and final submission's possible-number rule. A stricter
+  // national-prefix check here rejected drafts accepted by those earlier steps.
+  if (!isPossiblePhoneNumber(submission.phone)) missing.push("phone");
+  if (submission.ownerName.trim().length < 2) missing.push("ownerName");
+  if (!isPossiblePhoneNumber(submission.ownerPhone)) missing.push("ownerPhone");
+  if (!z.email().safeParse(normalizeEmail(submission.ownerEmail)).success) missing.push("ownerEmail");
+  if (!submission.longDescription.trim()) missing.push("longDescription");
+  if (!submission.openingHours.trim()) missing.push("openingHours");
+  if (photos.length < 2) missing.push("photoUrls");
+  return missing;
+}
+
+export function assertInvitationDraftEligible(submission: BusinessSubmission | null, submitterRole: string) {
+  if (!submission || !["GETTER", "BUSINESS_OWNER"].includes(submitterRole) || submission.status !== "DRAFT" ||
+    submission.paymentMethod || submission.paymentStatus !== "NOT_REQUIRED" || submission.createdBusinessId) {
+    throw new Error("pay_later_submission_ineligible");
+  }
+  const missingFields = getPartnerListingMissingFields(submission);
+  if (missingFields.length) throw new PayLaterMissingFieldsError(missingFields);
 }
 
 export function invitationIsOpen(invitation: BusinessSubmissionInvitation, submission: Pick<BusinessSubmission, "status" | "paymentStatus" | "createdBusinessId">, now = new Date()) {
@@ -107,9 +132,8 @@ export async function createOrRotateInvitation(params: {
       where: { id: params.submissionId, userId: params.partnerUserId },
       include: { user: { select: { role: true } }, payLaterInvitation: true },
     });
-    if (!submission || !["GETTER", "BUSINESS_OWNER"].includes(submission.user.role) || submission.status !== "DRAFT" ||
-      submission.paymentMethod || submission.paymentStatus !== "NOT_REQUIRED" ||
-      submission.createdBusinessId || !isPartnerListingComplete(submission)) throw new Error("pay_later_submission_ineligible");
+    assertInvitationDraftEligible(submission, submission?.user.role ?? "");
+    if (!submission) throw new Error("pay_later_submission_ineligible");
     const payment = await tx.payment.findFirst({ where: { businessSubmissionId: submission.id,
       purpose: "INITIAL_MEMBERSHIP", status: { in: ["PENDING_PAYMENT", "AWAITING_BANK_TRANSFER", "PAID"] } },
       select: { id: true } });

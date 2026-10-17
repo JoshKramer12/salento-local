@@ -9,43 +9,73 @@ type Props = {
   submissionId: string; businessName: string; ownerEmail: string; ownerPhone: string; locale: Locale;
   financialPaymentPaused?: boolean;
   onBack: () => void; onCorrectEmail: (nextEmail?: string) => void;
+  onFixField: (field: string) => void;
 };
 
-export function PayLaterPartnerInvitation({ submissionId, businessName, ownerEmail, ownerPhone, locale, financialPaymentPaused = false, onBack, onCorrectEmail }: Props) {
+const fieldLabels: Record<string, { en: string; it: string }> = {
+  businessName: { en: "Business name", it: "Nome attività" },
+  categoryId: { en: "Category", it: "Categoria" },
+  townId: { en: "Town", it: "Comune" },
+  address: { en: "Verified address", it: "Indirizzo verificato" },
+  phone: { en: "Business phone", it: "Telefono attività" },
+  ownerName: { en: "Owner name", it: "Nome titolare" },
+  ownerPhone: { en: "Owner phone", it: "Telefono titolare" },
+  ownerEmail: { en: "Owner email", it: "Email titolare" },
+  longDescription: { en: "Business description", it: "Descrizione attività" },
+  openingHours: { en: "Opening hours", it: "Orari di apertura" },
+  photoUrls: { en: "Exterior and interior photos", it: "Foto esterna e interna" },
+};
+
+export function PayLaterPartnerInvitation({ submissionId, businessName, ownerEmail, ownerPhone, locale, financialPaymentPaused = false, onBack, onCorrectEmail, onFixField }: Props) {
   const it = locale === "it";
   const [pending, setPending] = useState(false);
   const sending = useRef(false);
+  const statusVersion = useRef(0);
   const [emailState, setEmailState] = useState<"idle" | "accepted" | "pending">("idle");
   const [statusLoading, setStatusLoading] = useState(Boolean(submissionId));
   const [emailInput, setEmailInput] = useState("");
   const [whatsappUrl, setWhatsappUrl] = useState<string | null>(null);
-  const [error, setError] = useState("");
+  const [whatsappAvailable, setWhatsappAvailable] = useState(false);
+  const [statusError, setStatusError] = useState("");
+  const [sendError, setSendError] = useState("");
+  const [missingFields, setMissingFields] = useState<string[]>([]);
+  const [cooldownUntil, setCooldownUntil] = useState(0);
+  const [now, setNow] = useState(0);
   const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ownerEmail.trim());
   const validPhone = /^\+[1-9]\d{7,14}$/.test(ownerPhone.trim());
   const enteredEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailInput.trim());
+  const cooldownSeconds = Math.max(0, Math.ceil((cooldownUntil - now) / 1000));
+
+  useEffect(() => {
+    if (!cooldownUntil || cooldownUntil <= Date.now()) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [cooldownUntil]);
 
   async function refreshStatus() {
     if (!submissionId) return;
-    setError("");
+    const version = ++statusVersion.current;
+    setStatusError("");
     setStatusLoading(true);
     try {
       const response = await fetch(`/api/pay-later/invitations?submissionId=${encodeURIComponent(submissionId)}`, { credentials: "same-origin", cache: "no-store" });
       if (!response.ok) throw new Error("unavailable");
-      const result = await response.json() as { email: "idle" | "accepted" | "pending" };
-      setEmailState(result.email);
+      const result = await response.json() as { email: "idle" | "accepted" | "pending"; whatsappAvailable?: boolean };
+      if (version === statusVersion.current) { setEmailState(result.email); setWhatsappAvailable(Boolean(result.whatsappAvailable)); }
     } catch {
-      setError(it ? "Non possiamo verificare lo stato dell’invito. Riprova tra poco." : "We couldn't check the invitation status. Try again shortly.");
-    } finally { setStatusLoading(false); }
+      if (version === statusVersion.current) setStatusError(it ? "Non possiamo verificare lo stato dell’invito. Riprova tra poco." : "We couldn't check the invitation status. Try again shortly.");
+    } finally { if (version === statusVersion.current) setStatusLoading(false); }
   }
 
   useEffect(() => {
     if (!submissionId) return;
     let active = true;
+    const version = ++statusVersion.current;
     fetch(`/api/pay-later/invitations?submissionId=${encodeURIComponent(submissionId)}`, { credentials: "same-origin", cache: "no-store" })
-      .then(async (response) => { if (!response.ok) throw new Error("unavailable"); return response.json() as Promise<{ email: "idle" | "accepted" | "pending" }>; })
-      .then((result) => { if (active) setEmailState(result.email); })
-      .catch(() => { if (active) setError(it ? "Non possiamo verificare lo stato dell’invito." : "We couldn't check the invitation status."); })
-      .finally(() => { if (active) setStatusLoading(false); });
+      .then(async (response) => { if (!response.ok) throw new Error("unavailable"); return response.json() as Promise<{ email: "idle" | "accepted" | "pending"; whatsappAvailable?: boolean }>; })
+      .then((result) => { if (active && version === statusVersion.current) { setEmailState(result.email); setWhatsappAvailable(Boolean(result.whatsappAvailable)); } })
+      .catch(() => { if (active && version === statusVersion.current) setStatusError(it ? "Non possiamo verificare lo stato dell’invito." : "We couldn't check the invitation status."); })
+      .finally(() => { if (active && version === statusVersion.current) setStatusLoading(false); });
     return () => { active = false; };
   }, [submissionId, ownerEmail, it]);
 
@@ -57,28 +87,39 @@ export function PayLaterPartnerInvitation({ submissionId, businessName, ownerEma
       const result = await response.json() as { whatsappUrl?: string };
       if (!response.ok || !result.whatsappUrl) throw new Error("unavailable");
       window.location.assign(result.whatsappUrl);
-    } catch { setError(it ? "Condivisione non disponibile. Riprova più tardi." : "Sharing is unavailable. Try again later."); }
+    } catch { setSendError(it ? "Condivisione non disponibile. Riprova più tardi." : "Sharing is unavailable. Try again later."); }
   }
 
   async function send() {
-    if (!submissionId || !validEmail || sending.current) return;
-    sending.current = true; setPending(true); setError("");
+    if (!submissionId || !validEmail || sending.current || cooldownSeconds > 0) return;
+    sending.current = true; statusVersion.current++; setStatusLoading(false);
+    setPending(true); setSendError(""); setMissingFields([]);
     try {
       const response = await fetch("/api/pay-later/invitations", {
         method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ submissionId, mode: validPhone ? "email_whatsapp" : "email", locale }),
       });
-      const result: { email?: "accepted" | "pending"; whatsappUrl?: string | null; error?: string } = await response.json();
+      const result: { email?: "accepted" | "pending"; whatsappUrl?: string | null; error?: string; invalidFields?: string[]; retryAfterSeconds?: number } = await response.json();
+      setStatusError("");
+      if (response.status === 429 && result.error === "cooldown") {
+        setCooldownUntil(Date.now() + Math.max(1, result.retryAfterSeconds ?? 300) * 1000);
+        setNow(Date.now());
+        return;
+      }
+      if (response.status === 409 && result.error === "pay_later_missing_fields") {
+        setMissingFields((result.invalidFields ?? []).filter((field) => field in fieldLabels));
+        setSendError(it ? "Completa questi dati della scheda prima di inviare il link:" : "Complete these listing details before sending the link:");
+        return;
+      }
       if (!response.ok && response.status !== 202) throw new Error(result.error || "unavailable");
       setEmailState(result.email === "accepted" ? "accepted" : "pending");
       setWhatsappUrl(result.email === "accepted" ? result.whatsappUrl ?? null : null);
+      setWhatsappAvailable(result.email === "accepted" && Boolean(result.whatsappUrl));
     } catch (caught) {
       const code = caught instanceof Error ? caught.message : "unavailable";
-      setError(code === "cooldown"
-        ? it ? "Attendi qualche minuto prima di inviare di nuovo." : "Wait a few minutes before trying again."
-        : code === "pay_later_submission_ineligible"
-          ? it ? "Salva tutti i dati richiesti prima di inviare il link." : "Save all required listing details before sending the link."
-          : it ? "Invio non riuscito. La scheda è salvata; riprova più tardi." : "Sending failed. The listing is saved; try again later.");
+      setSendError(code === "pay_later_submission_ineligible"
+        ? it ? "Questa bozza non può più ricevere un invito. Aggiorna la pagina e controlla lo stato della scheda." : "This draft can no longer receive an invitation. Refresh and check its status."
+        : it ? "Invio non riuscito. La scheda è salvata; riprova più tardi." : "Sending failed. The listing is saved; try again later.");
     } finally { sending.current = false; setPending(false); }
   }
 
@@ -92,11 +133,12 @@ export function PayLaterPartnerInvitation({ submissionId, businessName, ownerEma
     <p className={styles.successEmail}>{ownerEmail}</p>
     <p className={styles.info}>{it ? `${businessName} resterà non pubblicata fino al pagamento e all’approvazione.` : `${businessName} remains unpublished until payment and approval.`}</p>
     <a href="/dashboard/businesses" className={styles.primaryAction}>{it ? "Torna alla dashboard" : "Return to dashboard"}<IconArrowRight size={20} aria-hidden="true" /></a>
-    {validPhone && emailState === "accepted" ? whatsappUrl
+    {whatsappAvailable && emailState === "accepted" ? whatsappUrl
       ? <a href={whatsappUrl} target="_blank" rel="noopener noreferrer" className={styles.secondaryAction}><IconBrandWhatsapp size={20} aria-hidden="true" />{it ? "Condividi su WhatsApp" : "Share on WhatsApp"}</a>
       : <button type="button" onClick={shareOnWhatsApp} className={styles.secondaryAction}><IconBrandWhatsapp size={20} aria-hidden="true" />{it ? "Condividi su WhatsApp" : "Share on WhatsApp"}</button> : null}
     {emailState === "pending" ? <button type="button" disabled={statusLoading} onClick={refreshStatus} className={styles.back}>{it ? "Controlla di nuovo l’invio" : "Check sending again"}</button> : null}
-    {error ? <p role="alert" className={styles.error}>{error}</p> : null}
+    {sendError ? <p role="alert" className={styles.error}>{sendError}</p> : null}
+    {statusError ? <p role="alert" className={styles.error}>{statusError}</p> : null}
   </section>;
 
   return <section className={styles.emailScreen}>
@@ -111,9 +153,11 @@ export function PayLaterPartnerInvitation({ submissionId, businessName, ownerEma
       {validEmail ? <button type="button" onClick={() => onCorrectEmail()} className={styles.editEmail}>{it ? "Modifica" : "Edit"}</button>
         : <button type="button" disabled={!enteredEmailValid} onClick={() => onCorrectEmail(emailInput.trim())} className={styles.editEmail}>{it ? "Continua" : "Continue"}</button>}
     </div>
-    {error ? <p role="alert" className={styles.error}>{error}</p> : null}
-    {error ? <button type="button" disabled={statusLoading} onClick={refreshStatus} className={styles.secondaryAction}>{it ? "Riprova verifica invito" : "Retry invitation status check"}</button> : null}
-    <button type="button" disabled={!validEmail || !submissionId || pending || statusLoading || Boolean(error)} onClick={send} className={styles.sendButton}><IconMail size={25} aria-hidden="true" /><span>{pending || statusLoading ? (it ? "Verifica in corso..." : "Checking...") : it ? "Invia il link via email" : "Send email link"}</span><IconArrowRight size={24} aria-hidden="true" /></button>
+    {sendError ? <div role="alert" className={styles.error}><p>{sendError}</p>{missingFields.map((field) => <button key={field} type="button" onClick={() => onFixField(field)} className={styles.secondaryAction}>{fieldLabels[field][locale]} · {it ? "Modifica" : "Edit"}</button>)}</div> : null}
+    {statusError ? <p role="alert" className={styles.error}>{statusError}</p> : null}
+    {statusError ? <button type="button" disabled={statusLoading} onClick={refreshStatus} className={styles.secondaryAction}>{it ? "Riprova verifica invito" : "Retry invitation status check"}</button> : null}
+    {cooldownSeconds > 0 ? <p role="status" className={styles.error}>{it ? `Attendi ${cooldownSeconds} secondi prima di riprovare.` : `Try again in ${cooldownSeconds} seconds.`}</p> : null}
+    <button type="button" disabled={!validEmail || !submissionId || pending || cooldownSeconds > 0} onClick={send} className={styles.sendButton}><IconMail size={25} aria-hidden="true" /><span>{pending ? (it ? "Invio in corso..." : "Sending...") : it ? "Invia il link via email" : "Send email link"}</span><IconArrowRight size={24} aria-hidden="true" /></button>
     <div className={styles.emailInfo}><IconInfoCircle size={25} aria-hidden="true" /><p><strong>{it ? "Nessun pagamento richiesto ora." : "No payment required now."}</strong><span>{it ? "La tua scheda sarà pubblicata solo dopo il pagamento e l’approvazione." : "Your listing will be published only after payment and approval."}</span></p></div>
     <button type="button" onClick={onBack} className={styles.back}><IconArrowLeft size={20} aria-hidden="true" />{it ? "Indietro" : "Back"}</button>
   </section>;
