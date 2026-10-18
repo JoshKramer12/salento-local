@@ -3,6 +3,7 @@ import type { PaymentRecordMethod, Prisma } from "@prisma/client";
 import type Stripe from "stripe";
 
 import { ensurePendingPartnerCommissionForSubmission } from "@/lib/partner-ledger";
+import { ensurePartnerCommissionConfirmationDeliveryForSubmission } from "@/lib/partner-commission-confirmations";
 import { getStatusAfterPayment, resolvePaymentMethodRecord } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
 import { runThrottledServerTask } from "@/lib/server-throttle";
@@ -332,6 +333,7 @@ async function finalizeStripeManagedPayment(params: {
     businessSubmissionId: params.businessSubmissionId,
     revalidatePaths: params.revalidatePaths,
   });
+  await ensurePartnerCommissionConfirmationDeliveryForSubmission(params.businessSubmissionId);
 
   return {
     paymentReceived: true,

@@ -227,7 +227,7 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
   return (
     <main className={submission.paymentMethod !== "BANK_TRANSFER" && !isPaid ? "mx-auto w-full max-w-[1180px] px-5 py-7 sm:px-6 sm:py-12" : "shell px-4 py-9 sm:px-6 sm:py-12"}>
       <div className="mx-auto max-w-3xl">
-        {isStripeSandboxMode() ? <p role="status" className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-950">{locale === "it" ? "TEST STRIPE: pagamento simulato, nessun addebito reale. La commissione Partner non è pagabile." : "STRIPE TEST: simulated payment, no real charge. Partner commission is not payable."}</p> : null}
+        {isStripeSandboxMode() ? <p className="mb-5 text-sm leading-6 text-[var(--muted)]">{locale === "it" ? "Durante questa anteprima i pagamenti sono simulati: non inviare denaro reale e usa una carta di prova." : "During this preview, payments are simulated: do not send real money and use a test card."}</p> : null}
         {isPaid ? (
           <section className="card overflow-hidden p-5 sm:p-8">
             <div className="mx-auto max-w-xl text-center">
@@ -237,6 +237,7 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
               </div>
               <h1 className="mt-8 font-serif text-4xl text-[var(--foreground)] sm:text-5xl">{copy.paymentConfirmed}</h1>
               <p className="mt-3 text-lg leading-8 text-[var(--muted)]">{copy.paymentSuccess}</p>
+              {receipt?.payment.stripeLivemode === false ? <p className="mt-3 text-sm text-[var(--muted)]">{locale === "it" ? "Pagamento simulato: nessun addebito reale." : "Simulated payment: no real charge."}</p> : null}
             </div>
             <div className="mt-8 rounded-[1.4rem] border border-[rgba(42,98,87,0.14)] bg-[rgba(42,98,87,0.05)] p-5 sm:p-6"><div className="flex items-start gap-4"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-[var(--primary)]"><IconShieldCheck size={24} /></span><div><h2 className="text-xl font-bold text-[var(--foreground)]">{copy.next}</h2><p className="mt-2 leading-7 text-[var(--foreground)]">{copy.nextSuccess}</p></div></div></div>
             <div className="mt-6 overflow-hidden rounded-[1.4rem] border border-[var(--border)] bg-white">

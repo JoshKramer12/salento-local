@@ -22,6 +22,14 @@ test("the paid Stripe webhook persists payment and commission before sending the
       calls.push("commission");
       return null;
     },
+    ensurePartnerCommissionConfirmationDeliveryForSubmission: async () => {
+      calls.push("partner-delivery");
+      return "delivery_123";
+    },
+    attemptPartnerCommissionConfirmationForSubmission: async () => {
+      calls.push("partner-email");
+      return "accepted";
+    },
     sendPurchaseConfirmationForSubmission: async (params) => {
       calls.push(`email:${params.locale}:${params.submissionId}`);
       return true;
@@ -36,7 +44,7 @@ test("the paid Stripe webhook persists payment and commission before sending the
     },
   });
 
-  assert.deepEqual(calls, ["payment", "commission", "email:it:submission_123"]);
+  assert.deepEqual(calls, ["payment", "commission", "partner-delivery", "partner-email", "email:it:submission_123"]);
   assert.equal(result.ownerEmailSent, true);
   assert.equal(result.payment.paymentReceived, true);
 });
@@ -51,6 +59,8 @@ test("an owner-email failure is retryable without undoing payment or commission"
         commissionPersisted = true;
         return null;
       },
+      ensurePartnerCommissionConfirmationDeliveryForSubmission: async () => "delivery_123",
+      attemptPartnerCommissionConfirmationForSubmission: async () => "accepted",
       sendPurchaseConfirmationForSubmission: async () => {
         throw new Error("email_provider_unavailable");
       },

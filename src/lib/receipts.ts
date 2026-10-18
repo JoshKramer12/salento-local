@@ -995,7 +995,7 @@ export async function sendReceiptEmail(params: {
     idempotencyKey: params.ownerActions
       ? `owner-listing/${params.receipt.submission.id}`
       : undefined,
-    subject: params.receipt.payment.stripeLivemode === false ? `[TEST] ${emailCopy.subject}` : emailCopy.subject,
+    subject: emailCopy.subject,
     text: params.receipt.payment.stripeLivemode === false
       ? `${params.locale === "it" ? "Pagamento di prova Stripe: nessun addebito reale." : "Stripe test payment: no real charge."} ${emailCopy.text}`
       : emailCopy.text,

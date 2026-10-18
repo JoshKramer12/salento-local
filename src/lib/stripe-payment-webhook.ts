@@ -1,6 +1,7 @@
 import type { PaymentRecordMethod } from "@prisma/client";
 
 import { ensurePartnerCommissionForSubmission } from "@/lib/partner-ledger";
+import { attemptPartnerCommissionConfirmationForSubmission, ensurePartnerCommissionConfirmationDeliveryForSubmission } from "@/lib/partner-commission-confirmations";
 import { sendPurchaseConfirmationForSubmission } from "@/lib/receipts";
 import { syncStripePaymentFromWebhook } from "@/lib/stripe-payment-sync";
 
@@ -22,6 +23,8 @@ type PaidSubmissionWebhookParams = {
 };
 
 type PaidSubmissionWebhookDependencies = {
+  attemptPartnerCommissionConfirmationForSubmission: typeof attemptPartnerCommissionConfirmationForSubmission;
+  ensurePartnerCommissionConfirmationDeliveryForSubmission: typeof ensurePartnerCommissionConfirmationDeliveryForSubmission;
   ensurePartnerCommissionForSubmission: typeof ensurePartnerCommissionForSubmission;
   sendPurchaseConfirmationForSubmission: typeof sendPurchaseConfirmationForSubmission;
   syncStripePaymentFromWebhook: typeof syncStripePaymentFromWebhook;
@@ -65,6 +68,10 @@ export async function processPaidSubmissionWebhook(
     sourceEventId: params.stripeEventId,
     sourceEventType: params.eventType,
   });
+  await (dependencies.ensurePartnerCommissionConfirmationDeliveryForSubmission ??
+    ensurePartnerCommissionConfirmationDeliveryForSubmission)(params.businessSubmissionId);
+  await (dependencies.attemptPartnerCommissionConfirmationForSubmission ??
+    attemptPartnerCommissionConfirmationForSubmission)(params.businessSubmissionId);
   const ownerEmailSent = await sendOwnerEmail({
     locale: "it",
     submissionId: params.businessSubmissionId,

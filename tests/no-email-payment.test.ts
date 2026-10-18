@@ -311,7 +311,9 @@ test("no-email authoritative webhook uses the existing payment, commission, and 
       return { paymentReceived: true, publishedBusinessSlug: "trattoria-del-sole", publishedTownSlug: "lecce" };
     },
     ensurePartnerCommissionForSubmission: async () => { calls.push("commission"); return null; },
+    ensurePartnerCommissionConfirmationDeliveryForSubmission: async () => { calls.push("partner_delivery"); return "delivery_test"; },
+    attemptPartnerCommissionConfirmationForSubmission: async () => { calls.push("partner_notification"); return "accepted"; },
     sendPurchaseConfirmationForSubmission: async () => { calls.push("owner_notification"); return false; },
   });
-  assert.deepEqual(calls, ["payment_and_publication", "commission", "owner_notification"]);
+  assert.deepEqual(calls, ["payment_and_publication", "commission", "partner_delivery", "partner_notification", "owner_notification"]);
 });
