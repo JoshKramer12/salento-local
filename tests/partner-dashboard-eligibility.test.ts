@@ -6,8 +6,8 @@ import { join } from "node:path";
 import test, { after } from "node:test";
 import { prisma } from "@/lib/prisma";
 import { addUtcDays } from "@/lib/business-membership";
-import { selectPartnerPaidBusinesses, selectPartnerPaidBusinessCommissions, getPartnerCommissionDisplay } from "@/lib/partner-dashboard-display";
-import { payableCommissionWhere } from "@/lib/partner-ledger";
+import { selectPartnerPaidBusinesses, selectPartnerPaidBusinessCommissions, getPartnerCommissionDisplay, getPartnerEarliestEligibilityDate } from "@/lib/partner-dashboard-display";
+import { getPartnerBalanceSummary, payableCommissionWhere } from "@/lib/partner-ledger";
 import { buildDraftLikeSubmissionWhere } from "@/lib/submission-drafts";
 import { createRefundFixture } from "./helpers/refund-fixture";
 
@@ -19,6 +19,65 @@ after(async () => { await prisma.$disconnect(); rmSync(directory, { recursive: t
 const now = new Date("2026-09-28T12:00:00Z");
 let sequence = 0;
 const fixture = (daysAgo = 1) => createRefundFixture(prisma, `dashboard-${++sequence}`, addUtcDays(now, -daysAgo));
+
+test("each live commission uses its own payment date for the earliest eligibility date", () => {
+  const first = new Date("2026-09-01T12:00:00Z");
+  const second = new Date("2026-09-07T12:00:00Z");
+  const entry = (paidAt: Date, stripeLivemode: boolean) => ({
+    id: paidAt.toISOString(), amountCents: 5000, sourceKey: "commission:submission:synthetic",
+    status: "PENDING", type: "COMMISSION", eligibleAt: paidAt,
+    payment: { paidAt, purpose: "INITIAL_MEMBERSHIP" as const, status: "PAID" as const,
+      refundRequestedAt: null, refundStatus: null, stripeLivemode },
+  });
+  assert.deepEqual(getPartnerEarliestEligibilityDate(entry(first, true), 14), addUtcDays(first, 14));
+  assert.deepEqual(getPartnerEarliestEligibilityDate(entry(second, true), 14), addUtcDays(second, 14));
+  assert.equal(getPartnerEarliestEligibilityDate(entry(first, false), 14), null);
+});
+
+test("live balance buckets follow the payout predicate without counting a commission twice", async () => {
+  const paidAt = new Date();
+  const f = await createRefundFixture(prisma, `dashboard-balance-${++sequence}`, paidAt);
+  let balance = await getPartnerBalanceSummary(f.partner.id);
+  assert.equal(balance.totalEarned, 5000);
+  assert.equal(balance.pending, 5000);
+  assert.equal(balance.available, 0);
+
+  const earlier = addUtcDays(paidAt, -15);
+  await prisma.payment.update({ where: { id: f.payment.id }, data: { paidAt: earlier } });
+  await prisma.partnerCommission.update({ where: { id: f.commission.id }, data: { eligibleAt: addUtcDays(earlier, 14) } });
+  balance = await getPartnerBalanceSummary(f.partner.id);
+  assert.equal(balance.totalEarned, 5000);
+  assert.equal(balance.pending, 0);
+  assert.equal(balance.available, 5000);
+
+  await prisma.payment.update({ where: { id: f.payment.id }, data: { refundRequestedAt: new Date(), refundStatus: "support_required" } });
+  balance = await getPartnerBalanceSummary(f.partner.id);
+  assert.equal(balance.pending, 5000);
+  assert.equal(balance.available, 0);
+
+  await prisma.payment.update({ where: { id: f.payment.id }, data: { stripeLivemode: false } });
+  balance = await getPartnerBalanceSummary(f.partner.id);
+  assert.equal(balance.totalEarned, 0);
+  assert.equal(balance.pending, 0);
+  assert.equal(balance.available, 0);
+  assert.equal(balance.testActivity, 5000);
+});
+
+test("a paid-out commission and its exact refund debt net to zero earned", async () => {
+  const f = await createRefundFixture(prisma, `dashboard-debt-${++sequence}`, addUtcDays(new Date(), -20));
+  await prisma.partnerCommission.update({ where: { id: f.commission.id }, data: { status: "PAID", paidAt: new Date() } });
+  await prisma.payment.update({ where: { id: f.payment.id }, data: { status: "REFUNDED" } });
+  await prisma.partnerCommission.create({ data: {
+    partnerUserId: f.partner.id, businessSubmissionId: f.submission.id, businessId: f.business.id,
+    paymentId: f.payment.id, amountCents: -5000, type: "REVERSAL", status: "DEBT",
+    sourceKey: `commission:reversal:${f.commission.id}`,
+  } });
+  const balance = await getPartnerBalanceSummary(f.partner.id);
+  assert.equal(balance.totalEarned, 0);
+  assert.equal(balance.paid, 5000);
+  assert.equal(balance.debt, 5000);
+  assert.equal(balance.available, 0);
+});
 async function dashboard(partnerId: string) {
   const rows = await prisma.businessSubmission.findMany({ where: { userId: partnerId }, include: {
     createdBusiness: true,

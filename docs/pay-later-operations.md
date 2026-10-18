@@ -33,8 +33,8 @@ sends it in a POST body after the page loads so it is not included in HTTP reque
   Partner payout selection, reservation and provider processing. Test payments and
   commissions remain visible in payment documents and Partner history with test labels.
   Production payout runs, admin-triggered runs, retries and PayPal provider calls are
-  also blocked unless matching Stripe live keys and the separate
-  `PUBLIC_LIVE_PAYMENTS_ENABLED=true` release are present. The Partner dashboard keeps
+  also blocked unless matching Stripe live keys, `PUBLIC_LIVE_PAYMENTS_ENABLED=true`,
+  and the independently approved `LIVE_PARTNER_PAYOUTS_ENABLED=true` release are present. The Partner dashboard keeps
   test and unverified historical activity separate from verified live payout balances.
 - `PAY_LATER_TOKEN_SECRET`: a unique random secret of at least 32 characters. The code can
   fall back to `OWNER_ACCESS_TOKEN_SECRET`, but production should use a dedicated value.

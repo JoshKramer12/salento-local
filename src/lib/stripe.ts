@@ -73,11 +73,12 @@ export function assertFinancialPaymentAllowed() {
   if (isPublicFinancialHold()) throw new Error("public_financial_payment_paused");
 }
 
-/** Test payments may run on the public site, but Partner disbursements require
- * a separate live financial release. This also protects PayPal payouts. */
+/** Partner disbursements have their own release gate after live collection.
+ * This also protects PayPal payouts and scheduled payout runs. */
 export function areRealPartnerDisbursementsAllowed() {
   return process.env.RAILWAY_ENVIRONMENT_NAME !== "production" ||
-    (configuredStripeMode() === "live" && process.env.PUBLIC_LIVE_PAYMENTS_ENABLED === "true");
+    (configuredStripeMode() === "live" && process.env.PUBLIC_LIVE_PAYMENTS_ENABLED === "true" &&
+      process.env.LIVE_PARTNER_PAYOUTS_ENABLED === "true");
 }
 
 export function assertRealPartnerDisbursementsAllowed() {

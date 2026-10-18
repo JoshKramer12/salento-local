@@ -70,6 +70,22 @@ export function getPartnerInitialHoldProgress(
   return { days: Math.min(holdDays, days), percent: Math.max(0, Math.min(100, (now.getTime() - payment.paidAt.getTime()) / (holdDays * 86_400_000) * 100)), holdEndsAt };
 }
 
+/** Show the earliest eligibility date from this commission and its own paid
+ * timestamp. A date is never presented as an upcoming real payout for test
+ * activity or while a refund request remains unresolved. */
+export function getPartnerEarliestEligibilityDate(
+  entry: DashboardCommission & { eligibleAt: Date | null },
+  holdDays: number,
+): Date | null {
+  const payment = entry.payment;
+  if (!payment || payment.stripeLivemode !== true || payment.status !== "PAID" ||
+    !payment.paidAt || !entry.eligibleAt || ["REVERSED", "DEBT"].includes(entry.status) ||
+    (payment.refundRequestedAt && payment.refundStatus !== "support_closed")) return null;
+  return payment.purpose === "INITIAL_MEMBERSHIP"
+    ? new Date(Math.max(entry.eligibleAt.getTime(), addUtcDays(payment.paidAt, holdDays).getTime()))
+    : entry.eligibleAt;
+}
+
 /** Availability comes from payableCommissionWhere on the server, including its
  * paidAt safeguard, refund holds, payout reservation and exact 14-day boundary.
  * This helper only describes existing ledger state; it never changes it.

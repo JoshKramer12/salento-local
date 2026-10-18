@@ -272,10 +272,6 @@ function shouldCountAsToBePaid(status: PartnerCommissionStatus) {
   return status === "PENDING" || status === "AVAILABLE";
 }
 
-function shouldCountAsOutstanding(status: PartnerCommissionStatus) {
-  return status === "PENDING" || shouldCountAsToBePaid(status);
-}
-
 function buildSubmissionCommissionSourceKey(submissionId: string) {
   return `commission:submission:${submissionId}`;
 }
@@ -504,18 +500,24 @@ function getCommissionBusinessName(commission: {
 }
 
 export async function getPartnerBalanceSummary(userId: string) {
-  const [commissions, latestPayout] = await Promise.all([
+  const now = new Date();
+  const [commissions, payableCommissions, latestPayout] = await Promise.all([
     prisma.partnerCommission.findMany({
       where: {
         partnerUserId: userId,
       },
       select: {
+        id: true,
         amountCents: true,
         eligibleAt: true,
         payment: { select: { paidAt: true, purpose: true, status: true, refundRequestedAt: true, refundStatus: true, stripeLivemode: true } },
         status: true,
         type: true,
       },
+    }),
+    prisma.partnerCommission.findMany({
+      where: { ...payableCommissionWhere(now), partnerUserId: userId },
+      select: { id: true },
     }),
     prisma.partnerPayout.findFirst({
       where: {
@@ -529,6 +531,7 @@ export async function getPartnerBalanceSummary(userId: string) {
       },
     }),
   ]);
+  const payableIds = new Set(payableCommissions.map((commission) => commission.id));
 
   return commissions.reduce(
     (summary, commission) => {
@@ -537,29 +540,20 @@ export async function getPartnerBalanceSummary(userId: string) {
         else if (commission.payment?.stripeLivemode == null) summary.unverifiedActivity += commission.amountCents;
       }
       if (commission.payment?.stripeLivemode !== true) return summary;
-      const payable = commission.payment?.status === "PAID" && commission.payment.stripeLivemode === true &&
-        commission.eligibleAt && commission.eligibleAt <= new Date() &&
-        (commission.payment.purpose !== "INITIAL_MEMBERSHIP" || Boolean((!commission.payment.refundRequestedAt || commission.payment.refundStatus === "support_closed") && commission.payment.paidAt && addUtcDays(commission.payment.paidAt, INITIAL_COMMISSION_HOLD_DAYS) <= new Date()));
-      if (commission.type === "COMMISSION" && commission.amountCents > 0) {
-        if (commission.status !== "REVERSED" && (payable || commission.status === "PAID" || commission.status === "RESERVED")) {
-          summary.totalEarned += commission.amountCents;
+      const verifiedCommission = commission.type === "COMMISSION" && commission.amountCents > 0 &&
+        (commission.payment.status === "PAID" || commission.status === "PAID") && commission.status !== "REVERSED";
+      if (verifiedCommission) {
+        summary.totalEarned += commission.amountCents;
+        if (payableIds.has(commission.id)) summary.available += commission.amountCents;
+        else if (commission.status === "PENDING" || commission.status === "AVAILABLE" || commission.status === "RESERVED") {
+          summary.pending += commission.amountCents;
         }
-      }
-
-      if (commission.status === "PENDING") {
-        summary.pending += commission.amountCents;
-      }
-
-      if (shouldCountAsOutstanding(commission.status) && payable) {
-        summary.available += commission.amountCents;
-      }
-
-      if (commission.status === "PAID") {
-        summary.paid += commission.amountCents;
+        if (commission.status === "PAID") summary.paid += commission.amountCents;
       }
 
       if (commission.status === "DEBT") {
         summary.debt += Math.abs(commission.amountCents);
+        if (commission.type === "REVERSAL") summary.totalEarned += commission.amountCents;
       }
 
       return summary;

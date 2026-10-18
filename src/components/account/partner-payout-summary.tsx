@@ -140,7 +140,7 @@ export function PartnerPayoutSummary({
   }[payoutMethod];
   const setupCopy =
     payoutsPaused
-      ? { body: locale === "it" ? "I pagamenti reali ai Partner sono sospesi durante i test. Le commissioni test e lo storico non verificato non sono pagabili." : "Real Partner payouts are paused during testing. Test commissions and unverified history are not payable.", cta: null, title: locale === "it" ? "Pagamenti reali sospesi" : "Real payouts paused" }
+      ? { body: locale === "it" ? "I pagamenti ai Partner sono temporaneamente sospesi. Le commissioni test e lo storico non verificato non sono pagabili." : "Partner payouts are temporarily paused. Test commissions and unverified history are not payable.", cta: null, title: locale === "it" ? "Pagamenti sospesi" : "Payouts paused" }
       : setupState === "ready"
       ? { body: copy.readyBody, cta: null, title: copy.readyTitle }
       : setupState === "action-required"
@@ -202,13 +202,13 @@ export function PartnerPayoutSummary({
               {copy.nextPayout}
             </p>
             <p className="mt-2 text-base font-medium text-[var(--foreground)]">
-              {payoutsPaused ? (locale === "it" ? "Sospeso durante i test" : "Paused during testing") : new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-US", {
+              {payoutsPaused ? (locale === "it" ? "Temporaneamente sospeso" : "Temporarily paused") : new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-US", {
                 dateStyle: "medium",
               }).format(balances.nextPayoutDate)}
             </p>
           </div>
         </div>
-        <p className="mt-5 text-sm leading-7 text-[var(--muted)]">{payoutsPaused ? (locale === "it" ? "Nessun pagamento reale ai Partner verrà inviato durante i test." : "No real Partner payout will be sent during testing.") : copy.payoutNote}</p>
+        <p className="mt-5 text-sm leading-7 text-[var(--muted)]">{payoutsPaused ? (locale === "it" ? "Nessun pagamento ai Partner verrà inviato finché i pagamenti sono sospesi." : "No Partner payout will be sent while payouts are paused.") : copy.payoutNote}</p>
       </article>
 
       <article className="card p-6">
