@@ -10,8 +10,9 @@ import { prisma } from "@/lib/prisma";
 import { attemptInvitationEmail, buildInvitationEmail, createOrRotateInvitation, deriveInvitationToken,
   getInvitationByToken, getOwnerDetailsHash, getPartnerListingMissingFields, PayLaterMissingFieldsError, requireVerifiedInvitation,
   startInvitationOtp, verifyInvitationOtp, closeInvitation, getInvitationUrl } from "@/lib/pay-later-invitations";
-import { isValidOwnerSignature, chooseVerifiedPayLaterPayment } from "@/lib/pay-later-payment";
-import { reminderSequenceDue, runPayLaterReminderJob } from "@/lib/pay-later-reminders";
+import { isValidOwnerSignature, chooseVerifiedPayLaterPayment, getVerifiedPayLaterPaymentDestination,
+  buildPayLaterBankInstructionsEmail } from "@/lib/pay-later-payment";
+import { reminderSequenceDue, retryPendingPayLaterBankInstructionsEmails, runPayLaterReminderJob } from "@/lib/pay-later-reminders";
 import { assertPartnerPayoutHasOnlyLivePayments, ensurePendingPartnerCommissionForSubmission, getPartnerBalanceSummary, payableCommissionWhere } from "@/lib/partner-ledger";
 import { syncStripePaymentFromWebhook } from "@/lib/stripe-payment-sync";
 import { EMAIL_MANUAL_PAYMENT_FLOW } from "@/lib/no-email-payment";
@@ -320,6 +321,200 @@ test("paid webhook creates one published membership and original Partner commiss
   assert.ok((await prisma.businessSubmissionInvitation.findUniqueOrThrow({ where: { id: invitation.id } })).completedAt);
 });
 
+test("Pay Later bank instructions survive continuation, email once, and stay pending until confirmed", async () => {
+  const previousSecret = process.env.STRIPE_SECRET_KEY;
+  const previousPublishable = process.env.STRIPE_PUBLISHABLE_KEY;
+  process.env.STRIPE_SECRET_KEY = "sk_test_synthetic_bank_confirmation";
+  process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_synthetic_bank_confirmation";
+  try {
+  for (const ownerSubmitted of [false, true]) {
+    const { partner, submission } = await fixture();
+    if (ownerSubmitted) await prisma.user.update({ where: { id: partner.id }, data: { role: "BUSINESS_OWNER" } });
+    const invitation = await createOrRotateInvitation({ partnerUserId: partner.id, submissionId: submission.id, locale: "en" });
+    await attemptInvitationEmail(invitation.id, new Date(), sendEmail as never);
+    const token = deriveInvitationToken(invitation);
+    await startInvitationOtp(token, new Date(), sendEmail as never);
+    const code = sent.at(-1)?.text.match(/\b\d{6}\b/)?.[0];
+    assert.ok(code);
+    assert.ok(await verifyInvitationOtp(token, code));
+    const detailsHash = getOwnerDetailsHash(await prisma.businessSubmission.findUniqueOrThrow({ where: { id: submission.id } }));
+    await prisma.businessSubmission.update({ where: { id: submission.id }, data: {
+      paymentMethod: "BANK_TRANSFER", paymentStatus: "AWAITING_BANK_TRANSFER", status: "AWAITING_PAYMENT",
+      amountOwedCents: 10000, automaticRenewalAtAcceptance: false,
+      agreementSignature: JSON.stringify({ version: 1, strokes: [[{ x: 1, y: 2 }]] }),
+      signedAt: new Date(), businessTermsAcceptedAt: new Date(),
+      payLaterConfirmedAt: new Date(), payLaterDetailsHash: detailsHash, payLaterSetupCompletedAt: new Date(),
+      bankTransferReference: `RF-${submission.id}`,
+    } });
+    const intentId = `pi_bank_${submission.id}`;
+    await prisma.payment.create({ data: { id: `initial-bank:${submission.id}`,
+      businessSubmissionId: submission.id, userId: partner.id,
+      partnerUserId: ownerSubmitted ? null : partner.id,
+      method: "BANK_TRANSFER", amountCents: 10000, status: "AWAITING_BANK_TRANSFER",
+      bankTransferReference: `RF-${submission.id}`, stripePaymentIntentId: intentId,
+    } });
+    const instructions = { accountHolderName: "Stripe Payments Europe", amountRemainingCents: 10000,
+      bic: "TESTBIC", hostedInstructionsUrl: "https://payments.example.test/instructions",
+      iban: "IE123456789", reference: `RF-${submission.id}` };
+    const emails: Array<{ to: string; text: string }> = [];
+    let failFirstEmail = ownerSubmitted;
+    const dependencies = { prepareBankIntent: async () => ({ instructions, paymentIntentId: intentId,
+      status: "requires_action" as const }),
+      sendEmail: async (message: { to: string; text: string }) => {
+        if (failFirstEmail) { failFirstEmail = false; throw new Error("synthetic_email_failure"); }
+        emails.push(message); return { provider: "resend" as const, messageId: "bank-instructions", success: true };
+      } };
+    const first = await getVerifiedPayLaterPaymentDestination(submission.id, "BANK_TRANSFER", dependencies as never);
+    if (ownerSubmitted) {
+      assert.equal(emails.length, 0);
+      await prisma.payment.update({ where: { id: `initial-bank:${submission.id}` },
+        data: { bankInstructionsEmailClaimedAt: new Date(Date.now() - 16 * 60_000) } });
+    }
+    const reopened = await getVerifiedPayLaterPaymentDestination(submission.id, "BANK_TRANSFER", dependencies as never);
+    assert.deepEqual(first, { status: "bank", instructions });
+    assert.deepEqual(reopened, first);
+    assert.equal(emails.length, 1);
+    assert.equal(emails[0].to, submission.ownerEmail);
+    assert.match(emails[0].text, /€100\.00/);
+    assert.match(emails[0].text, new RegExp(instructions.reference));
+    assert.ok((await prisma.payment.findUniqueOrThrow({ where: { id: `initial-bank:${submission.id}` } })).bankInstructionsEmailSentAt);
+    assert.equal((await prisma.businessSubmission.findUniqueOrThrow({ where: { id: submission.id } })).status, "AWAITING_PAYMENT");
+    assert.equal(await prisma.businessMembership.count({ where: { business: { submissions: { some: { id: submission.id } } } } }), 0);
+    assert.equal(await prisma.partnerCommission.count({ where: { businessSubmissionId: submission.id } }), 0);
+    assert.equal(await prisma.partnerCommissionConfirmationDelivery.count({ where: {
+      commission: { businessSubmissionId: submission.id },
+    } }), 0);
+    const event = { amountPaidCents: 10000, businessSubmissionId: submission.id,
+      paymentIntentId: intentId, stripeEventId: `evt_bank_${submission.id}`, stripeLivemode: false,
+      revalidatePaths: false };
+    await syncStripePaymentFromWebhook(event);
+    await syncStripePaymentFromWebhook(event);
+    const published = await prisma.businessSubmission.findUniqueOrThrow({ where: { id: submission.id } });
+    assert.equal(published.status, "PUBLISHED");
+    assert.equal(await prisma.businessMembership.count({ where: { businessId: published.createdBusinessId! } }), 1);
+    assert.equal(await prisma.partnerCommission.count({ where: { businessSubmissionId: submission.id } }), ownerSubmitted ? 0 : 1);
+    assert.equal(await prisma.partnerCommissionConfirmationDelivery.count({ where: {
+      commission: { businessSubmissionId: submission.id },
+    } }), ownerSubmitted ? 0 : 1);
+  }
+  const safeEmail = buildPayLaterBankInstructionsEmail({ businessName: "Caffè", locale: "it", sandbox: true,
+    instructions: { accountHolderName: "Stripe", amountRemainingCents: 10000, bic: "BIC",
+      hostedInstructionsUrl: "https://example.test", iban: "IE123", reference: "RF-123" } });
+  assert.match(safeEmail.text, /non inviare denaro reale/);
+  assert.doesNotMatch(safeEmail.subject, /TEST/);
+  } finally {
+    if (previousSecret === undefined) delete process.env.STRIPE_SECRET_KEY;
+    else process.env.STRIPE_SECRET_KEY = previousSecret;
+    if (previousPublishable === undefined) delete process.env.STRIPE_PUBLISHABLE_KEY;
+    else process.env.STRIPE_PUBLISHABLE_KEY = previousPublishable;
+  }
+});
+
+async function pendingBankEmailFixture(locale: "en" | "it") {
+  const { partner, submission } = await fixture();
+  const invitation = await createOrRotateInvitation({ partnerUserId: partner.id, submissionId: submission.id, locale });
+  await attemptInvitationEmail(invitation.id, new Date(), sendEmail as never);
+  const token = deriveInvitationToken(invitation);
+  await startInvitationOtp(token, new Date(), sendEmail as never);
+  const code = sent.at(-1)?.text.match(/\b\d{6}\b/)?.[0];
+  assert.ok(code);
+  assert.ok(await verifyInvitationOtp(token, code));
+  const detailsHash = getOwnerDetailsHash(await prisma.businessSubmission.findUniqueOrThrow({ where: { id: submission.id } }));
+  await prisma.businessSubmission.update({ where: { id: submission.id }, data: {
+    paymentMethod: "BANK_TRANSFER", paymentStatus: "AWAITING_BANK_TRANSFER", status: "AWAITING_PAYMENT",
+    amountOwedCents: 10000, automaticRenewalAtAcceptance: false,
+    agreementSignature: JSON.stringify({ version: 1, strokes: [[{ x: 1, y: 2 }]] }),
+    signedAt: new Date(), businessTermsAcceptedAt: new Date(), payLaterConfirmedAt: new Date(),
+    payLaterDetailsHash: detailsHash, payLaterSetupCompletedAt: new Date(),
+    bankTransferReference: `RF-${submission.id}`,
+  } });
+  const payment = await prisma.payment.create({ data: {
+    id: `initial-bank:${submission.id}`, businessSubmissionId: submission.id,
+    userId: partner.id, partnerUserId: partner.id, method: "BANK_TRANSFER",
+    amountCents: 10000, status: "AWAITING_BANK_TRANSFER",
+    bankTransferReference: `RF-${submission.id}`, stripePaymentIntentId: `pi_bank_${submission.id}`,
+  } });
+  const instructions = { accountHolderName: "Stripe Payments Europe", amountRemainingCents: 10000,
+    bic: "TESTBIC", hostedInstructionsUrl: "https://payments.example.test/instructions",
+    iban: "IE123456789", reference: `RF-${submission.id}` };
+  const prepareBankIntent = async () => ({ instructions, paymentIntentId: payment.stripePaymentIntentId!,
+    status: "requires_action" as const });
+  return { instructions, payment, prepareBankIntent, submission };
+}
+
+test("15-minute bank email job retries a known failure while preserving the same payment and provider key", async () => {
+  const { payment, prepareBankIntent, submission } = await pendingBankEmailFixture("en");
+  const keys: string[] = [];
+  const first = await getVerifiedPayLaterPaymentDestination(submission.id, "BANK_TRANSFER", {
+    prepareBankIntent: prepareBankIntent as never,
+    sendEmail: async (message) => { keys.push(message.idempotencyKey!); throw new Error("synthetic_provider_failure"); },
+  });
+  assert.equal(first.status, "bank");
+  const afterFailure = await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } });
+  assert.ok(afterFailure.bankInstructionsEmailFirstAttemptedAt);
+  assert.equal(afterFailure.bankInstructionsEmailSentAt, null);
+  assert.equal((await retryPendingPayLaterBankInstructionsEmails(new Date(), {
+    prepareBankIntent: prepareBankIntent as never,
+    sendEmail: async () => { throw new Error("lease_must_prevent_send"); },
+  })).due, 0);
+  await prisma.payment.update({ where: { id: payment.id }, data: {
+    bankInstructionsEmailClaimedAt: new Date(Date.now() - 16 * 60_000),
+  } });
+  const messages: Array<{ idempotencyKey?: string; text: string; to: string }> = [];
+  const retried = await retryPendingPayLaterBankInstructionsEmails(new Date(), {
+    prepareBankIntent: prepareBankIntent as never,
+    sendEmail: async (message) => {
+      keys.push(message.idempotencyKey!);
+      messages.push(message);
+      return { provider: "resend" as const, messageId: "retry-bank-mail", success: true };
+    },
+  });
+  assert.deepEqual(retried, { due: 1, attempted: 1 });
+  assert.deepEqual(keys, [keys[0], keys[0]]);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].to, submission.ownerEmail);
+  assert.match(messages[0].text, /Amount: €100\.00/);
+  assert.match(messages[0].text, /Reference: RF-/);
+  assert.ok((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).bankInstructionsEmailSentAt);
+  assert.deepEqual(await retryPendingPayLaterBankInstructionsEmails(new Date(), {
+    prepareBankIntent: prepareBankIntent as never,
+    sendEmail: async () => { throw new Error("already_sent"); },
+  }), { due: 0, attempted: 0 });
+});
+
+test("overlapping daily and 15-minute bank scans claim one send; 23-hour cutoff still stops uncertain delivery", async () => {
+  const { payment, prepareBankIntent, submission } = await pendingBankEmailFixture("it");
+  let sends = 0;
+  const dependencies = {
+    prepareBankIntent: prepareBankIntent as never,
+    sendEmail: async (message: { to: string; text: string; idempotencyKey?: string }) => {
+      sends++;
+      assert.equal(message.to, submission.ownerEmail);
+      assert.match(message.text, /Importo: 100,00\s*€/);
+      assert.equal(message.idempotencyKey, `pay-later-bank-instructions:${payment.id}`);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      return { provider: "resend" as const, messageId: "one-bank-mail", success: true };
+    },
+  };
+  await Promise.all([
+    retryPendingPayLaterBankInstructionsEmails(new Date(), dependencies),
+    retryPendingPayLaterBankInstructionsEmails(new Date(), dependencies),
+  ]);
+  assert.equal(sends, 1);
+  assert.ok((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).bankInstructionsEmailSentAt);
+
+  const uncertain = await pendingBankEmailFixture("en");
+  await prisma.payment.update({ where: { id: uncertain.payment.id }, data: {
+    bankInstructionsEmailClaimedAt: new Date(Date.now() - 24 * 60 * 60_000),
+    bankInstructionsEmailFirstAttemptedAt: new Date(Date.now() - 24 * 60 * 60_000),
+  } });
+  assert.deepEqual(await retryPendingPayLaterBankInstructionsEmails(new Date(), {
+    prepareBankIntent: uncertain.prepareBankIntent as never,
+    sendEmail: async () => { throw new Error("uncertain_delivery_must_not_retry"); },
+  }), { due: 0, attempted: 0 });
+  assert.equal((await prisma.payment.findUniqueOrThrow({ where: { id: uncertain.payment.id } })).bankInstructionsEmailSentAt, null);
+});
+
 test("verified Stripe test events publish Pay Now and Pay Later once, with commissions excluded from payouts", async () => {
   const names = ["RAILWAY_ENVIRONMENT_NAME", "STRIPE_SECRET_KEY", "STRIPE_PUBLISHABLE_KEY", "STRIPE_WEBHOOK_SECRET", "PRODUCTION_STRIPE_TEST_PAYMENTS_ENABLED"] as const;
   const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
@@ -335,9 +530,8 @@ test("verified Stripe test events publish Pay Now and Pay Later once, with commi
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_mismatched";
     assert.equal(isPublicFinancialHold(), true);
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_synthetic_only";
-    assert.match(buildInvitationEmail({ businessName: "Synthetic", townName: "Lecce", ownerName: "Owner",
-      locale: "en", url: "https://salento.example.test/pay-later", paymentTestMode: true }).text,
-      /Stripe TEST.*No real money/);
+    assert.doesNotMatch(buildInvitationEmail({ businessName: "Synthetic", townName: "Lecce", ownerName: "Owner",
+      locale: "en", url: "https://salento.example.test/pay-later" }).text, /\bTEST\b/);
     for (const flow of ["Pay Now", "Pay Later"]) {
       const { partner, submission } = await fixture();
       if (flow === "Pay Later") {
@@ -382,6 +576,9 @@ test("verified Stripe test events publish Pay Now and Pay Later once, with commi
       assert.equal((await prisma.businessSubmission.findUniqueOrThrow({ where: { id: submission.id } })).status, "PUBLISHED");
       assert.equal(await prisma.businessMembership.count({ where: { business: { submissions: { some: { id: submission.id } } } } }), 1);
       assert.equal(await prisma.partnerCommission.count({ where: { businessSubmissionId: submission.id, amountCents: 5000 } }), 1);
+      assert.equal(await prisma.partnerCommissionConfirmationDelivery.count({ where: {
+        commission: { businessSubmissionId: submission.id },
+      } }), 1);
       assert.equal(await prisma.partnerCommission.count({ where: { ...payableCommissionWhere(new Date(Date.now() + 30 * day)), businessSubmissionId: submission.id } }), 0);
       const balance = await getPartnerBalanceSummary(partner.id);
       assert.equal(balance.available, 0);

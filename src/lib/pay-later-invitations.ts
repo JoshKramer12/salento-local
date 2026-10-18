@@ -8,7 +8,7 @@ import type { Locale } from "@/lib/i18n";
 import { LISTING_OFFER } from "@/lib/listing-offer";
 import { getAppUrl } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
-import { isPublicFinancialHold, isStripeSandboxMode } from "@/lib/stripe";
+import { isPublicFinancialHold } from "@/lib/stripe";
 import { getSupportContactEmail } from "@/lib/support-contact";
 import { isPossiblePhoneNumber, normalizeEmail, normalizePhoneNumber } from "@/lib/validation";
 
@@ -178,10 +178,10 @@ export async function createOrRotateInvitation(params: {
 function cryptoRandomId() { return randomBytes(18).toString("base64url"); }
 
 function escapeHtml(value: string) { return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!); }
-function emailFrame(headline: string, body: string, action: string, href: string, footer: string) {
-  return `<div style="padding:28px 12px;background:#f7f2ea;color:#243b34;font-family:Arial,sans-serif"><table role="presentation" width="100%"><tr><td align="center"><table role="presentation" width="100%" style="max-width:620px;background:#fffdf9;border:1px solid #e5ddd1;border-radius:18px"><tr><td style="padding:32px"><p style="color:#2a6257;font-weight:700;letter-spacing:2px">SALENTO LOCAL</p><h1 style="font-family:Georgia,serif;font-size:30px">${escapeHtml(headline)}</h1><p style="line-height:1.65">${body}</p><p style="margin:30px 0"><a href="${escapeHtml(href)}" style="background:#2a6257;color:#fff;padding:14px 20px;border-radius:10px;text-decoration:none;font-weight:700">${escapeHtml(action)}</a></p><p style="font-size:13px;color:#65756d">${escapeHtml(footer)}</p></td></tr></table></td></tr></table></div>`;
+export function buildPayLaterEmailFrame(headline: string, body: string, action: string, href: string, footer: string) {
+  return `<div style="padding:28px 12px;background:#f7f2ea;color:#243b34;font-family:Arial,sans-serif"><table role="presentation" width="100%"><tr><td align="center"><table role="presentation" width="100%" style="max-width:620px;background:#fffdf9;border:1px solid #e5ddd1;border-radius:18px"><tr><td style="padding:32px"><p style="color:#2a6257;font-weight:700;letter-spacing:2px">SALENTO LOCAL</p><h1 style="font-family:Georgia,serif;font-size:30px">${escapeHtml(headline)}</h1><div style="line-height:1.65">${body}</div><p style="margin:30px 0"><a href="${escapeHtml(href)}" style="background:#2a6257;color:#fff;padding:14px 20px;border-radius:10px;text-decoration:none;font-weight:700">${escapeHtml(action)}</a></p><p style="font-size:13px;color:#65756d">${escapeHtml(footer)}</p></td></tr></table></td></tr></table></div>`;
 }
-export function buildInvitationEmail(params: { businessName: string; townName: string; ownerName: string; locale: Locale; url: string; ownerSubmitted?: boolean; paymentPaused?: boolean; paymentTestMode?: boolean }) {
+export function buildInvitationEmail(params: { businessName: string; townName: string; ownerName: string; locale: Locale; url: string; ownerSubmitted?: boolean; paymentPaused?: boolean }) {
   const it = params.locale === "it";
   const greeting = params.ownerName.trim() ? `${it ? "Ciao" : "Hello"} ${escapeHtml(params.ownerName.trim().split(" ")[0])}, ` : "";
   const origin = params.ownerSubmitted
@@ -189,9 +189,7 @@ export function buildInvitationEmail(params: { businessName: string; townName: s
     : (it ? "un Local Partner Salento Local ha preparato la scheda" : "a Salento Local Partner prepared the listing");
   const hold = params.paymentPaused
     ? (it ? " I pagamenti sono temporaneamente sospesi durante i test; non ti verrà addebitato nulla ora." : " Payments are temporarily paused during testing; you will not be charged now.")
-    : params.paymentTestMode
-      ? (it ? " Questo è un TEST Stripe: usa solo una carta di prova. Non verrà addebitato denaro reale." : " This is a Stripe TEST: use a test card only. No real money will be charged.")
-      : "";
+    : "";
   const body = it
     ? `${greeting}${origin} di <strong>${escapeHtml(params.businessName)}</strong> a ${escapeHtml(params.townName)}. La scheda non è ancora attiva. Controlla i dati, verifica la tua email, accetta i termini, firma e scegli come pagare l’adesione annuale di <strong>€100</strong>.${hold}`
     : `${greeting}${origin} for <strong>${escapeHtml(params.businessName)}</strong> in ${escapeHtml(params.townName)}. It is not active yet. Review the details, verify your email, accept the terms, sign, and choose how to pay the <strong>€100 annual membership</strong>.${hold}`;
@@ -202,7 +200,7 @@ export function buildInvitationEmail(params: { businessName: string; townName: s
   const footer = it
     ? `Se non riconosci questa richiesta, apri il link e scegli di rifiutare. Per assistenza, ${support ? `scrivi a ${support}` : "rispondi a questa email"}.`
     : `If you do not recognize this request, open the link and decline. For help, ${support ? `write to ${support}` : "reply to this email"}.`;
-  return { subject, html: emailFrame(headline, body, action, params.url, footer),
+  return { subject, html: buildPayLaterEmailFrame(headline, body, action, params.url, footer),
     text: `${headline}\n\n${params.businessName} · ${params.townName}\n\n${it ? "La scheda non è ancora attiva. Verifica la tua email, controlla i dati e completa l’adesione annuale di €100." : "The listing is not active. Verify your email, review the details and complete the €100 annual membership."}${hold}\n\n${params.url}\n\n${footer}` };
 }
 
@@ -241,7 +239,7 @@ export async function attemptInvitationEmail(invitationId: string, now = new Dat
     townName: invitation.businessSubmission.town.name, ownerName: invitation.businessSubmission.ownerName,
     locale: invitation.locale === "en" ? "en" : "it", url: getInvitationUrl(invitation),
     ownerSubmitted: invitation.businessSubmission.user.role === "BUSINESS_OWNER",
-    paymentPaused: isPublicFinancialHold(), paymentTestMode: isStripeSandboxMode() });
+    paymentPaused: isPublicFinancialHold() });
   try {
     const sent = await sendEmail({ ...message, to: invitation.recipientEmail,
       idempotencyKey: `pay-later-invitation:${invitation.id}:${invitation.tokenGeneration}` });
@@ -284,7 +282,7 @@ export async function startInvitationOtp(token: string, now = new Date(), sendEm
   try {
     await sendEmail({ to: invitation.recipientEmail,
       subject: it ? "Codice di verifica Salento Local" : "Salento Local verification code",
-      html: emailFrame(it ? "Verifica la tua email" : "Verify your email", body,
+      html: buildPayLaterEmailFrame(it ? "Verifica la tua email" : "Verify your email", body,
         it ? "Apri l'invito" : "Open invitation", getInvitationUrl(invitation), "Salento Local"),
       text: `${it ? "Codice di verifica" : "Verification code"}: ${code}\n${it ? "Scade tra 10 minuti." : "Expires in 10 minutes."}` });
     return "sent" as const;

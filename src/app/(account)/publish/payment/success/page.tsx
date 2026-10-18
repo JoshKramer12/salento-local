@@ -282,6 +282,7 @@ export default async function PublishPaymentSuccessPage({
           <p className="mt-4 text-lg leading-8 text-[var(--muted)]">
             {listingIsLive ? <>{copy.successIntro} <strong className="font-bold text-[var(--primary)]">{copy.successLive}</strong></> : locale === "it" ? "Grazie! Il tuo pagamento è stato ricevuto correttamente." : "Thank you! Your payment has been received successfully."}
           </p>
+          {receipt.payment.stripeLivemode === false ? <p className="mt-3 text-sm text-[var(--muted)]">{locale === "it" ? "Pagamento simulato: nessun addebito reale." : "Simulated payment: no real charge."}</p> : null}
         </div>
 
         <div className="mt-8 rounded-[1.4rem] border border-[rgba(42,98,87,0.14)] bg-[rgba(42,98,87,0.05)] p-5 sm:p-6">

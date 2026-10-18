@@ -58,7 +58,7 @@ export type StripeBankTransferInstructions = {
   reference: string;
 };
 
-type StripeBankTransferSession = {
+export type StripeBankTransferSession = {
   instructions: StripeBankTransferInstructions | null;
   paymentIntentId: string;
   status: Stripe.PaymentIntent.Status;
@@ -256,10 +256,15 @@ export async function ensureStripeBankTransferIntent(params: {
   });
 
   if (latestPendingPayment?.stripePaymentIntentId) {
+    let existingIntent: Stripe.PaymentIntent | null = null;
     try {
-      const existingIntent = await stripe.paymentIntents.retrieve(
+      existingIntent = await stripe.paymentIntents.retrieve(
         latestPendingPayment.stripePaymentIntentId,
       );
+    } catch {
+      // Fall through and create a fresh payment intent if Stripe no longer recognizes the old one.
+    }
+    if (existingIntent) {
       const instructions = extractStripeBankTransferInstructions(existingIntent);
 
       // A previously-created intent can gain its bank details after the first
@@ -291,8 +296,6 @@ export async function ensureStripeBankTransferIntent(params: {
         paymentIntentId: existingIntent.id,
         status: existingIntent.status,
       };
-    } catch {
-      // Fall through and create a fresh payment intent if Stripe no longer recognizes the old one.
     }
   }
 

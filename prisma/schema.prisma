@@ -792,6 +792,9 @@ model Payment {
   // payment may ever fund a real Partner payout.
   stripeLivemode         Boolean?
   bankTransferReference  String?
+  bankInstructionsEmailClaimedAt DateTime?
+  bankInstructionsEmailFirstAttemptedAt DateTime?
+  bankInstructionsEmailSentAt DateTime?
   paidAt                 DateTime?
   refundInstructionsEmail String?
   refundRequestedAt      DateTime?
@@ -916,11 +919,36 @@ model PartnerCommission {
   partnerUser           User                   @relation(fields: [partnerUserId], references: [id], onDelete: Cascade)
   payment               Payment?               @relation(fields: [paymentId], references: [id], onDelete: SetNull)
   payout                PartnerPayout?         @relation(fields: [payoutId], references: [id], onDelete: SetNull)
+  confirmationDelivery  PartnerCommissionConfirmationDelivery?
 
   @@index([partnerUserId, status, eligibleAt])
   @@index([businessSubmissionId, type])
   @@index([stripePaymentIntentId])
   @@index([partnerUserId, createdAt])
+}
+
+// Created only after a new initial referral commission is linked to a
+// confirmed payment and published listing. Historical rows are not backfilled.
+model PartnerCommissionConfirmationDelivery {
+  id                String   @id @default(cuid())
+  commissionId      String   @unique
+  businessName      String
+  recipientEmail    String?
+  locale            String?
+  attemptedAt       DateTime?
+  firstAttemptedAt  DateTime?
+  nextAttemptAt     DateTime? @default(now())
+  acceptedAt        DateTime?
+  canceledAt        DateTime?
+  attemptCount      Int      @default(0)
+  provider          String?
+  providerMessageId String?
+  failureMessage    String?
+  commission        PartnerCommission @relation(fields: [commissionId], references: [id], onDelete: Cascade)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([acceptedAt, canceledAt, nextAttemptAt])
 }
 
 model PartnerPayoutRun {

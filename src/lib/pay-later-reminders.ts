@@ -3,6 +3,8 @@ import { getAppUrl } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
 import { getSupportContactEmail } from "@/lib/support-contact";
 import { deriveInvitationToken, invitationIsOpen, isPayLaterEnabled, PAY_LATER_REMINDER_DAYS } from "@/lib/pay-later-invitations";
+import { getVerifiedPayLaterPaymentDestination } from "@/lib/pay-later-payment";
+import { ensureStripeBankTransferIntent } from "@/lib/stripe-checkout";
 import { isPublicFinancialHold } from "@/lib/stripe";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -35,6 +37,42 @@ export function buildPayLaterReminderEmail(params: {
     text: `Salento Local\n\n${body}\n\n${action}: ${url}\n\n${footer}`,
     html: `<div style="padding:28px 12px;background:#f7f2ea;color:#243b34;font-family:Arial,sans-serif"><table role="presentation" width="100%"><tr><td align="center"><table role="presentation" width="100%" style="max-width:620px;background:#fffdf9;border:1px solid #e5ddd1;border-radius:18px"><tr><td style="padding:32px"><p style="color:#2a6257;font-weight:700;letter-spacing:2px">SALENTO LOCAL</p><h1 style="font-family:Georgia,serif">${escape(subject)}</h1><p style="line-height:1.6">${escape(body)}</p><p style="margin:30px 0"><a href="${escape(url)}" style="background:#2a6257;color:#fff;padding:14px 20px;border-radius:10px;text-decoration:none;font-weight:700">${escape(action)}</a></p><p style="font-size:13px;color:#65756d">${escape(footer)}</p></td></tr></table></td></tr></table></div>`,
   };
+}
+
+/** Both existing cron callers use this scan; the Payment claim prevents overlap. */
+export async function retryPendingPayLaterBankInstructionsEmails(
+  now = new Date(),
+  dependencies: { sendEmail?: typeof sendTransactionalEmail;
+    prepareBankIntent?: typeof ensureStripeBankTransferIntent } = {},
+) {
+  if (!isPayLaterEnabled() || isPublicFinancialHold()) return { due: 0, attempted: 0 };
+  const bankEmails = await prisma.payment.findMany({
+    where: { method: "BANK_TRANSFER", status: "AWAITING_BANK_TRANSFER",
+      bankInstructionsEmailSentAt: null, stripePaymentIntentId: { not: null },
+      AND: [
+        { OR: [{ bankInstructionsEmailFirstAttemptedAt: null },
+          { bankInstructionsEmailFirstAttemptedAt: { gt: new Date(now.getTime() - 23 * 60 * 60_000) } }] },
+        { OR: [{ bankInstructionsEmailClaimedAt: null },
+          { bankInstructionsEmailClaimedAt: { lt: new Date(now.getTime() - LEASE_MS) } }] },
+      ],
+      businessSubmission: { payLaterSetupCompletedAt: { not: null }, payLaterInvitation: { isNot: null } } },
+    select: { businessSubmissionId: true }, orderBy: { createdAt: "asc" }, take: 25,
+  });
+  let attempted = 0;
+  if (bankEmails.length) {
+    for (const payment of bankEmails) {
+      try {
+        await getVerifiedPayLaterPaymentDestination(payment.businessSubmissionId, "BANK_TRANSFER", dependencies);
+        attempted++;
+      } catch (error) {
+        console.error("[pay-later] bank instructions retry pending", {
+          submissionId: payment.businessSubmissionId,
+          reason: error instanceof Error ? error.message : "instructions_unavailable",
+        });
+      }
+    }
+  }
+  return { due: bankEmails.length, attempted };
 }
 
 export async function runPayLaterReminderJob(now = new Date(), sendEmail = sendTransactionalEmail) {

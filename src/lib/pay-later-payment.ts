@@ -1,11 +1,89 @@
 import type { BusinessSubmissionInvitation } from "@prisma/client";
 import { ensureEmbeddedSubscription } from "@/lib/embedded-subscription";
+import { sendTransactionalEmail } from "@/lib/email";
 import { LISTING_OFFER, LISTING_SIGNER_ROLE_VALUES } from "@/lib/listing-offer";
 import { createNoEmailPaymentToken, ensureManualElementPaymentIntent } from "@/lib/no-email-payment";
-import { getOwnerDetailsHash } from "@/lib/pay-later-invitations";
+import { buildPayLaterEmailFrame, getOwnerDetailsHash } from "@/lib/pay-later-invitations";
 import { prisma } from "@/lib/prisma";
-import { ensureStripeBankTransferIntent, extractStripeBankTransferInstructions } from "@/lib/stripe-checkout";
-import { getPaymentElementPublishableKey, getStripe, isPublicFinancialHold } from "@/lib/stripe";
+import { ensureStripeBankTransferIntent, type StripeBankTransferInstructions } from "@/lib/stripe-checkout";
+import { getPartnerUserIdForSubmission } from "@/lib/payment";
+import { getPaymentElementPublishableKey, isPublicFinancialHold, isStripeSandboxMode } from "@/lib/stripe";
+
+const BANK_EMAIL_LEASE_MS = 15 * 60_000;
+const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&#39;" })[char]!);
+
+export function buildPayLaterBankInstructionsEmail(params: {
+  businessName: string; instructions: StripeBankTransferInstructions; locale: "en" | "it"; sandbox: boolean;
+}) {
+  const it = params.locale === "it";
+  const amount = new Intl.NumberFormat(it ? "it-IT" : "en-IE", { style: "currency", currency: "EUR" })
+    .format(params.instructions.amountRemainingCents / 100);
+  const lines = [
+    [it ? "Importo" : "Amount", amount],
+    [it ? "Beneficiario" : "Beneficiary", params.instructions.accountHolderName],
+    ["IBAN", params.instructions.iban], ["BIC", params.instructions.bic],
+    [it ? "Riferimento" : "Reference", params.instructions.reference],
+  ];
+  const subject = it ? `Istruzioni per il bonifico · ${params.businessName}` : `Bank transfer instructions · ${params.businessName}`;
+  const pending = it
+    ? "La scheda resterà in attesa finché Stripe non confermerà la ricezione del bonifico."
+    : "Your listing remains pending until Stripe confirms receipt of the transfer.";
+  const sandbox = params.sandbox
+    ? (it ? "I pagamenti sono simulati: non inviare denaro reale a queste coordinate."
+      : "Payments are simulated: do not send real money to these bank details.") : "";
+  const text = [subject, "", ...lines.map(([label, value]) => `${label}: ${value}`), "", pending,
+    sandbox, params.instructions.hostedInstructionsUrl].filter(Boolean).join("\n");
+  const details = `<p>${escapeHtml(pending)}</p><dl>${lines.map(([label, value]) =>
+    `<dt><strong>${escapeHtml(label)}</strong></dt><dd>${escapeHtml(value)}</dd>`).join("")}</dl>${sandbox ?
+    `<p>${escapeHtml(sandbox)}</p>` : ""}`;
+  const html = buildPayLaterEmailFrame(subject, details,
+    it ? "Apri le istruzioni Stripe" : "Open Stripe instructions",
+    params.instructions.hostedInstructionsUrl,
+    it ? "Conserva questa email per ritrovare i dettagli del bonifico." : "Keep this email for your bank transfer details.");
+  return { subject, text, html };
+}
+
+export async function attemptPayLaterBankInstructionsEmail(submissionId: string,
+  instructions: StripeBankTransferInstructions, sendEmail = sendTransactionalEmail) {
+  const payment = await prisma.payment.findFirst({ where: { businessSubmissionId: submissionId,
+    method: "BANK_TRANSFER", status: "AWAITING_BANK_TRANSFER" }, orderBy: { createdAt: "desc" },
+    include: { businessSubmission: { include: { payLaterInvitation: true } } },
+  });
+  const invitation = payment?.businessSubmission.payLaterInvitation;
+  if (!payment || !invitation || payment.bankInstructionsEmailSentAt ||
+    !payment.stripePaymentIntentId || payment.amountCents !== instructions.amountRemainingCents ||
+    payment.bankTransferReference !== instructions.reference || !invitation.verifiedAt ||
+    invitation.recipientEmail !== payment.businessSubmission.ownerEmail.trim().toLowerCase()) return "skipped" as const;
+  const now = new Date();
+  // Resend only deduplicates a key for 24 hours. After an uncertain delivery,
+  // stop retries before that window expires rather than risk a duplicate email.
+  if (payment.bankInstructionsEmailFirstAttemptedAt &&
+    now.getTime() - payment.bankInstructionsEmailFirstAttemptedAt.getTime() >= 23 * 60 * 60_000)
+    return "delivery_uncertain" as const;
+  const claimed = await prisma.payment.updateMany({ where: { id: payment.id,
+    bankInstructionsEmailSentAt: null,
+    bankInstructionsEmailFirstAttemptedAt: payment.bankInstructionsEmailFirstAttemptedAt,
+    OR: [{ bankInstructionsEmailClaimedAt: null },
+      { bankInstructionsEmailClaimedAt: { lt: new Date(now.getTime() - BANK_EMAIL_LEASE_MS) } }] },
+    data: { bankInstructionsEmailClaimedAt: now,
+      bankInstructionsEmailFirstAttemptedAt: payment.bankInstructionsEmailFirstAttemptedAt ?? now } });
+  if (!claimed.count) return "skipped" as const;
+  const message = buildPayLaterBankInstructionsEmail({ businessName: payment.businessSubmission.businessName,
+    instructions, locale: invitation.locale === "en" ? "en" : "it", sandbox: isStripeSandboxMode() });
+  try {
+    await sendEmail({ ...message, to: invitation.recipientEmail,
+      idempotencyKey: `pay-later-bank-instructions:${payment.id}` });
+    await prisma.payment.updateMany({ where: { id: payment.id, bankInstructionsEmailSentAt: null },
+      data: { bankInstructionsEmailSentAt: new Date() } });
+    return "sent" as const;
+  } catch (error) {
+    console.error("[pay-later] bank instructions email pending", {
+      paymentId: payment.id, reason: error instanceof Error ? error.message : "delivery_failed",
+    });
+    return "pending" as const;
+  }
+}
 
 export type PayLaterPaymentChoice = {
   method: "ONLINE" | "BANK_TRANSFER";
@@ -166,7 +244,9 @@ export async function resumeVerifiedPayLaterPayment(invitation: BusinessSubmissi
   });
 }
 
-export async function getVerifiedPayLaterPaymentDestination(submissionId: string, method: "ONLINE" | "BANK_TRANSFER") {
+export async function getVerifiedPayLaterPaymentDestination(submissionId: string, method: "ONLINE" | "BANK_TRANSFER",
+  dependencies: { prepareBankIntent?: typeof ensureStripeBankTransferIntent;
+    sendEmail?: typeof sendTransactionalEmail } = {}) {
   if (isPublicFinancialHold()) return { status: "paused" as const };
   const submission = await prisma.businessSubmission.findUnique({ where: { id: submissionId } });
   if (!submission || submission.paymentMethod !== method) throw new Error("pay_later_payment_unavailable");
@@ -175,15 +255,31 @@ export async function getVerifiedPayLaterPaymentDestination(submissionId: string
     throw new Error("pay_later_payment_unavailable");
   if (method === "ONLINE") {
     const payment = await prisma.payment.findUnique({ where: { id: `initial-element:${submissionId}` } });
+    const submitter = await prisma.user.findUniqueOrThrow({ where: { id: submission.userId }, select: { role: true } });
     if (!payment?.stripePaymentIntentId || payment.status !== "PENDING_PAYMENT" ||
-      payment.partnerUserId !== submission.userId) throw new Error("pay_later_payment_unavailable");
+      payment.partnerUserId !== getPartnerUserIdForSubmission({ id: submission.userId, role: submitter.role }))
+      throw new Error("pay_later_payment_unavailable");
     return { status: "online" as const, href: `/pay/element/${encodeURIComponent(createNoEmailPaymentToken(payment.id))}` };
   }
   const payment = await prisma.payment.findFirst({ where: { businessSubmissionId: submissionId,
     method: "BANK_TRANSFER", status: "AWAITING_BANK_TRANSFER" }, orderBy: { createdAt: "desc" } });
-  if (!payment?.stripePaymentIntentId || payment.partnerUserId !== submission.userId) throw new Error("pay_later_payment_unavailable");
-  const intent = await getStripe().paymentIntents.retrieve(payment.stripePaymentIntentId);
-  const instructions = extractStripeBankTransferInstructions(intent);
-  if (!instructions || intent.amount !== payment.amountCents || intent.currency !== payment.currency) throw new Error("pay_later_bank_instructions_unavailable");
+  const submitter = await prisma.user.findUniqueOrThrow({ where: { id: submission.userId }, select: { role: true } });
+  if (!payment?.stripePaymentIntentId ||
+    payment.partnerUserId !== getPartnerUserIdForSubmission({ id: submission.userId, role: submitter.role }))
+    throw new Error("pay_later_payment_unavailable");
+  const bank = await (dependencies.prepareBankIntent ?? ensureStripeBankTransferIntent)({
+    idempotencyKey: `pay-later-bank:${submission.id}`,
+    submission: { amountOwedCents: submission.amountOwedCents, businessName: submission.businessName,
+      email: submission.email, id: submission.id, ownerEmail: submission.ownerEmail,
+      ownerName: submission.ownerName, ownerPhone: submission.ownerPhone, userId: submission.userId },
+    viewer: { id: submission.userId, role: submitter.role, email: null },
+  });
+  const instructions = bank.instructions;
+  const currentPayment = await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } });
+  if (!instructions || bank.paymentIntentId !== currentPayment.stripePaymentIntentId ||
+    currentPayment.amountCents !== submission.amountOwedCents || currentPayment.currency !== "eur" ||
+    currentPayment.bankTransferReference !== instructions.reference)
+    throw new Error("pay_later_bank_instructions_unavailable");
+  await attemptPayLaterBankInstructionsEmail(submissionId, instructions, dependencies.sendEmail);
   return { status: "bank" as const, instructions };
 }
