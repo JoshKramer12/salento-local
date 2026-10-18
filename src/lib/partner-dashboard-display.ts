@@ -1,6 +1,7 @@
 import type { PaymentPurpose, PaymentStatus } from "@prisma/client";
 import { formatCurrencyFromCents } from "@/lib/account";
 import type { Locale } from "@/lib/i18n";
+import { addUtcDays } from "@/lib/business-membership";
 
 type PaidBusinessCandidate = {
   createdBusiness: { id: string } | null;
@@ -48,8 +49,26 @@ export type DashboardCommission = {
   sourceKey: string;
   status: string;
   type: string;
-  payment: { purpose: PaymentPurpose; status: PaymentStatus; refundRequestedAt: Date | null; refundStatus: string | null; stripeLivemode?: boolean | null } | null;
+  payment: { paidAt?: Date | null; purpose: PaymentPurpose; status: PaymentStatus; refundRequestedAt: Date | null; refundStatus: string | null; stripeLivemode?: boolean | null } | null;
 };
+
+/** A visual countdown for verified live initial payments only. Payout status
+ * remains governed by payableCommissionWhere and getPartnerCommissionDisplay. */
+export function getPartnerInitialHoldProgress(
+  entry: DashboardCommission & { eligibleAt: Date | null },
+  now: Date,
+  holdDays: number,
+): { days: number; percent: number; holdEndsAt: Date } | null {
+  const payment = entry.payment;
+  if (!payment || payment.purpose !== "INITIAL_MEMBERSHIP" || payment.status !== "PAID" ||
+    payment.stripeLivemode !== true || !payment.paidAt || !entry.eligibleAt ||
+    (payment.refundRequestedAt && payment.refundStatus !== "support_closed") ||
+    !["PENDING", "AVAILABLE"].includes(entry.status)) return null;
+  const holdEndsAt = addUtcDays(payment.paidAt, holdDays);
+  if (now >= holdEndsAt) return null;
+  const days = Math.max(0, Math.floor((now.getTime() - payment.paidAt.getTime()) / 86_400_000));
+  return { days: Math.min(holdDays, days), percent: Math.max(0, Math.min(100, (now.getTime() - payment.paidAt.getTime()) / (holdDays * 86_400_000) * 100)), holdEndsAt };
+}
 
 /** Availability comes from payableCommissionWhere on the server, including its
  * paidAt safeguard, refund holds, payout reservation and exact 14-day boundary.

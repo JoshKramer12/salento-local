@@ -30,11 +30,13 @@ import { requireCompletedViewer } from "@/lib/auth-guards";
 import { getCurrentLocale } from "@/lib/locale";
 import { getPartnerNextRoute } from "@/lib/partner-onboarding";
 import { shouldShowPartnerFirstBusinessDashboard } from "@/lib/partner-first-business-dashboard";
-import { getPartnerPayoutSetupSummary } from "@/lib/partner-connect";
+import { getPartnerCommissionCents, getPartnerPayoutSetupSummary } from "@/lib/partner-connect";
 import {
   getPartnerBalanceSummary,
   getPartnerOutstandingCommissionItems,
   getPartnerPayoutHistory,
+  INITIAL_COMMISSION_HOLD_DAYS,
+  PARTNER_RENEWAL_COMMISSION_CENTS,
   payableCommissionWhere,
 } from "@/lib/partner-ledger";
 import { selectPartnerPaidBusinesses, selectPartnerPaidBusinessCommissions } from "@/lib/partner-dashboard-display";
@@ -370,7 +372,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           },
         },
         commissionCents: true,
-        partnerCommissions: { where: { partnerUserId: viewer.id }, select: { id: true, sourceKey: true, amountCents: true, eligibleAt: true, status: true, type: true, payment: { select: { purpose: true, status: true, refundRequestedAt: true, refundStatus: true } } } },
+        partnerCommissions: { where: { partnerUserId: viewer.id }, select: { id: true, sourceKey: true, amountCents: true, eligibleAt: true, status: true, type: true, payment: { select: { purpose: true, status: true, refundRequestedAt: true, refundStatus: true, stripeLivemode: true } } } },
         createdAt: true,
         createdBusiness: {
           select: {
@@ -424,7 +426,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           where: {
             partnerUserId: viewer.id,
             type: "COMMISSION",
-            status: { not: "REVERSED" },
           },
           orderBy: [{ earnedAt: "desc" }, { createdAt: "desc" }],
           select: {
@@ -437,7 +438,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             earnedAt: true,
             eligibleAt: true,
             id: true,
-            payment: { select: { purpose: true, status: true, refundRequestedAt: true, refundStatus: true, stripeLivemode: true } },
+            payment: { select: { paidAt: true, purpose: true, status: true, refundRequestedAt: true, refundStatus: true, stripeLivemode: true } },
             status: true,
             sourceKey: true,
             type: true,
@@ -657,11 +658,14 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         locale={locale}
         payoutsPaused={!areRealPartnerDisbursementsAllowed()}
         recentCommissions={paidBusinessCommissions}
+        commissionLedger={partnerRecentCommissions}
+        commissionRates={{ initial: getPartnerCommissionCents(), renewal: PARTNER_RENEWAL_COMMISSION_CENTS }}
+        holdDays={INITIAL_COMMISSION_HOLD_DAYS}
         setup={partnerSetup}
         payableCommissionIds={partnerPayableCommissions.map((commission) => commission.id)}
         submissions={paidBusinesses}
         totals={totals}
-        username={viewer.username}
+        username={viewer.name?.trim() || viewer.username}
       />
     );
   }

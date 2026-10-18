@@ -8,9 +8,9 @@ const dashboardStyles = readFileSync("src/components/account/partner-dashboard.m
 const partnerWorkspaceNav = readFileSync("src/components/account/partner-workspace-nav.tsx", "utf8");
 
 test("partner dashboard projects authoritative commission purpose and payout setup data", () => {
-  assert.match(dashboardPage, /payment: \{ select: \{ purpose: true, status: true, refundRequestedAt: true, refundStatus: true \} \}/);
+  assert.match(dashboardPage, /payment: \{ select: \{ paidAt: true, purpose: true, status: true, refundRequestedAt: true, refundStatus: true, stripeLivemode: true \} \}/);
   assert.match(dashboardPage, /type: "COMMISSION"/);
-  assert.match(dashboardPage, /status: \{ not: "REVERSED" \}/);
+  assert.doesNotMatch(dashboardPage, /status: \{ not: "REVERSED" \}/);
   assert.match(dashboard, /purpose === "INITIAL_MEMBERSHIP"/);
   assert.match(dashboard, /sourceKey\.startsWith\("commission:submission:"\)/);
   assert.match(dashboard, /setup\?\.setupState === "ready"/);
@@ -48,6 +48,6 @@ test("the lower dashboard uses intentional rows and does not render a redundant 
   assert.ok(guideIndex > 0 && summaryIndex > guideIndex);
   assert.doesNotMatch(dashboard, /styles\.help|Need more help\?|Hai bisogno di altro aiuto\?/);
   assert.doesNotMatch(dashboardStyles, /\.businessPanel\{grid-row:2 \/ span 2/);
-  assert.match(dashboardStyles, /@media\(min-width:901px\)\{\.businessPanel\{grid-column:1;grid-row:2\}\.recentEarnings\{grid-column:2;grid-row:2\}\.guide\{grid-column:1;grid-row:3\}\.businessSummary\{grid-column:2;grid-row:3\}\}/);
-  assert.match(dashboardStyles, /@media\(max-width:900px\)\{[\s\S]*?\.businessPanel,[\s\S]*?\.guide\{grid-column:auto;grid-row:auto\}/);
+  assert.match(dashboardStyles, /@media\(min-width:901px\)\{\.businessPanel\{grid-column:1;grid-row:auto\}\.guide\{grid-column:1;grid-row:auto\}\.businessSummary\{grid-column:2;grid-row:auto\}\.recentEarnings\{grid-column:1\/-1;grid-row:auto\}\}/);
+  assert.match(dashboardStyles, /@media\(max-width:900px\)\{[\s\S]*?\.payoutColumn,\.financialNote,\.recentEarnings\{grid-column:auto\}/);
 });
