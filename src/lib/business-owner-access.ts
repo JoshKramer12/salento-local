@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { hasTransactionalEmailDelivery } from "@/lib/claim-delivery";
 import { normalizeEmail, normalizePhoneNumber } from "@/lib/validation";
 import { normalizeEnvValue } from "@/lib/env";
+import { escapeEmailHtml, renderSalentoEmail, renderSalentoEmailButton } from "@/lib/salento-email-template";
 
 type OwnerAccessDb = PrismaClient | Prisma.TransactionClient;
 
@@ -103,16 +104,6 @@ export function getOwnerAccessUrl(token: string, appUrl = getAppUrl()) {
   return `${appUrl.replace(/\/+$/, "")}/owner-access/${encodeURIComponent(token)}`;
 }
 
-function escapeHtml(value: string) {
-  return value.replace(/[&<>"']/g, (character) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;",
-  })[character] ?? character);
-}
-
 /**
  * The paid-listing email is intentionally built separately from access-token
  * creation. Tokens remain opaque, while this copy can be reused by the
@@ -127,23 +118,22 @@ export function buildOwnerListingEmailCopy(params: {
   receiptUrl: string;
   viewUrl: string;
 }) {
-  const businessName = escapeHtml(params.businessName.trim());
-  const agreementUrl = params.agreementUrl ? escapeHtml(params.agreementUrl) : null;
-  const firstName = escapeHtml(params.ownerName.trim().split(/\s+/)[0] || "");
-  const manageUrl = escapeHtml(params.manageUrl);
-  const receiptUrl = escapeHtml(params.receiptUrl);
-  const viewUrl = escapeHtml(params.viewUrl);
+  const businessName = escapeEmailHtml(params.businessName.trim());
+  const agreementUrl = params.agreementUrl ? escapeEmailHtml(params.agreementUrl) : null;
+  const firstName = escapeEmailHtml(params.ownerName.trim().split(/\s+/)[0] || "");
+  const manageUrl = escapeEmailHtml(params.manageUrl);
+  const receiptUrl = escapeEmailHtml(params.receiptUrl);
 
   if (params.locale === "it") {
     return {
-      html: `<div style="margin:0;padding:32px 16px;background:#f4ede3;color:#243b34;font-family:Arial,Helvetica,sans-serif"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr><td align="center"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:600px;background:#fffdf9;border:1px solid #e5d9cc;border-radius:18px;overflow:hidden"><tr><td style="padding:30px 32px 18px;font-family:Georgia,'Times New Roman',serif;font-size:25px;font-weight:bold;color:#243b34">Salento Local</td></tr><tr><td style="padding:10px 32px 34px;font-size:16px;line-height:1.6"><p style="margin:0 0 18px">Ciao${firstName ? ` ${firstName}` : ""},</p><p style="margin:0 0 18px">La tua attività, <strong>${businessName}</strong>, è ora su Salento Local.</p><p style="margin:0 0 26px">La scheda è stata creata con l'aiuto di un Partner Salento Local. Da qui puoi consultarla pubblicamente e gestirla in modo sicuro.</p><p style="margin:0 0 14px"><a href="${viewUrl}" style="display:inline-block;background:#2a6257;border-radius:9px;color:#ffffff;padding:13px 20px;text-decoration:none;font-weight:bold">Visualizza la tua attività</a></p><p style="margin:0 0 26px"><a href="${manageUrl}" style="color:#a95738;text-decoration:underline;font-weight:bold">Gestisci la tua attività</a></p><p style="margin:0 0 20px;color:#50625c;font-size:14px">Crea il tuo account o accedi utilizzando questo indirizzo email per aggiornare le informazioni della tua attività, le foto, gli orari e gli altri dettagli.</p><p style="margin:0;color:#50625c;font-size:13px"><strong>Ricevuta di pagamento:</strong> allegata a questa email e <a href="${receiptUrl}" style="color:#2a6257">disponibile online</a>.${agreementUrl ? ` <strong>Accordo di adesione firmato:</strong> <a href="${agreementUrl}" style="color:#2a6257">apri l'accordo</a>.` : ""}</p></td></tr></table></td></tr></table></div>`,
+      html: renderSalentoEmail(`<p style="margin:0 0 18px">Ciao${firstName ? ` ${firstName}` : ""},</p><p style="margin:0 0 18px">La tua attività, <strong>${businessName}</strong>, è ora su Salento Local.</p><p style="margin:0 0 26px">La scheda è stata creata con l'aiuto di un Partner Salento Local. Da qui puoi consultarla pubblicamente e gestirla in modo sicuro.</p><p style="margin:0 0 14px">${renderSalentoEmailButton(params.viewUrl, "Visualizza la tua attività")}</p><p style="margin:0 0 26px"><a href="${manageUrl}" style="color:#a95738;text-decoration:underline;font-weight:bold">Gestisci la tua attività</a></p><p style="margin:0 0 20px;color:#50625c;font-size:14px">Crea il tuo account o accedi utilizzando questo indirizzo email per aggiornare le informazioni della tua attività, le foto, gli orari e gli altri dettagli.</p><p style="margin:0;color:#50625c;font-size:13px"><strong>Ricevuta di pagamento:</strong> allegata a questa email e <a href="${receiptUrl}" style="color:#2a6257">disponibile online</a>.${agreementUrl ? ` <strong>Accordo di adesione firmato:</strong> <a href="${agreementUrl}" style="color:#2a6257">apri l'accordo</a>.` : ""}</p>`),
       subject: "La tua attività è ora su Salento Local",
       text: `Ciao${firstName ? ` ${firstName}` : ""},\n\nLa tua attività, ${params.businessName.trim()}, è ora su Salento Local. La scheda è stata creata con l'aiuto di un Partner Salento Local.\n\nVisualizza la tua attività: ${params.viewUrl}\nGestisci la tua attività: ${params.manageUrl}\n\nRicevuta di pagamento: ${params.receiptUrl}${params.agreementUrl ? `\nAccordo di adesione firmato: ${params.agreementUrl}` : ""}`,
     };
   }
 
   return {
-      html: `<div style="margin:0;padding:32px 16px;background:#f4ede3;color:#243b34;font-family:Arial,Helvetica,sans-serif"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr><td align="center"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:600px;background:#fffdf9;border:1px solid #e5d9cc;border-radius:18px;overflow:hidden"><tr><td style="padding:30px 32px 18px;font-family:Georgia,'Times New Roman',serif;font-size:25px;font-weight:bold;color:#243b34">Salento Local</td></tr><tr><td style="padding:10px 32px 34px;font-size:16px;line-height:1.6"><p style="margin:0 0 18px">Hello${firstName ? ` ${firstName}` : ""},</p><p style="margin:0 0 18px">Your business, <strong>${businessName}</strong>, is now on Salento Local.</p><p style="margin:0 0 26px">Your listing was created with the help of a Salento Local Partner. You can now view it and manage it securely.</p><p style="margin:0 0 14px"><a href="${viewUrl}" style="display:inline-block;background:#2a6257;border-radius:9px;color:#ffffff;padding:13px 20px;text-decoration:none;font-weight:bold">View your business</a></p><p style="margin:0 0 26px"><a href="${manageUrl}" style="color:#a95738;text-decoration:underline;font-weight:bold">Manage your business</a></p><p style="margin:0;color:#50625c;font-size:13px"><strong>Payment Receipt:</strong> attached and <a href="${receiptUrl}" style="color:#2a6257">available online</a>.${agreementUrl ? ` <strong>Signed Membership Agreement:</strong> <a href="${agreementUrl}" style="color:#2a6257">open agreement</a>.` : ""}</p></td></tr></table></td></tr></table></div>`,
+      html: renderSalentoEmail(`<p style="margin:0 0 18px">Hello${firstName ? ` ${firstName}` : ""},</p><p style="margin:0 0 18px">Your business, <strong>${businessName}</strong>, is now on Salento Local.</p><p style="margin:0 0 26px">Your listing was created with the help of a Salento Local Partner. You can now view it and manage it securely.</p><p style="margin:0 0 14px">${renderSalentoEmailButton(params.viewUrl, "View your business")}</p><p style="margin:0 0 26px"><a href="${manageUrl}" style="color:#a95738;text-decoration:underline;font-weight:bold">Manage your business</a></p><p style="margin:0;color:#50625c;font-size:13px"><strong>Payment Receipt:</strong> attached and <a href="${receiptUrl}" style="color:#2a6257">available online</a>.${agreementUrl ? ` <strong>Signed Membership Agreement:</strong> <a href="${agreementUrl}" style="color:#2a6257">open agreement</a>.` : ""}</p>`),
     subject: "Your business is now on Salento Local",
     text: `Hello${firstName ? ` ${firstName}` : ""},\n\nYour business, ${params.businessName.trim()}, is now on Salento Local. Your listing was created with the help of a Salento Local Partner.\n\nView your business: ${params.viewUrl}\nManage your business: ${params.manageUrl}\n\nPayment Receipt: ${params.receiptUrl}${params.agreementUrl ? `\nSigned Membership Agreement: ${params.agreementUrl}` : ""}`,
   };

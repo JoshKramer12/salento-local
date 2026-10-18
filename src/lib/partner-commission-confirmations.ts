@@ -4,6 +4,8 @@ import { sendTransactionalEmail } from "@/lib/email";
 import type { Locale } from "@/lib/i18n";
 import { getAppUrl } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
+import { escapeEmailHtml, renderSalentoEmail, renderSalentoEmailButton } from "@/lib/salento-email-template";
+import { getSupportContactEmail } from "@/lib/support-contact";
 
 const CLAIM_LEASE_MS = 15 * 60 * 1000;
 const SEND_TIMEOUT_MS = 15 * 1000;
@@ -19,47 +21,60 @@ type Dependencies = {
   sendTimeoutMs?: number;
 };
 
-function escapeHtml(value: string) {
-  return value.replace(/[&<>"']/g, (character) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  })[character]!);
-}
-
 export function buildPartnerCommissionConfirmationEmail(params: {
   amountCents: number;
   businessName: string;
   earningsUrl: string;
   locale: Locale;
+  partnerName?: string | null;
   testMode: boolean;
 }) {
-  const amount = new Intl.NumberFormat(params.locale === "it" ? "it-IT" : "en-IE", {
-    style: "currency", currency: "EUR",
-  }).format(params.amountCents / 100);
-  const name = params.businessName;
-  const intro = params.locale === "it"
-    ? `L'attività ${name} che hai segnalato è stata pubblicata e il suo pagamento iniziale è stato confermato.`
-    : `The business you referred, ${name}, is published and its initial payment has been confirmed.`;
-  const commission = params.locale === "it"
-    ? `La tua commissione di ${amount} è stata registrata. Rimane soggetta al periodo di 14 giorni per eventuali rimborsi e alle condizioni di pagamento.`
-    : `Your ${amount} commission has been recorded. It remains subject to the 14-day refund period and payout eligibility requirements.`;
+  const it = params.locale === "it";
+  const amount = `€${new Intl.NumberFormat(it ? "it-IT" : "en-IE", {
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
+  }).format(params.amountCents / 100)}`;
+  const headlineAmount = `€${new Intl.NumberFormat(it ? "it-IT" : "en-IE", {
+    maximumFractionDigits: 0,
+  }).format(params.amountCents / 100)}`;
+  const firstName = params.partnerName?.trim().split(/\s+/)[0] || "";
+  const greeting = `${it ? "Ciao" : "Hello"}${firstName ? ` ${firstName}` : ""},`;
+  const goodNews = it
+    ? `Ottime notizie! Hai guadagnato una commissione di ${headlineAmount}.`
+    : `Great news! You've earned a ${headlineAmount} commission.`;
+  const publication = it
+    ? `L'attività ${params.businessName} che hai segnalato è ora pubblicata su Salento Local e il pagamento è stato confermato.`
+    : `The business you referred, ${params.businessName}, is now published on Salento Local and its payment has been confirmed.`;
+  const condition = it
+    ? "La commissione sarà disponibile dopo il periodo di rimborso di 14 giorni, a condizione che siano soddisfatti i requisiti per il pagamento."
+    : "The commission will become available after the 14-day refund period, provided the payout requirements are met.";
   const simulation = params.testMode
-    ? params.locale === "it"
-      ? "Questo pagamento è stato simulato in modalità test Stripe. La commissione è solo un dato di prova e non può essere prelevata o pagata come denaro reale."
-      : "This payment was simulated in Stripe test mode. This commission is test activity and cannot be withdrawn or paid out as real money."
+    ? it
+      ? "Questo pagamento è stato simulato in modalità di prova Stripe. La commissione non è prelevabile né pagabile come denaro reale."
+      : "This payment was simulated in Stripe test mode. The commission cannot be withdrawn or paid out as real money."
     : "";
-  const linkText = params.locale === "it" ? "Visualizza le tue commissioni" : "View your commissions";
-  const subject = params.locale === "it"
-    ? `Commissione Salento Local registrata: ${amount}`
-    : `Salento Local commission recorded: ${amount}`;
+  const linkText = it ? "Visualizza le tue commissioni" : "View your commissions";
+  const subject = it
+    ? `Salento Local — Hai guadagnato una commissione di ${headlineAmount}!`
+    : `Salento Local — You've earned a ${headlineAmount} commission!`;
+  const supportEmail = getSupportContactEmail();
+  const support = supportEmail
+    ? it ? `Per assistenza, scrivi a ${supportEmail}.` : `For support, email ${supportEmail}.`
+    : "Salento Local";
   return {
     subject,
-    text: [intro, commission, simulation, `${linkText}: ${params.earningsUrl}`].filter(Boolean).join("\n\n"),
-    html: [
-      `<p>${escapeHtml(intro)}</p>`,
-      `<p>${escapeHtml(commission)}</p>`,
-      simulation ? `<p>${escapeHtml(simulation)}</p>` : "",
-      `<p><a href="${escapeHtml(params.earningsUrl)}">${escapeHtml(linkText)}</a></p>`,
-    ].join(""),
+    text: [greeting, goodNews, publication, `${it ? "LA TUA COMMISSIONE" : "YOUR COMMISSION"}\n${amount}`,
+      condition, simulation, `${linkText}: ${params.earningsUrl}`, support].filter(Boolean).join("\n\n"),
+    html: renderSalentoEmail(
+      `<p style="margin:0 0 18px">${escapeEmailHtml(greeting)}</p>` +
+      `<p style="margin:0 0 18px">${escapeEmailHtml(goodNews)}</p>` +
+      `<p style="margin:0 0 26px">${escapeEmailHtml(publication)}</p>` +
+      `<p style="margin:0 0 4px;color:#50625c;font-size:13px;font-weight:bold;letter-spacing:1px">${it ? "LA TUA COMMISSIONE" : "YOUR COMMISSION"}</p>` +
+      `<p style="margin:0 0 20px;color:#243b34;font-family:Georgia,'Times New Roman',serif;font-size:30px;font-weight:bold">${escapeEmailHtml(amount)}</p>` +
+      `<p style="margin:0 0 20px;color:#50625c;font-size:14px">${escapeEmailHtml(condition)}</p>` +
+      `<p style="margin:0 0 26px">${renderSalentoEmailButton(params.earningsUrl, linkText)}</p>` +
+      (simulation ? `<p style="margin:0 0 20px;color:#50625c;font-size:13px;line-height:1.5">${escapeEmailHtml(simulation)}</p>` : "") +
+      `<p style="margin:0;border-top:1px solid #e5d9cc;padding-top:16px;color:#50625c;font-size:13px">${supportEmail ? `${it ? "Per assistenza, scrivi a" : "For support, email"} <a href="mailto:${escapeEmailHtml(supportEmail)}" style="color:#2a6257">${escapeEmailHtml(supportEmail)}</a>.` : "Salento Local"}</p>`,
+    ),
   };
 }
 
@@ -95,7 +110,7 @@ function deliveryEligibility(commission: {
 const commissionInclude = {
   business: { select: { name: true } },
   businessSubmission: { select: { businessName: true, createdBusinessId: true, paymentStatus: true, status: true } },
-  partnerUser: { select: { email: true, role: true, localPartnerProfile: { select: { preferredLanguage: true } } } },
+  partnerUser: { select: { email: true, name: true, role: true, localPartnerProfile: { select: { fullName: true, preferredLanguage: true } } } },
   payment: { select: { businessId: true, businessSubmissionId: true, currency: true, paidAt: true, purpose: true,
     refundRequestedAt: true, refundStatus: true, status: true, stripeLivemode: true } },
 } as const;
@@ -195,6 +210,7 @@ async function attemptDelivery(id: string, dependencies: Dependencies = {}) {
     businessName: delivery.businessName,
     earningsUrl: `${getAppUrl()}/dashboard/earnings`,
     locale,
+    partnerName: delivery.commission.partnerUser.localPartnerProfile?.fullName || delivery.commission.partnerUser.name,
     testMode: delivery.commission.payment!.stripeLivemode === false,
   });
   try {

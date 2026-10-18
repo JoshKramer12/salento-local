@@ -13,6 +13,7 @@ import {
   retryPendingPartnerCommissionConfirmations,
 } from "@/lib/partner-commission-confirmations";
 import { payableCommissionWhere } from "@/lib/partner-ledger";
+import { buildOwnerListingEmailCopy } from "@/lib/business-owner-access";
 import { createRefundFixture } from "./helpers/refund-fixture";
 
 const directory = mkdtempSync(join(tmpdir(), "salento-partner-commission-email-"));
@@ -58,9 +59,10 @@ test("Pay Later bank transfer remains pending until Stripe-confirmed payment and
   assert.equal(mail.messages.length, 1);
   assert.equal(mail.messages[0].to, f.partner.email);
   assert.match(mail.messages[0].text, /€50/);
-  assert.match(mail.messages[0].text, /published and its initial payment has been confirmed/);
+  assert.match(mail.messages[0].text, /now published on Salento Local and its payment has been confirmed/);
   assert.match(mail.messages[0].text, /14-day refund period/);
-  assert.match(mail.messages[0].text, /test activity and cannot be withdrawn or paid out as real money/);
+  assert.match(mail.messages[0].text, /cannot be withdrawn or paid out as real money/);
+  assert.match(mail.messages[0].html, /href="https:\/\/salento\.example\.test\/dashboard\/earnings"/);
   assert.equal(mail.messages[0].headers?.["X-Transactional-Message"], "partner-commission-confirmation");
   assert.equal(await prisma.partnerCommission.count({ where: { businessSubmissionId: f.submission.id, amountCents: 5000 } }), 1);
   assert.equal(await prisma.partnerCommission.count({ where: { ...payableCommissionWhere(new Date(Date.now() + 30 * 86_400_000)), businessSubmissionId: f.submission.id } }), 0);
@@ -99,10 +101,10 @@ test("Pay Now and Pay Later use one payment-linked delivery; failed sends retry 
     assert.deepEqual(keys, [keys[0], keys[0]]);
     assert.equal(mail.messages.length, 1);
     assert.equal(mail.messages[0].to, f.partner.email);
-    assert.match(mail.messages[0].text, payLater ? /50,00\s*€/ : /€50/);
+    assert.match(mail.messages[0].text, payLater ? /€50,00/ : /€50\.00/);
     if (payLater) {
       assert.match(mail.messages[0].text, /pubblicata/);
-      assert.doesNotMatch(mail.messages[0].text, /modalità test Stripe/);
+      assert.doesNotMatch(mail.messages[0].text, /modalità di prova Stripe/);
     } else {
       assert.match(mail.messages[0].text, /Stripe test mode/);
     }
@@ -163,16 +165,81 @@ test("non-Partner and unverified historical payment mode do not create a deliver
   assert.equal(await ensurePartnerCommissionConfirmationDeliveryForSubmission(f.submission.id), null);
 });
 
-test("localized email escapes business names and distinguishes recorded commission from payout", () => {
-  const message = buildPartnerCommissionConfirmationEmail({
-    amountCents: 5000, businessName: '<script>alert("x")</script>',
-    earningsUrl: "https://salento.example.test/dashboard/earnings", locale: "it", testMode: true,
+test("Italian and English commission emails reuse the publication card and link to Partner earnings", () => {
+  const owner = buildOwnerListingEmailCopy({
+    businessName: "Masseria", locale: "it", manageUrl: "https://salento.example.test/dashboard",
+    ownerName: "Giulia", receiptUrl: "https://salento.example.test/receipt",
+    viewUrl: "https://salento.example.test/businesses/masseria",
   });
-  assert.doesNotMatch(message.html, /<script>/);
-  assert.match(message.html, /&lt;script&gt;/);
-  assert.match(message.text, /50,00\s*€/);
-  assert.match(message.text, /non può essere prelevata/);
-  assert.doesNotMatch(message.subject, /TEST/);
+  const cardStart = owner.html.slice(0, owner.html.indexOf('<p style="margin:0 0 18px">'));
+  const url = "https://salento.example.test/dashboard/earnings";
+  for (const locale of ["it", "en"] as const) {
+    const message = buildPartnerCommissionConfirmationEmail({
+      amountCents: 5000, businessName: "Masseria del Sole", earningsUrl: url,
+      locale, partnerName: "Giulia Bianchi", testMode: false,
+    });
+    assert.ok(message.html.startsWith(cardStart));
+    assert.match(message.html, /width="100%"/);
+    assert.match(message.html, /max-width:600px/);
+    assert.match(message.html, /background:#f4ede3/);
+    assert.match(message.html, /background:#fffdf9/);
+    assert.match(message.html, /border-radius:18px/);
+    assert.match(message.html, /font-family:Georgia,'Times New Roman',serif/);
+    assert.match(message.html, /background:#2a6257;border-radius:9px/);
+    assert.ok(message.html.includes(`href="${url}"`));
+    assert.ok(message.text.includes(url));
+    assert.doesNotMatch(message.html, /simulat|simulated|non è prelevabile/);
+    assert.doesNotMatch(message.text, /simulat|simulated|non è prelevabile/);
+    assert.match(message.html, locale === "it" ? /Ciao Giulia/ : /Hello Giulia/);
+    assert.match(message.subject, locale === "it" ? /Hai guadagnato una commissione di €50!/ : /You've earned a €50 commission!/);
+  }
+});
+
+test("the commission footer uses the configured support contact", () => {
+  const original = process.env.SUPPORT_EMAIL;
+  process.env.SUPPORT_EMAIL = "support@example.test";
+  try {
+    const message = buildPartnerCommissionConfirmationEmail({
+      amountCents: 5000, businessName: "Masseria", earningsUrl: "https://salento.example.test/dashboard/earnings",
+      locale: "it", testMode: false,
+    });
+    assert.match(message.html, /mailto:support@example\.test/);
+    assert.match(message.text, /Per assistenza, scrivi a support@example\.test/);
+  } finally {
+    if (original === undefined) delete process.env.SUPPORT_EMAIL;
+    else process.env.SUPPORT_EMAIL = original;
+  }
+});
+
+test("test payments disclose simulation, and dynamic Partner and business names are HTML escaped", () => {
+  for (const locale of ["it", "en"] as const) {
+    const message = buildPartnerCommissionConfirmationEmail({
+      amountCents: 5000, businessName: '<script>alert("x")</script>',
+      earningsUrl: "https://salento.example.test/dashboard/earnings", locale,
+      partnerName: '<img src=x onerror=alert(1)> Bianchi', testMode: true,
+    });
+    assert.doesNotMatch(message.html, /<script>|<img/);
+    assert.match(message.html, /&lt;script&gt;/);
+    assert.match(message.html, /&lt;img/);
+    assert.match(message.html, /font-size:13px;line-height:1.5/);
+    assert.match(message.text, locale === "it" ? /€50,00/ : /€50\.00/);
+    assert.match(message.text, locale === "it" ? /non è prelevabile né pagabile come denaro reale/ : /cannot be withdrawn or paid out as real money/);
+    assert.doesNotMatch(message.subject, /TEST/);
+  }
+});
+
+test("saved Partner language and name select the Italian confirmation", async () => {
+  const f = await fixture();
+  await prisma.localPartnerProfile.update({ where: { userId: f.partner.id }, data: {
+    preferredLanguage: "it", fullName: "Giulia Bianchi",
+  } });
+  const id = await ensurePartnerCommissionConfirmationDeliveryForSubmission(f.submission.id);
+  assert.ok(id);
+  const mail = sentMessages();
+  assert.equal(await attemptPartnerCommissionConfirmationForSubmission(f.submission.id, { sendEmail: mail.sendEmail }), "accepted");
+  assert.match(mail.messages[0].subject, /Hai guadagnato una commissione di €50!/);
+  assert.match(mail.messages[0].html, /Ciao Giulia/);
+  assert.equal((await prisma.partnerCommissionConfirmationDelivery.findUniqueOrThrow({ where: { id } })).locale, "it");
 });
 
 test("migration creates an empty outbox without backfilling historical commissions", async () => {
