@@ -1802,3 +1802,14 @@ button {
 .hours-copy-button:hover {
   background: rgba(42, 98, 87, 0.15);
 }
+
+/* iOS Safari zooms the page when a focused form control renders below 16px. */
+@media (max-width: 767px) {
+  :is(
+    input:not([type="hidden"], [type="checkbox"], [type="radio"], [type="file"], [type="range"], [type="color"], [type="button"], [type="submit"], [type="reset"]),
+    select,
+    textarea
+  ):not(.verification-code-input) {
+    font-size: 1rem;
+  }
+}
