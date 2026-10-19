@@ -63,6 +63,7 @@ import { LISTING_OFFER, LISTING_SIGNER_ROLE_VALUES } from "@/lib/listing-offer";
 import type { PhoneCountryOption } from "@/lib/phone-country-options";
 import { getCategoryLabel } from "@/lib/site";
 import { normalizeSubmissionSocialInput } from "@/lib/business-links";
+import { formatIncompleteHoursMessage, getIncompleteHoursDays } from "@/lib/opening-hours-feedback";
 import { copyHoursToDays, countConfiguredDestinations, isCompleteCopySource } from "@/lib/opening-hours-copy";
 import { initializeOwnerContact, type OwnerContactDefaults } from "@/lib/publish-owner-defaults";
 import { requestPaymentQr } from "@/lib/payment-choice-client";
@@ -820,6 +821,7 @@ export function PublishForm({
         (initialSubmissionValues.whatsapp || initialSubmissionValues.phone),
   );
   const [hours, setHours] = useState(() => parseOpeningHours(initialSubmissionValues.openingHours));
+  const [hoursContinueAttempted, setHoursContinueAttempted] = useState(false);
   const [copySourceDay, setCopySourceDay] = useState<DayKey | null>(null);
   const [copyDestinations, setCopyDestinations] = useState<Set<DayKey>>(() => new Set());
   const [copyReplacePending, setCopyReplacePending] = useState(false);
@@ -1526,6 +1528,12 @@ export function PublishForm({
     [locale, offerItems],
   );
   const openingHoursValue = useMemo(() => serializeOpeningHours(hours), [hours]);
+  const incompleteHoursDays = hoursContinueAttempted ? getIncompleteHoursDays(hours) : [];
+  const incompleteHoursKeys = new Set(incompleteHoursDays.map((day) => day.day));
+  const incompleteHoursMessage = formatIncompleteHoursMessage(
+    incompleteHoursDays.map((day) => days.find((entry) => entry.key === day.day)?.[locale] ?? day.day),
+    locale,
+  );
   const photoUrlsValue = useMemo(() => serializePhotos(photos), [photos]);
   const currentDraftSnapshot = useMemo<LocalDraftSnapshot>(
     () => ({
@@ -2125,8 +2133,24 @@ export function PublishForm({
       error = getOwnerStepError({ locale, ownerEmail, ownerHasNoEmail, ownerName, ownerPhone: ownerContact, submitterRole: role });
     } else if (wizardStep === "about" && offerItemsCount < 2) {
       error = locale === "it" ? "Aggiungi almeno due punti su cosa offre l'attività." : "Add at least two points about what the business offers.";
-    } else if (wizardStep === "hours" && !hours.some((day) => day.closed || Boolean(day.open1 && day.close1))) {
-      error = locale === "it" ? "Indica almeno un orario di apertura o un giorno chiuso." : "Add at least one opening time or mark a day closed.";
+    } else if (wizardStep === "hours") {
+      setHoursContinueAttempted(true);
+      const firstIncompleteDay = getIncompleteHoursDays(hours)[0];
+      if (firstIncompleteDay) {
+        setDraftNotice("");
+        requestAnimationFrame(() => {
+          const view = window.matchMedia("(max-width: 767px)").matches ? "mobile" : "desktop";
+          const card = formRef.current?.querySelector<HTMLElement>(
+            `[data-hours-card="${firstIncompleteDay.day}"][data-hours-view="${view}"]`,
+          );
+          if (!card) return;
+          const bounds = card.getBoundingClientRect();
+          if (bounds.top < 0 || bounds.bottom > window.innerHeight) {
+            card.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+        });
+        return;
+      }
     } else if (wizardStep === "photos" && (!photos.exterior || !photos.interior)) {
       error = locale === "it" ? "Aggiungi una foto esterna e una interna prima di continuare." : "Add one exterior and one interior photo before continuing.";
     }
@@ -2450,8 +2474,11 @@ export function PublishForm({
                 return (
                   <article
                     key={day.day}
-                    className="hours-mobile-day-card grid gap-3 rounded-[1.25rem] border border-[var(--border)] bg-[rgba(247,244,239,0.56)] p-4"
+                    className={`hours-mobile-day-card grid gap-3 rounded-[1.25rem] border border-[var(--border)] bg-[rgba(247,244,239,0.56)] p-4 ${incompleteHoursKeys.has(day.day) ? "!border-[rgba(191,91,42,0.55)]" : ""}`}
                     aria-label={dayName}
+                    aria-describedby={incompleteHoursKeys.has(day.day) ? "hours-validation-error" : undefined}
+                    data-hours-card={day.day}
+                    data-hours-view="mobile"
                   >
                     <div className="flex items-center justify-between gap-3">
                         <strong className="text-[1.05rem] leading-6 text-[var(--foreground)]">{dayName}</strong>
@@ -2536,7 +2563,10 @@ export function PublishForm({
                 return (
                   <div
                     key={day.day}
-                    className="grid gap-3 rounded-2xl border border-[var(--border)] bg-[rgba(247,244,239,0.56)] p-4"
+                    className={`grid gap-3 rounded-2xl border border-[var(--border)] bg-[rgba(247,244,239,0.56)] p-4 ${incompleteHoursKeys.has(day.day) ? "!border-[rgba(191,91,42,0.55)]" : ""}`}
+                    aria-describedby={incompleteHoursKeys.has(day.day) ? "hours-validation-error" : undefined}
+                    data-hours-card={day.day}
+                    data-hours-view="desktop"
                   >
                     <div className="grid gap-3 sm:grid-cols-[1fr_1.2fr_auto]">
                       <div className="flex items-center justify-between gap-2">
@@ -2836,6 +2866,7 @@ export function PublishForm({
       </section>
 
       {showWizardFooter ? <div className={`publish-form-footer flex flex-wrap justify-end gap-3 border-t border-[rgba(42,98,87,0.12)] bg-[rgba(255,255,255,0.72)] p-3 sm:p-4 ${collectionIndex >= 0 ? `collection-wizard-footer ${previousWizardStep ? "collection-wizard-footer--with-back" : "collection-wizard-footer--without-back"}` : ""} ${specialFooterStep ? "special-wizard-footer" : ""}`}>
+        {wizardStep === "hours" && incompleteHoursMessage ? <p id="hours-validation-error" role="alert" className="col-span-full w-full rounded-xl border border-[rgba(191,91,42,0.4)] bg-[rgba(255,248,243,0.96)] px-3 py-2 text-sm leading-5 text-[var(--accent)]">{incompleteHoursMessage}</p> : null}
         {specialFooterStep ? <>
         {wizardStep === "agreement" ? <button type="button" disabled={!agreementAccepted || draftSavePending || actionPending} onClick={() => requestDraftSave("autosave", false, "signature")} className="special-wizard-footer__primary btn-primary min-h-12 w-full disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : locale === "it" ? "Continua alla firma" : "Continue to signature"}</button> : null}
         {wizardStep === "signature" ? <button type="button" disabled={draftSavePending || actionPending} onClick={() => { if (!isPaymentApprovalReady({ signature, signerFullName, signerRole, signerRoleOther })) { setDraftNotice(locale === "it" ? "Completa il nome completo, il ruolo e la firma." : "Complete the full name, role, and signature."); return; } navigatePayment("decision"); requestDraftSave("autosave", false, "payment"); }} className="special-wizard-footer__primary btn-primary min-h-12 w-full disabled:cursor-wait disabled:opacity-50">{draftSavePending || actionPending ? (locale === "it" ? "Salvataggio..." : "Saving...") : locale === "it" ? "Continua al pagamento →" : "Continue to payment →"}</button> : null}
