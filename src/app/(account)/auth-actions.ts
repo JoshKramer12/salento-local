@@ -12,6 +12,7 @@ import {
 import { signIn, signOut } from "@/lib/auth";
 import { requireViewer } from "@/lib/auth-guards";
 import type { Locale } from "@/lib/i18n";
+import { LEGAL_DOCUMENTS } from "@/lib/legal";
 import { recordCurrentLegalAcceptances } from "@/lib/legal-consent";
 import {
   openBusinessSignupHandoff,
@@ -87,6 +88,7 @@ const formCopy = {
       "Please read and accept the Salento Local Business Terms & Conditions.",
     missingPartnerTerms:
       "Please read and accept the Salento Local Partner Terms & Conditions.",
+    partnerTermsChanged: "The Partner Terms changed. Refresh this page and accept the current version.",
     passwordRule:
       "Use at least 8 characters, including 1 uppercase letter, 1 number, and 1 special character.",
     passwordMismatch: "The passwords do not match.",
@@ -110,6 +112,7 @@ const formCopy = {
       "Leggi e accetta i Termini e Condizioni per le Attivita Commerciali di Salento Local.",
     missingPartnerTerms:
       "Leggi e accetta i Termini e Condizioni del Programma Partner di Salento Local.",
+    partnerTermsChanged: "I Termini Partner sono cambiati. Aggiorna la pagina e accetta la versione attuale.",
     passwordRule:
       "Usa almeno 8 caratteri, con 1 lettera maiuscola, 1 numero e 1 carattere speciale.",
     passwordMismatch: "Le password non coincidono.",
@@ -387,6 +390,7 @@ export async function partnerSignupAction(
   const password = getStringValue(formData.get("password"));
   const confirmPassword = getStringValue(formData.get("confirmPassword"));
   const partnerTermsAccepted = getStringValue(formData.get("partnerTermsAccepted")) === "on";
+  const partnerTermsVersion = getStringValue(formData.get("partnerTermsVersion"));
   const redirectTo = getSafeInternalRedirect(getStringValue(formData.get("redirectTo")));
   const signupValues = {
     businessTermsAccepted: false,
@@ -397,12 +401,17 @@ export async function partnerSignupAction(
     username: rawUsername,
   };
 
+  if (partnerTermsVersion !== LEGAL_DOCUMENTS.partnerTerms.version) {
+    return { error: formCopy[locale].partnerTermsChanged, signupValues };
+  }
+
   const validation = validatePartnerSignupEntry({
     email,
     firstName,
     lastName,
     locale,
     partnerTermsAccepted,
+    partnerTermsVersion,
     password,
     confirmPassword,
     redirectTo,
@@ -938,6 +947,9 @@ export async function signupAction(
     username: rawUsername,
     whatsapp: getStringValue(formData.get("whatsapp")),
   };
+  if (requestedRole === "GETTER" && getStringValue(formData.get("partnerTermsVersion")) !== LEGAL_DOCUMENTS.partnerTerms.version) {
+    return { error: formCopy[locale].partnerTermsChanged, signupValues };
+  }
   const parsed = signupSchema.safeParse({
     email: normalizeEmail(rawEmail),
     password: rawPassword,

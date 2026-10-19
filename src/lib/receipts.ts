@@ -10,7 +10,7 @@ import { sendTransactionalEmail } from "@/lib/email";
 import type { Locale } from "@/lib/i18n";
 import { LISTING_OFFER } from "@/lib/listing-offer";
 import { addUtcDays, BUSINESS_MEMBERSHIP_PERIOD_DAYS } from "@/lib/business-membership";
-import { LEGAL_ROUTES } from "@/lib/legal";
+import { LEGAL_DOCUMENTS, LEGAL_ROUTES } from "@/lib/legal";
 import { getAppUrl } from "@/lib/payment";
 import {
   buildOwnerListingEmailCopy,
@@ -18,6 +18,7 @@ import {
   sendOwnerAccessInvitationForSubmission,
 } from "@/lib/business-owner-access";
 import { prisma } from "@/lib/prisma";
+import { getPartnerPublicationContact } from "@/lib/partner-publication-contact";
 
 type ReceiptSubmission = {
   address: string;
@@ -36,6 +37,8 @@ type ReceiptSubmission = {
   ownerEmail: string;
   ownerHasNoEmail: boolean;
   partnerName?: string | null;
+  partnerEmail?: string | null;
+  partnerPhone?: string | null;
   paymentStatus: PaymentStatus;
   privacyPolicyVersionPresented: string | null;
   purchaseConfirmationSentAt: Date | null;
@@ -476,7 +479,12 @@ const receiptPaymentSelect = {
       signerRoleOther: true,
       town: { select: { name: true } },
       userId: true,
-      user: { select: { role: true, localPartnerProfile: { select: { fullName: true } } } },
+      user: { select: {
+        email: true,
+        role: true,
+        localPartnerProfile: { select: { fullName: true, phone: true, whatsapp: true } },
+        legalAcceptances: { select: { documentType: true, documentVersion: true }, where: { documentType: "PARTNER_TERMS", documentVersion: LEGAL_DOCUMENTS.partnerTerms.version } },
+      } },
     },
   },
   currency: true,
@@ -610,9 +618,7 @@ export async function getReceiptData(params: {
       listingTermMonthsAtAcceptance: submission.listingTermMonthsAtAcceptance,
       ownerEmail: submission.ownerEmail,
       ownerHasNoEmail: submission.ownerHasNoEmail,
-      partnerName: submission.user.role === "GETTER"
-        ? submission.user.localPartnerProfile?.fullName.trim() || null
-        : null,
+      ...getPartnerPublicationContact(submission.user),
       paymentStatus: submission.paymentStatus,
       privacyPolicyVersionPresented: submission.privacyPolicyVersionPresented,
       purchaseConfirmationSentAt: submission.purchaseConfirmationSentAt,
@@ -966,6 +972,8 @@ export async function sendReceiptEmail(params: {
         manageUrl: params.ownerActions.manageUrl,
         ownerName: params.ownerActions.ownerName,
         partnerName: params.receipt.submission.partnerName,
+        partnerEmail: params.receipt.submission.partnerEmail,
+        partnerPhone: params.receipt.submission.partnerPhone,
         receiptUrl: params.receipt.receiptUrl,
         viewUrl: params.ownerActions.viewUrl,
       })

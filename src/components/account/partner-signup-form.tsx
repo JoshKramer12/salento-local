@@ -22,7 +22,7 @@ import { FormSubmitButton } from "@/components/form-submit-button";
 import { HardNavigationLink } from "@/components/hard-navigation-link";
 import { LegalConsentCopy } from "@/components/legal/legal-consent-copy";
 import type { Locale } from "@/lib/i18n";
-import { getPartnerTerms } from "@/lib/legal";
+import { getPartnerTerms, LEGAL_DOCUMENTS } from "@/lib/legal";
 import type { PhoneCountryOption } from "@/lib/phone-country-options";
 
 const initialState: FormState = {};
@@ -307,6 +307,7 @@ export function PartnerSignupForm({
     <form action={action} className="card mx-auto grid w-full max-w-4xl gap-6 p-8 sm:p-10">
       <input type="hidden" name="locale" value={locale} />
       <input type="hidden" name="accountType" value="GETTER" />
+      <input type="hidden" name="partnerTermsVersion" value={LEGAL_DOCUMENTS.partnerTerms.version} />
       <input type="hidden" name="redirectTo" value={redirectTo} />
       <input type="hidden" name="phone" value={phone} />
       <input type="hidden" name="whatsapp" value={phone} />

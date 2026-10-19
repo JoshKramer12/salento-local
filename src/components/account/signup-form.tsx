@@ -7,6 +7,7 @@ import { signupAction, type FormState } from "@/app/(account)/auth-actions";
 import { PasswordRequirements } from "@/components/account/password-requirements";
 import { FormSubmitButton } from "@/components/form-submit-button";
 import type { Locale } from "@/lib/i18n";
+import { LEGAL_DOCUMENTS } from "@/lib/legal";
 
 const initialState: FormState = {};
 
@@ -167,7 +168,8 @@ export function SignupForm({ accountType, locale, redirectTo = "" }: SignupFormP
           "L'invio di un'attivita commerciale non garantisce il diritto alla commissione. Salento Local puo rifiutare o annullare le commissioni relative a registrazioni duplicate, fraudolente, rimborsate, inesatte o non idonee.",
           "Le commissioni vengono pagate in modo sicuro tramite il tuo account Stripe collegato. E tua responsabilita mantenere aggiornati i dati necessari per ricevere i pagamenti.",
           "Salento Local puo sospendere o chiudere definitivamente gli account Partner che violano i presenti Termini o utilizzano la piattaforma in modo improprio.",
-          "Salento Local puo modificare in qualsiasi momento i presenti Termini o il Programma Partner. Continuando a utilizzare il tuo account, accetti automaticamente eventuali aggiornamenti.",
+          "Il nome, l'email e il numero WhatsApp o di telefono registrati saranno condivisi con i titolari delle attività che registri, per domande e assistenza relative alla loro scheda. Questi recapiti non saranno pubblicati nelle schede delle attività per questo scopo.",
+          "Salento Local puo modificare i presenti Termini o il Programma Partner. Quando è richiesta una nuova accettazione, i recapiti coperti da nuove disposizioni non saranno condivisi finché non avrai accettato la versione aggiornata.",
         ]
       : [
           "You are joining Salento Local as an independent Local Partner. You are not an employee or representative of Salento Local.",
@@ -182,7 +184,8 @@ export function SignupForm({ accountType, locale, redirectTo = "" }: SignupFormP
           "Submitting a business does not guarantee a commission. Salento Local may refuse or cancel commissions for duplicate, fraudulent, refunded, inaccurate, or otherwise ineligible submissions.",
           "Commission payments are made securely through your connected Stripe account. You are responsible for keeping your payout information up to date.",
           "Salento Local may suspend or permanently remove Partner accounts that violate these Terms or misuse the platform.",
-          "Salento Local may update these Terms or the Partner Program from time to time. Continued use of your account means you accept any updated Terms.",
+          "Your registered name, email, and WhatsApp or phone number will be shared with owners of businesses you register so they can ask about their listing. These details will not be published on business listings for this purpose.",
+          "Salento Local may update these Terms or the Partner Program. When renewed acceptance is required, contact details covered by new provisions will not be shared until you accept the updated version.",
         ];
   const termsConfirmation =
     locale === "it"
@@ -201,6 +204,7 @@ export function SignupForm({ accountType, locale, redirectTo = "" }: SignupFormP
     <>
       <input type="hidden" name="locale" value={locale} />
       <input type="hidden" name="accountType" value={accountType} />
+      {isPartnerSignup ? <input type="hidden" name="partnerTermsVersion" value={LEGAL_DOCUMENTS.partnerTerms.version} /> : null}
       <input type="hidden" name="redirectTo" value={redirectTo} />
       <label className="field-label">
         <span>{copy.email}</span>

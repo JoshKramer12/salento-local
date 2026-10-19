@@ -214,7 +214,7 @@ test("refunded repurchase €50 commission is payment-keyed, held 14 days, and i
 
 test("new legal versions apply to future acceptance without changing historical rows", () => {
   assert.equal(LEGAL_DOCUMENTS.businessTerms.version, "business-terms-2026-09-27");
-  assert.equal(LEGAL_DOCUMENTS.partnerTerms.version, "partner-terms-2026-09-27");
+  assert.equal(LEGAL_DOCUMENTS.partnerTerms.version, "partner-terms-2026-10-19");
   const source = readFileSync("src/lib/legal.ts", "utf8");
   assert.match(source, /Nothing in these terms excludes refunds or withdrawal rights where required by applicable law/);
 });

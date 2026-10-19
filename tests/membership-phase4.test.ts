@@ -32,7 +32,7 @@ test("daily reminder schedule distinguishes automatic, manual, grace, and expiry
 });
 
 test("Partner terms and public copy disclose €50 initial plus €15 successful renewals without promising income", () => {
-  assert.match(legal, /partner-terms-2026-09-27/);
+  assert.match(legal, /partner-terms-2026-10-19/);
   assert.match(legal, /EUR15/);
   assert.match(legal, /reddito futuro/);
 });

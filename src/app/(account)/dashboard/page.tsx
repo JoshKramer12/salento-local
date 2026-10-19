@@ -6,6 +6,7 @@ import { PartnerOutstandingCommissionCard } from "@/components/account/partner-o
 import { PartnerPayoutSummary } from "@/components/account/partner-payout-summary";
 import { PartnerDashboard } from "@/components/account/partner-dashboard";
 import { PartnerFirstBusinessDashboard } from "@/components/account/partner-first-business-dashboard";
+import { PartnerTermsNotice } from "@/components/account/partner-terms-notice";
 import {
   BusinessOwnerDashboard,
 } from "@/components/account/business-owner-dashboard";
@@ -28,6 +29,7 @@ import {
 } from "@/lib/admin-dashboard";
 import { requireCompletedViewer } from "@/lib/auth-guards";
 import { getCurrentLocale } from "@/lib/locale";
+import { LEGAL_DOCUMENTS } from "@/lib/legal";
 import { getPartnerNextRoute } from "@/lib/partner-onboarding";
 import { shouldShowPartnerFirstBusinessDashboard } from "@/lib/partner-first-business-dashboard";
 import { getPartnerCommissionCents, getPartnerPayoutSetupSummary } from "@/lib/partner-connect";
@@ -643,15 +645,20 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       : 0;
 
   if (viewer.role === "GETTER" && partnerBalances) {
+    const currentTermsAcceptance = await prisma.legalAcceptance.findFirst({
+      where: { userId: viewer.id, documentType: "PARTNER_TERMS", documentVersion: LEGAL_DOCUMENTS.partnerTerms.version },
+      select: { id: true },
+    });
+    const termsNotice = currentTermsAcceptance ? null : <PartnerTermsNotice locale={locale} />;
     if (shouldShowPartnerFirstBusinessDashboard(submissions.length)) {
-      return <PartnerFirstBusinessDashboard locale={locale} username={viewer.username} />;
+      return <>{termsNotice}<PartnerFirstBusinessDashboard locale={locale} username={viewer.username} /></>;
     }
 
     const paidBusinesses = selectPartnerPaidBusinesses(submissions);
     const paidBusinessCommissions = selectPartnerPaidBusinessCommissions(partnerRecentCommissions, paidBusinesses).slice(0, 5);
 
     return (
-      <PartnerDashboard
+      <>{termsNotice}<PartnerDashboard
         now={dashboardNow.toISOString()}
         balances={partnerBalances}
         history={partnerHistory}
@@ -666,7 +673,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         submissions={paidBusinesses}
         totals={totals}
         username={viewer.name?.trim() || viewer.username}
-      />
+      /></>
     );
   }
 

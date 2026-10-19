@@ -28,16 +28,16 @@ export const LEGAL_DOCUMENTS = {
     version: "cookie-policy-2026-07-14",
   },
   partnerTerms: {
-    lastUpdated: "2026-09-27",
-    version: "partner-terms-2026-09-27",
+    lastUpdated: "2026-10-19",
+    version: "partner-terms-2026-10-19",
   },
   privacyPolicy: {
-    lastUpdated: "2026-07-14",
-    version: "privacy-policy-2026-07-14",
+    lastUpdated: "2026-10-19",
+    version: "privacy-policy-2026-10-19",
   },
   platformTerms: {
-    lastUpdated: "2026-09-27",
-    version: "platform-terms-2026-09-27",
+    lastUpdated: "2026-10-19",
+    version: "platform-terms-2026-10-19",
   },
 } as const;
 
@@ -213,12 +213,13 @@ export function getPartnerTerms(locale: Locale) {
       "Ti impegni a registrare esclusivamente attivita commerciali reali e a fornire informazioni accurate.",
       "Caricherai soltanto fotografie, loghi o altri contenuti per i quali possiedi i necessari diritti o autorizzazioni.",
       "Ti impegni a rispettare tutte le leggi applicabili durante l'utilizzo della piattaforma.",
+      "Dati di contatto condivisi con i titolari delle attività: aderendo a Salento Local come Partner Locale, riconosci e accetti che il nome, l'indirizzo email e il numero WhatsApp o di telefono registrati nel tuo account saranno condivisi con i titolari delle attività che registri tramite la piattaforma. Questi dati consentono ai titolari di contattarti per domande o richieste di assistenza relative alla registrazione e alla scheda. I tuoi recapiti non saranno mostrati pubblicamente nelle schede delle attività per effetto di questa disposizione.",
       "Puoi ricevere una commissione di 50 EUR per ogni attivita commerciale idonea che origini e che completa con successo il pagamento. Per ogni successivo rinnovo annuale o riattivazione pagata con successo della stessa membership, il Partner originario puo ricevere 15 EUR.",
       "L'invio di un'attivita commerciale non garantisce il diritto alla commissione, ne un reddito futuro. Nessuna commissione di rinnovo e dovuta se l'attivita non paga. Salento Local puo rifiutare, stornare o annullare le commissioni per registrazioni duplicate, fraudolente, rimborsate, contestate, inesatte, violazioni del programma o non idonee.",
       "La commissione iniziale di 50 EUR è mostrata come in attesa dopo il pagamento idoneo e non è pagabile nei 14 giorni di rimborso. Una richiesta di rimborso tempestiva non risolta mantiene la commissione in sospeso anche dopo 14 giorni. Una richiesta con bonifico non la annulla fino al completamento confermato. Se il pagamento resta valido e non ci sono richieste irrisolte, diventa idonea dopo tale periodo; un rimborso completo idoneo la annulla. Se il titolare acquista una nuova membership dopo quel rimborso, può nascere una nuova commissione iniziale di 50 EUR. La normale scadenza e riattivazione non genera una nuova commissione iniziale; si applicano le regole di rinnovo.",
       "Le commissioni vengono pagate in modo sicuro tramite il tuo account Stripe collegato. E tua responsabilita mantenere aggiornati i dati necessari per ricevere i pagamenti.",
       "Salento Local puo sospendere o chiudere definitivamente gli account Partner che violano i presenti Termini o utilizzano la piattaforma in modo improprio.",
-      "Salento Local puo modificare in qualsiasi momento i presenti Termini o il Programma Partner. Continuando a utilizzare il tuo account, accetti automaticamente eventuali aggiornamenti.",
+      "Salento Local puo modificare i presenti Termini o il Programma Partner. Quando è richiesta una nuova accettazione, i dati di contatto coperti da nuove disposizioni non saranno condivisi finché non avrai accettato la versione aggiornata.",
     ];
   }
 
@@ -231,12 +232,13 @@ export function getPartnerTerms(locale: Locale) {
     "You agree to submit only genuine businesses and provide accurate information.",
     "You will only upload photographs, logos, or other content that you have permission to use.",
     "You agree to comply with all applicable laws while using the platform.",
+    "Contact information shared with business owners: By joining Salento Local as a Local Partner, you acknowledge and agree that your registered name, email address, and WhatsApp or phone number will be shared with the business owners you register through the platform. This information lets business owners contact you with questions or requests for assistance relating to their registration and listing. Your contact information will not be displayed publicly on business listings solely because of this provision.",
     "You may earn EUR50 for each eligible business you originate that successfully completes payment. For each later successful annual renewal or reactivation of that same membership, the originating Partner may earn EUR15.",
     "Submitting a business does not guarantee a commission or future income. No renewal commission is due unless the business pays. Salento Local may administer eligibility and refuse, reverse, or cancel commissions for duplicate, fraudulent, refunded, disputed, inaccurate, program-violating, or otherwise ineligible submissions.",
     "The initial EUR50 commission is shown as pending after a qualifying payment and is not payable during the 14-day refund hold. A timely unresolved refund request keeps the commission on hold after Day 14. A bank-transfer request does not cancel it until refund completion is confirmed. It becomes eligible after the hold only if the payment remains valid and paid with no unresolved request; a qualifying full refund cancels it. A new initial EUR50 commission may arise if the owner buys a new membership after such a refund. Ordinary expiry and reactivation do not create another initial EUR50 commission; the renewal rules apply.",
     "Commission payments are made securely through your connected Stripe account. You are responsible for keeping your payout information up to date.",
     "Salento Local may suspend or permanently remove Partner accounts that violate these Terms or misuse the platform.",
-    "Salento Local may update these Terms or the Partner Program from time to time. Continued use of your account means you accept any updated Terms.",
+    "Salento Local may update these Terms or the Partner Program. When renewed acceptance is required, contact information covered by new provisions will not be shared until you accept the updated version.",
   ];
 }
 
@@ -677,6 +679,7 @@ export function getPrivacyDocument(locale: Locale) {
             id: "partner-data",
             paragraphs: [
               "Quando un Partner locale crea o completa il proprio account, possiamo trattare dati necessari per l'onboarding, il profilo operativo, la configurazione di Stripe Connect e la gestione delle commissioni.",
+              "Il nome del Partner può essere comunicato ai titolari delle attività che ha registrato. Dopo l'accettazione della versione aggiornata dei Termini Partner, anche l'email e il numero WhatsApp o di telefono registrati possono essere comunicati soltanto a questi titolari, per domande e assistenza relative alla registrazione e alla scheda. Questi recapiti non vengono pubblicati nelle schede delle attività per questo scopo.",
             ],
             title: "3. Informazioni fornite dai Partner locali",
           },
@@ -883,6 +886,7 @@ export function getPrivacyDocument(locale: Locale) {
             id: "partner-data",
             paragraphs: [
               "When a Local Partner creates or completes an account, we may process information needed for onboarding, operational profile setup, Stripe Connect configuration, and commission management.",
+              "A Partner's name may be shared with owners of businesses they registered. After the Partner accepts the updated Partner Terms, their registered email and WhatsApp or phone number may also be shared only with those owners, for questions and assistance about the registration and listing. These contact details are not published on business listings for this purpose.",
             ],
             title: "3. Information supplied by Local Partners",
           },

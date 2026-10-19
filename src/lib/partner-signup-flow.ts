@@ -6,13 +6,14 @@ import {
 } from "node:crypto";
 
 import type { Locale } from "@/lib/i18n";
+import { LEGAL_DOCUMENTS } from "@/lib/legal";
 import {
   normalizeEmail,
   normalizeUsername,
   signupSchema,
 } from "@/lib/validation";
 
-const HANDOFF_VERSION = 1;
+const HANDOFF_VERSION = 2;
 const HANDOFF_TTL_MS = 15 * 60 * 1000;
 
 export type PartnerSignupEntry = {
@@ -21,6 +22,7 @@ export type PartnerSignupEntry = {
   lastName: string;
   locale: Locale;
   partnerTermsAccepted: boolean;
+  partnerTermsVersion: string;
   password: string;
   redirectTo: string | null;
   username: string;
@@ -103,6 +105,7 @@ function isValidHandoff(value: unknown): value is EncryptedPartnerSignupHandoff 
     typeof handoff.lastName === "string" &&
     isLocale(`${handoff.locale ?? ""}`) &&
     typeof handoff.partnerTermsAccepted === "boolean" &&
+    handoff.partnerTermsVersion === LEGAL_DOCUMENTS.partnerTerms.version &&
     typeof handoff.password === "string" &&
     (handoff.redirectTo === null || typeof handoff.redirectTo === "string") &&
     typeof handoff.username === "string"
@@ -115,6 +118,7 @@ export function validatePartnerSignupEntry(input: {
   lastName: string;
   locale: Locale;
   partnerTermsAccepted: boolean;
+  partnerTermsVersion: string;
   password: string;
   confirmPassword: string;
   redirectTo: string | null;
@@ -125,7 +129,7 @@ export function validatePartnerSignupEntry(input: {
   const email = normalizeEmail(input.email);
   const username = normalizeUsername(input.username);
   const passwordMismatch = input.confirmPassword !== input.password;
-  const termsMissing = !input.partnerTermsAccepted;
+  const termsMissing = !input.partnerTermsAccepted || input.partnerTermsVersion !== LEGAL_DOCUMENTS.partnerTerms.version;
   const fields: string[] = [];
 
   if (!firstName || firstName.length > 80) fields.push("firstName");
@@ -152,6 +156,7 @@ export function validatePartnerSignupEntry(input: {
       lastName,
       locale: input.locale,
       partnerTermsAccepted: true,
+      partnerTermsVersion: input.partnerTermsVersion,
       password: parsedData.password,
       redirectTo: input.redirectTo,
       username: parsedData.username,
@@ -204,6 +209,7 @@ export function openPartnerSignupHandoff(value: string, secret: string): Partner
       lastName: parsed.lastName,
       locale: parsed.locale,
       partnerTermsAccepted: parsed.partnerTermsAccepted,
+      partnerTermsVersion: parsed.partnerTermsVersion,
       password: parsed.password,
       redirectTo: parsed.redirectTo,
       username: parsed.username,

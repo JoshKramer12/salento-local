@@ -116,6 +116,8 @@ export function buildOwnerListingEmailCopy(params: {
   manageUrl: string;
   ownerName: string;
   partnerName?: string | null;
+  partnerEmail?: string | null;
+  partnerPhone?: string | null;
   receiptUrl: string;
   viewUrl: string;
 }) {
@@ -125,6 +127,23 @@ export function buildOwnerListingEmailCopy(params: {
   const manageUrl = escapeEmailHtml(params.manageUrl);
   const receiptUrl = escapeEmailHtml(params.receiptUrl);
   const partnerName = params.partnerName?.trim() || "";
+  const partnerEmail = params.partnerEmail?.trim().toLowerCase() || "";
+  const safePartnerEmail = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(partnerEmail) ? partnerEmail : "";
+  const partnerPhone = normalizePhoneNumber(params.partnerPhone);
+  const partnerContactAvailable = Boolean(safePartnerEmail || partnerPhone);
+  const partnerDescription = params.locale === "it"
+    ? partnerContactAvailable
+      ? "Il tuo Partner Locale ti ha aiutato a registrare la tua attività. Puoi contattarlo direttamente per domande relative alla tua scheda."
+      : "La tua attività è stata aggiunta a Salento Local con l’aiuto di:"
+    : partnerContactAvailable
+      ? "Your Local Partner helped register your business. You can contact them directly if you have questions about your listing."
+      : "Your business was added to Salento Local with the help of:";
+  const partnerPhoneHtml = partnerPhone
+    ? `<p style="margin:6px 0 0;font-size:14px;line-height:1.6">WhatsApp: <a href="https://wa.me/${partnerPhone.slice(1)}" style="color:#2a6257;text-decoration:underline">${escapeEmailHtml(partnerPhone)}</a></p>`
+    : "";
+  const partnerEmailHtml = safePartnerEmail
+    ? `<p style="margin:6px 0 0;font-size:14px;line-height:1.6">Email: <a href="mailto:${escapeEmailHtml(encodeURIComponent(safePartnerEmail))}" style="color:#2a6257;text-decoration:underline">${escapeEmailHtml(safePartnerEmail)}</a></p>`
+    : "";
   const policyUrl = new URL("/api/locale", getAppUrl());
   policyUrl.searchParams.set("locale", params.locale);
   policyUrl.searchParams.set("redirectTo", "/terms#refunds");
@@ -133,13 +152,13 @@ export function buildOwnerListingEmailCopy(params: {
     ? `<section style="margin:24px 0 0;padding:18px 20px;border:1px solid #e5d9cc;border-radius:10px;background:#faf7f1"><h2 style="margin:0 0 8px;color:#243b34;font-size:17px">La tua politica di rimborso di 14 giorni</h2><p style="margin:0;font-size:14px;line-height:1.6">Se sei un titolare idoneo, puoi richiedere dal tuo account il rimborso completo del pagamento iniziale della membership annuale entro 14 giorni dal pagamento riuscito, secondo le condizioni della nostra <a href="${policyLink}" style="color:#2a6257;text-decoration:underline">politica di rimborso</a>.</p></section>`
     : `<section style="margin:24px 0 0;padding:18px 20px;border:1px solid #e5d9cc;border-radius:10px;background:#faf7f1"><h2 style="margin:0 0 8px;color:#243b34;font-size:17px">Your 14-day refund policy</h2><p style="margin:0;font-size:14px;line-height:1.6">If you are an eligible owner, you can request a full refund of your initial annual membership payment from your account within 14 days of successful payment, subject to our <a href="${policyLink}" style="color:#2a6257;text-decoration:underline">refund policy</a>.</p></section>`;
   const partnerHtml = partnerName
-    ? `<section style="margin:16px 0 0;padding:18px 20px;border:1px solid #e5d9cc;border-radius:10px;background:#faf7f1"><h2 style="margin:0 0 8px;color:#243b34;font-size:17px">${params.locale === "it" ? "Il tuo Partner Locale" : "Your Local Partner"}</h2><p style="margin:0 0 6px;font-size:14px;line-height:1.6">${params.locale === "it" ? "La tua attività è stata aggiunta a Salento Local con l’aiuto di:" : "Your business was added to Salento Local with the help of:"}</p><p style="margin:0;font-weight:bold">${escapeEmailHtml(partnerName)}</p></section>`
+    ? `<section style="margin:16px 0 0;padding:18px 20px;border:1px solid #e5d9cc;border-radius:10px;background:#faf7f1"><h2 style="margin:0 0 8px;color:#243b34;font-size:17px">${params.locale === "it" ? "Il tuo Partner Locale" : "Your Local Partner"}</h2><p style="margin:0 0 6px;font-size:14px;line-height:1.6">${partnerDescription}</p><p style="margin:0;font-weight:bold">${escapeEmailHtml(partnerName)}</p>${partnerPhoneHtml}${partnerEmailHtml}</section>`
     : "";
   const refundText = params.locale === "it"
     ? `La tua politica di rimborso di 14 giorni\nSe sei un titolare idoneo, puoi richiedere dal tuo account il rimborso completo del pagamento iniziale della membership annuale entro 14 giorni dal pagamento riuscito, secondo le condizioni della nostra politica di rimborso: ${policyUrl.toString()}`
     : `Your 14-day refund policy\nIf you are an eligible owner, you can request a full refund of your initial annual membership payment from your account within 14 days of successful payment, subject to our refund policy: ${policyUrl.toString()}`;
   const partnerText = partnerName
-    ? `\n\n${params.locale === "it" ? "Il tuo Partner Locale\nLa tua attività è stata aggiunta a Salento Local con l’aiuto di:" : "Your Local Partner\nYour business was added to Salento Local with the help of:"} ${partnerName}`
+    ? `\n\n${params.locale === "it" ? "Il tuo Partner Locale" : "Your Local Partner"}\n${partnerDescription}\n${partnerName}${partnerPhone ? `\nWhatsApp: ${partnerPhone} (https://wa.me/${partnerPhone.slice(1)})` : ""}${safePartnerEmail ? `\nEmail: ${safePartnerEmail} (mailto:${encodeURIComponent(safePartnerEmail)})` : ""}`
     : "";
 
   if (params.locale === "it") {

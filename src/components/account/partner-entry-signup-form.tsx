@@ -13,6 +13,7 @@ import { FormSubmitButton } from "@/components/form-submit-button";
 import { HardNavigationLink } from "@/components/hard-navigation-link";
 import { LegalConsentCopy } from "@/components/legal/legal-consent-copy";
 import type { Locale } from "@/lib/i18n";
+import { LEGAL_DOCUMENTS } from "@/lib/legal";
 import { getPasswordMatchFeedback } from "@/lib/password-match-feedback";
 
 const initialState: FormState = {};
@@ -88,6 +89,7 @@ export function PartnerEntrySignupForm({
       ? {
           already: "Hai gia un account?",
           confirmPassword: "Conferma password",
+          contactDisclosure: "Il tuo nome, indirizzo email e numero WhatsApp o di telefono registrati saranno condivisi con i titolari delle attività che registri, per domande e assistenza relative alla loro scheda.",
           create: "Avanti",
           email: "Email",
           firstName: "Nome",
@@ -102,6 +104,7 @@ export function PartnerEntrySignupForm({
       : {
           already: "Already have an account?",
           confirmPassword: "Confirm password",
+          contactDisclosure: "Your registered name, email address, and WhatsApp or phone number will be shared with owners of businesses you register so they can ask about their listing.",
           create: "Next",
           email: "Email",
           firstName: "First name",
@@ -125,6 +128,7 @@ export function PartnerEntrySignupForm({
     <div className="grid gap-5">
       <form action={action} className="card grid gap-5 p-6 sm:p-8">
         <input type="hidden" name="locale" value={locale} />
+        {audience === "partner" ? <input type="hidden" name="partnerTermsVersion" value={LEGAL_DOCUMENTS.partnerTerms.version} /> : null}
         <input type="hidden" name="redirectTo" value={redirectTo} />
         {activationToken ? <input type="hidden" name="token" value={activationToken} /> : null}
         <label className="field-label">
@@ -172,6 +176,7 @@ export function PartnerEntrySignupForm({
           {state.fieldErrors?.confirmPassword ? <span className="text-sm text-[var(--accent)]">{state.fieldErrors.confirmPassword}</span> : null}
         </label>
         <PasswordRequirements locale={locale} password={password} />
+        {audience === "partner" ? <p className="rounded-xl border border-[var(--border)] bg-[var(--secondary)] p-4 text-sm leading-6 text-[var(--foreground)]">{copy.contactDisclosure}</p> : null}
         <label className="flex items-start gap-3 rounded-[1.35rem] border border-[var(--border)] bg-[color:rgba(247,244,239,0.64)] p-4 text-sm leading-6 text-[var(--foreground)]">
           <input name={termsFieldName} type="checkbox" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} className="mt-1 h-4 w-4 accent-[var(--primary)]" />
           <span><LegalConsentCopy audience={consentAudience} locale={locale} /></span>

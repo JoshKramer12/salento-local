@@ -69,12 +69,49 @@ test("owner-created publication email omits the Partner section", () => {
     locale: "en",
     manageUrl: "https://salentolocal.com/owner-access/token",
     ownerName: "Giulia Bianchi",
+    partnerEmail: "unrelated@example.com",
+    partnerPhone: "+39 320 123 4567",
     receiptUrl: "https://salentolocal.com/receipts/1",
     viewUrl: "https://salentolocal.com/businesses/masseria-del-sole",
   });
   assert.doesNotMatch(copy.html, /Your Local Partner|help of a Salento Local Partner/);
   assert.doesNotMatch(copy.text, /Your Local Partner|help of a Salento Local Partner/);
+  assert.doesNotMatch(copy.html, /unrelated@example\.com|wa\.me\/|mailto:/);
+  assert.doesNotMatch(copy.text, /unrelated@example\.com|wa\.me\/|mailto:/);
   assert.match(copy.text, /Your 14-day refund policy/);
+});
+
+test("accepted Partner contacts render as safe WhatsApp and mail links in both email locales", () => {
+  for (const locale of ["en", "it"] as const) {
+    const copy = buildOwnerListingEmailCopy({
+      businessName: "Masseria del Sole",
+      locale,
+      manageUrl: "https://salentolocal.com/owner-access/token",
+      ownerName: "Giulia Bianchi",
+      partnerName: "Mario Rossi",
+      partnerPhone: "+39 320 123 4567",
+      partnerEmail: "Mario@Example.com",
+      receiptUrl: "https://salentolocal.com/receipts/1",
+      viewUrl: "https://salentolocal.com/businesses/masseria-del-sole",
+    });
+    assert.match(copy.html, /href="https:\/\/wa\.me\/393201234567"/);
+    assert.match(copy.html, /href="mailto:mario%40example\.com"/);
+    assert.match(copy.html, /WhatsApp:.*\+393201234567/);
+    assert.match(copy.text, /Email: mario@example\.com/);
+    assert.match(copy.text, locale === "en" ? /contact them directly/ : /contattarlo direttamente/);
+    assert.match(copy.html, locale === "en" ? /Your 14-day refund policy/ : /La tua politica di rimborso di 14 giorni/);
+  }
+});
+
+test("publication email omits missing Partner contacts but retains their name", () => {
+  const copy = buildOwnerListingEmailCopy({
+    businessName: "Masseria del Sole", locale: "en", manageUrl: "https://salentolocal.com/owner-access/token",
+    ownerName: "Giulia Bianchi", partnerName: "Mario Rossi", partnerPhone: "invalid", partnerEmail: "invalid",
+    receiptUrl: "https://salentolocal.com/receipts/1", viewUrl: "https://salentolocal.com/businesses/masseria-del-sole",
+  });
+  assert.match(copy.html, /Mario Rossi/);
+  assert.doesNotMatch(copy.html, /wa\.me\/|mailto:/);
+  assert.doesNotMatch(copy.text, /contact them directly/);
 });
 
 test("a paid listing sends the owner email once to the normalized owner-access recipient", async () => {

@@ -10,6 +10,7 @@ import {
 import { AuthError } from "next-auth";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { LEGAL_DOCUMENTS } from "@/lib/legal";
 
 import { buildPaymentStatusForMethod, isDraftLikeSubmission } from "@/lib/account";
 import {
@@ -209,6 +210,7 @@ const formCopy = {
   invalidSession: "Please log in again to continue.",
     passwordMismatch: "The passwords do not match.",
     missingPartnerTerms: "Please read and accept the Salento Local Partner Terms & Conditions.",
+    partnerTermsChanged: "The Partner Terms changed. Refresh this page and accept the current version.",
     missingAgreement: "Please confirm that the owner approved the listing and price.",
     missingAddressSelection:
       "Choose the correct address from the dropdown before continuing.",
@@ -262,6 +264,7 @@ const formCopy = {
     passwordMismatch: "Le password non coincidono.",
     missingPartnerTerms:
       "Leggi e accetta i Termini e Condizioni del Programma Partner di Salento Local.",
+    partnerTermsChanged: "I Termini Partner sono cambiati. Aggiorna la pagina e accetta la versione attuale.",
     missingAgreement:
       "Conferma che il proprietario ha approvato la scheda e il prezzo prima di inviare.",
     missingAddressSelection:
@@ -783,6 +786,9 @@ export async function signupAction(
     username: rawUsername,
     whatsapp: getStringValue(formData.get("whatsapp")),
   };
+  if (requestedRole === "GETTER" && getStringValue(formData.get("partnerTermsVersion")) !== LEGAL_DOCUMENTS.partnerTerms.version) {
+    return { error: formCopy[locale].partnerTermsChanged, signupValues };
+  }
   const parsed = signupSchema.safeParse({
     email: normalizeEmail(rawEmail),
     password: rawPassword,

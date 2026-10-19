@@ -9,6 +9,7 @@ import {
   validatePartnerSignupEntry,
 } from "@/lib/partner-signup-flow";
 import { localPartnerOnboardingSchema } from "@/lib/validation";
+import { LEGAL_DOCUMENTS } from "@/lib/legal";
 
 const validEntry = {
   email: "partner@example.com",
@@ -16,6 +17,7 @@ const validEntry = {
   lastName: "Lovelace",
   locale: "en" as const,
   partnerTermsAccepted: true,
+  partnerTermsVersion: LEGAL_DOCUMENTS.partnerTerms.version,
   password: "ValidPassword1!",
   confirmPassword: "ValidPassword1!",
   redirectTo: "/partner/start",
@@ -32,10 +34,19 @@ test("a valid Page 1 submission only produces a pending signup handoff", () => {
     lastName: "Lovelace",
     locale: "en",
     partnerTermsAccepted: true,
+    partnerTermsVersion: LEGAL_DOCUMENTS.partnerTerms.version,
     password: "ValidPassword1!",
     redirectTo: "/partner/start",
     username: "ada-lovelace",
   });
+});
+
+test("a pending Partner signup cannot accept a newer terms version by replaying an old checkbox", () => {
+  const oldEntry = { ...validEntry, partnerTermsVersion: "partner-terms-2026-09-27" };
+  assert.deepEqual(validatePartnerSignupEntry(oldEntry).fields, ["partnerTermsAccepted"]);
+  const currentEntry = validatePartnerSignupEntry(validEntry).entry!;
+  assert.equal(openPartnerSignupHandoff(sealPartnerSignupHandoff(currentEntry, "secret"), "secret")?.partnerTermsVersion, LEGAL_DOCUMENTS.partnerTerms.version);
+  assert.equal(openPartnerSignupHandoff(sealPartnerSignupHandoff({ ...currentEntry, partnerTermsVersion: oldEntry.partnerTermsVersion }, "secret"), "secret"), null);
 });
 
 test("the Page 1 handoff is encrypted, short-lived, and rejects tampering", () => {
