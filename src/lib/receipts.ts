@@ -35,6 +35,7 @@ type ReceiptSubmission = {
   listingTermMonthsAtAcceptance: number | null;
   ownerEmail: string;
   ownerHasNoEmail: boolean;
+  partnerName?: string | null;
   paymentStatus: PaymentStatus;
   privacyPolicyVersionPresented: string | null;
   purchaseConfirmationSentAt: Date | null;
@@ -475,6 +476,7 @@ const receiptPaymentSelect = {
       signerRoleOther: true,
       town: { select: { name: true } },
       userId: true,
+      user: { select: { role: true, localPartnerProfile: { select: { fullName: true } } } },
     },
   },
   currency: true,
@@ -608,6 +610,9 @@ export async function getReceiptData(params: {
       listingTermMonthsAtAcceptance: submission.listingTermMonthsAtAcceptance,
       ownerEmail: submission.ownerEmail,
       ownerHasNoEmail: submission.ownerHasNoEmail,
+      partnerName: submission.user.role === "GETTER"
+        ? submission.user.localPartnerProfile?.fullName.trim() || null
+        : null,
       paymentStatus: submission.paymentStatus,
       privacyPolicyVersionPresented: submission.privacyPolicyVersionPresented,
       purchaseConfirmationSentAt: submission.purchaseConfirmationSentAt,
@@ -960,6 +965,7 @@ export async function sendReceiptEmail(params: {
         locale: params.locale,
         manageUrl: params.ownerActions.manageUrl,
         ownerName: params.ownerActions.ownerName,
+        partnerName: params.receipt.submission.partnerName,
         receiptUrl: params.receipt.receiptUrl,
         viewUrl: params.ownerActions.viewUrl,
       })

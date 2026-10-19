@@ -115,6 +115,7 @@ export function buildOwnerListingEmailCopy(params: {
   locale: "en" | "it";
   manageUrl: string;
   ownerName: string;
+  partnerName?: string | null;
   receiptUrl: string;
   viewUrl: string;
 }) {
@@ -123,19 +124,36 @@ export function buildOwnerListingEmailCopy(params: {
   const firstName = escapeEmailHtml(params.ownerName.trim().split(/\s+/)[0] || "");
   const manageUrl = escapeEmailHtml(params.manageUrl);
   const receiptUrl = escapeEmailHtml(params.receiptUrl);
+  const partnerName = params.partnerName?.trim() || "";
+  const policyUrl = new URL("/api/locale", getAppUrl());
+  policyUrl.searchParams.set("locale", params.locale);
+  policyUrl.searchParams.set("redirectTo", "/terms#refunds");
+  const policyLink = escapeEmailHtml(policyUrl.toString());
+  const refundHtml = params.locale === "it"
+    ? `<section style="margin:24px 0 0;padding:18px 20px;border:1px solid #e5d9cc;border-radius:10px;background:#faf7f1"><h2 style="margin:0 0 8px;color:#243b34;font-size:17px">La tua politica di rimborso di 14 giorni</h2><p style="margin:0;font-size:14px;line-height:1.6">Se sei un titolare idoneo, puoi richiedere dal tuo account il rimborso completo del pagamento iniziale della membership annuale entro 14 giorni dal pagamento riuscito, secondo le condizioni della nostra <a href="${policyLink}" style="color:#2a6257;text-decoration:underline">politica di rimborso</a>.</p></section>`
+    : `<section style="margin:24px 0 0;padding:18px 20px;border:1px solid #e5d9cc;border-radius:10px;background:#faf7f1"><h2 style="margin:0 0 8px;color:#243b34;font-size:17px">Your 14-day refund policy</h2><p style="margin:0;font-size:14px;line-height:1.6">If you are an eligible owner, you can request a full refund of your initial annual membership payment from your account within 14 days of successful payment, subject to our <a href="${policyLink}" style="color:#2a6257;text-decoration:underline">refund policy</a>.</p></section>`;
+  const partnerHtml = partnerName
+    ? `<section style="margin:16px 0 0;padding:18px 20px;border:1px solid #e5d9cc;border-radius:10px;background:#faf7f1"><h2 style="margin:0 0 8px;color:#243b34;font-size:17px">${params.locale === "it" ? "Il tuo Partner Locale" : "Your Local Partner"}</h2><p style="margin:0 0 6px;font-size:14px;line-height:1.6">${params.locale === "it" ? "La tua attività è stata aggiunta a Salento Local con l’aiuto di:" : "Your business was added to Salento Local with the help of:"}</p><p style="margin:0;font-weight:bold">${escapeEmailHtml(partnerName)}</p></section>`
+    : "";
+  const refundText = params.locale === "it"
+    ? `La tua politica di rimborso di 14 giorni\nSe sei un titolare idoneo, puoi richiedere dal tuo account il rimborso completo del pagamento iniziale della membership annuale entro 14 giorni dal pagamento riuscito, secondo le condizioni della nostra politica di rimborso: ${policyUrl.toString()}`
+    : `Your 14-day refund policy\nIf you are an eligible owner, you can request a full refund of your initial annual membership payment from your account within 14 days of successful payment, subject to our refund policy: ${policyUrl.toString()}`;
+  const partnerText = partnerName
+    ? `\n\n${params.locale === "it" ? "Il tuo Partner Locale\nLa tua attività è stata aggiunta a Salento Local con l’aiuto di:" : "Your Local Partner\nYour business was added to Salento Local with the help of:"} ${partnerName}`
+    : "";
 
   if (params.locale === "it") {
     return {
-      html: renderSalentoEmail(`<p style="margin:0 0 18px">Ciao${firstName ? ` ${firstName}` : ""},</p><p style="margin:0 0 18px">La tua attività, <strong>${businessName}</strong>, è ora su Salento Local.</p><p style="margin:0 0 26px">La scheda è stata creata con l'aiuto di un Partner Salento Local. Da qui puoi consultarla pubblicamente e gestirla in modo sicuro.</p><p style="margin:0 0 14px">${renderSalentoEmailButton(params.viewUrl, "Visualizza la tua attività")}</p><p style="margin:0 0 26px"><a href="${manageUrl}" style="color:#a95738;text-decoration:underline;font-weight:bold">Gestisci la tua attività</a></p><p style="margin:0 0 20px;color:#50625c;font-size:14px">Crea il tuo account o accedi utilizzando questo indirizzo email per aggiornare le informazioni della tua attività, le foto, gli orari e gli altri dettagli.</p><p style="margin:0;color:#50625c;font-size:13px"><strong>Ricevuta di pagamento:</strong> allegata a questa email e <a href="${receiptUrl}" style="color:#2a6257">disponibile online</a>.${agreementUrl ? ` <strong>Accordo di adesione firmato:</strong> <a href="${agreementUrl}" style="color:#2a6257">apri l'accordo</a>.` : ""}</p>`),
+      html: renderSalentoEmail(`<p style="margin:0 0 18px">Ciao${firstName ? ` ${firstName}` : ""},</p><p style="margin:0 0 18px">La tua attività, <strong>${businessName}</strong>, è ora su Salento Local.</p><p style="margin:0 0 26px">${partnerName ? "La scheda è stata creata con l'aiuto di un Partner Salento Local. " : ""}Da qui puoi consultarla pubblicamente e gestirla in modo sicuro.</p><p style="margin:0 0 14px">${renderSalentoEmailButton(params.viewUrl, "Visualizza la tua attività")}</p><p style="margin:0 0 26px"><a href="${manageUrl}" style="color:#a95738;text-decoration:underline;font-weight:bold">Gestisci la tua attività</a></p><p style="margin:0 0 20px;color:#50625c;font-size:14px">Crea il tuo account o accedi utilizzando questo indirizzo email per aggiornare le informazioni della tua attività, le foto, gli orari e gli altri dettagli.</p><p style="margin:0;color:#50625c;font-size:13px"><strong>Ricevuta di pagamento:</strong> allegata a questa email e <a href="${receiptUrl}" style="color:#2a6257">disponibile online</a>.${agreementUrl ? ` <strong>Accordo di adesione firmato:</strong> <a href="${agreementUrl}" style="color:#2a6257">apri l'accordo</a>.` : ""}</p>${refundHtml}${partnerHtml}`),
       subject: "La tua attività è ora su Salento Local",
-      text: `Ciao${firstName ? ` ${firstName}` : ""},\n\nLa tua attività, ${params.businessName.trim()}, è ora su Salento Local. La scheda è stata creata con l'aiuto di un Partner Salento Local.\n\nVisualizza la tua attività: ${params.viewUrl}\nGestisci la tua attività: ${params.manageUrl}\n\nRicevuta di pagamento: ${params.receiptUrl}${params.agreementUrl ? `\nAccordo di adesione firmato: ${params.agreementUrl}` : ""}`,
+      text: `Ciao${firstName ? ` ${firstName}` : ""},\n\nLa tua attività, ${params.businessName.trim()}, è ora su Salento Local. ${partnerName ? "La scheda è stata creata con l'aiuto di un Partner Salento Local. " : ""}Da qui puoi consultarla pubblicamente e gestirla in modo sicuro.\n\nVisualizza la tua attività: ${params.viewUrl}\nGestisci la tua attività: ${params.manageUrl}\n\nRicevuta di pagamento: ${params.receiptUrl}${params.agreementUrl ? `\nAccordo di adesione firmato: ${params.agreementUrl}` : ""}\n\n${refundText}${partnerText}`,
     };
   }
 
   return {
-      html: renderSalentoEmail(`<p style="margin:0 0 18px">Hello${firstName ? ` ${firstName}` : ""},</p><p style="margin:0 0 18px">Your business, <strong>${businessName}</strong>, is now on Salento Local.</p><p style="margin:0 0 26px">Your listing was created with the help of a Salento Local Partner. You can now view it and manage it securely.</p><p style="margin:0 0 14px">${renderSalentoEmailButton(params.viewUrl, "View your business")}</p><p style="margin:0 0 26px"><a href="${manageUrl}" style="color:#a95738;text-decoration:underline;font-weight:bold">Manage your business</a></p><p style="margin:0;color:#50625c;font-size:13px"><strong>Payment Receipt:</strong> attached and <a href="${receiptUrl}" style="color:#2a6257">available online</a>.${agreementUrl ? ` <strong>Signed Membership Agreement:</strong> <a href="${agreementUrl}" style="color:#2a6257">open agreement</a>.` : ""}</p>`),
+      html: renderSalentoEmail(`<p style="margin:0 0 18px">Hello${firstName ? ` ${firstName}` : ""},</p><p style="margin:0 0 18px">Your business, <strong>${businessName}</strong>, is now on Salento Local.</p><p style="margin:0 0 26px">${partnerName ? "Your listing was created with the help of a Salento Local Partner. " : ""}You can now view it and manage it securely.</p><p style="margin:0 0 14px">${renderSalentoEmailButton(params.viewUrl, "View your business")}</p><p style="margin:0 0 26px"><a href="${manageUrl}" style="color:#a95738;text-decoration:underline;font-weight:bold">Manage your business</a></p><p style="margin:0;color:#50625c;font-size:13px"><strong>Payment Receipt:</strong> attached and <a href="${receiptUrl}" style="color:#2a6257">available online</a>.${agreementUrl ? ` <strong>Signed Membership Agreement:</strong> <a href="${agreementUrl}" style="color:#2a6257">open agreement</a>.` : ""}</p>${refundHtml}${partnerHtml}`),
     subject: "Your business is now on Salento Local",
-    text: `Hello${firstName ? ` ${firstName}` : ""},\n\nYour business, ${params.businessName.trim()}, is now on Salento Local. Your listing was created with the help of a Salento Local Partner.\n\nView your business: ${params.viewUrl}\nManage your business: ${params.manageUrl}\n\nPayment Receipt: ${params.receiptUrl}${params.agreementUrl ? `\nSigned Membership Agreement: ${params.agreementUrl}` : ""}`,
+    text: `Hello${firstName ? ` ${firstName}` : ""},\n\nYour business, ${params.businessName.trim()}, is now on Salento Local. ${partnerName ? "Your listing was created with the help of a Salento Local Partner. " : ""}You can now view it and manage it securely.\n\nView your business: ${params.viewUrl}\nManage your business: ${params.manageUrl}\n\nPayment Receipt: ${params.receiptUrl}${params.agreementUrl ? `\nSigned Membership Agreement: ${params.agreementUrl}` : ""}\n\n${refundText}${partnerText}`,
   };
 }
 

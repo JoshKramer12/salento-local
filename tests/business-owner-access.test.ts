@@ -40,6 +40,43 @@ test("the paid owner email uses the owner identity and secure, absolute business
   assert.match(copy.text, /https:\/\/salentolocal\.com\/owner-access\/secure-opaque-token/);
 });
 
+test("publication email shows the initial-payment refund terms and attributed Partner name in both languages", () => {
+  for (const locale of ["en", "it"] as const) {
+    const copy = buildOwnerListingEmailCopy({
+      businessName: "Masseria del Sole",
+      locale,
+      manageUrl: "https://salentolocal.com/owner-access/token",
+      ownerName: "Giulia Bianchi",
+      partnerName: "Mario & Rossi",
+      receiptUrl: "https://salentolocal.com/receipts/1",
+      viewUrl: "https://salentolocal.com/businesses/masseria-del-sole",
+    });
+    assert.match(copy.html, locale === "en" ? /Your 14-day refund policy/ : /La tua politica di rimborso di 14 giorni/);
+    assert.match(copy.html, locale === "en" ? /initial annual membership payment/ : /pagamento iniziale della membership annuale/);
+    assert.match(copy.html, locale === "en" ? /Your Local Partner/ : /Il tuo Partner Locale/);
+    assert.match(copy.html, /Mario &amp; Rossi/);
+    assert.match(copy.text, /Mario & Rossi/);
+    assert.match(copy.html, new RegExp(`locale=${locale}`));
+    assert.match(copy.html, /redirectTo=%2Fterms%23refunds/);
+    assert.ok(copy.html.indexOf("/businesses/masseria-del-sole") < copy.html.indexOf(locale === "it" ? "La tua politica" : "Your 14-day"));
+    assert.doesNotMatch(copy.html, /wa\.me\/|mailto:/);
+  }
+});
+
+test("owner-created publication email omits the Partner section", () => {
+  const copy = buildOwnerListingEmailCopy({
+    businessName: "Masseria del Sole",
+    locale: "en",
+    manageUrl: "https://salentolocal.com/owner-access/token",
+    ownerName: "Giulia Bianchi",
+    receiptUrl: "https://salentolocal.com/receipts/1",
+    viewUrl: "https://salentolocal.com/businesses/masseria-del-sole",
+  });
+  assert.doesNotMatch(copy.html, /Your Local Partner|help of a Salento Local Partner/);
+  assert.doesNotMatch(copy.text, /Your Local Partner|help of a Salento Local Partner/);
+  assert.match(copy.text, /Your 14-day refund policy/);
+});
+
 test("a paid listing sends the owner email once to the normalized owner-access recipient", async () => {
   const sent: unknown[] = [];
   const marked: string[] = [];
