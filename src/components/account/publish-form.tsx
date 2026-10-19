@@ -23,6 +23,7 @@ import {
   IconSignature,
   IconTrash,
   IconUser,
+  IconX,
 } from "@tabler/icons-react";
 import {
   startTransition,
@@ -62,6 +63,7 @@ import { LISTING_OFFER, LISTING_SIGNER_ROLE_VALUES } from "@/lib/listing-offer";
 import type { PhoneCountryOption } from "@/lib/phone-country-options";
 import { getCategoryLabel } from "@/lib/site";
 import { normalizeSubmissionSocialInput } from "@/lib/business-links";
+import { copyHoursToDays, countConfiguredDestinations, isCompleteCopySource } from "@/lib/opening-hours-copy";
 import { initializeOwnerContact, type OwnerContactDefaults } from "@/lib/publish-owner-defaults";
 import { requestPaymentQr } from "@/lib/payment-choice-client";
 import { buildPhoneValue, getOwnerPhoneStepError, getOwnerStepError } from "@/lib/publish-owner-phone";
@@ -73,11 +75,11 @@ import {
 const initialState: FormState = {};
 
 const days = [
-  { key: "monday", en: "Monday", it: "Lunedi", shortEn: "Mon", shortIt: "Lun" },
-  { key: "tuesday", en: "Tuesday", it: "Martedi", shortEn: "Tue", shortIt: "Mar" },
-  { key: "wednesday", en: "Wednesday", it: "Mercoledi", shortEn: "Wed", shortIt: "Mer" },
-  { key: "thursday", en: "Thursday", it: "Giovedi", shortEn: "Thu", shortIt: "Gio" },
-  { key: "friday", en: "Friday", it: "Venerdi", shortEn: "Fri", shortIt: "Ven" },
+  { key: "monday", en: "Monday", it: "Lunedì", shortEn: "Mon", shortIt: "Lun" },
+  { key: "tuesday", en: "Tuesday", it: "Martedì", shortEn: "Tue", shortIt: "Mar" },
+  { key: "wednesday", en: "Wednesday", it: "Mercoledì", shortEn: "Wed", shortIt: "Mer" },
+  { key: "thursday", en: "Thursday", it: "Giovedì", shortEn: "Thu", shortIt: "Gio" },
+  { key: "friday", en: "Friday", it: "Venerdì", shortEn: "Fri", shortIt: "Ven" },
   { key: "saturday", en: "Saturday", it: "Sabato", shortEn: "Sat", shortIt: "Sab" },
   { key: "sunday", en: "Sunday", it: "Domenica", shortEn: "Sun", shortIt: "Dom" },
 ] as const;
@@ -818,6 +820,14 @@ export function PublishForm({
         (initialSubmissionValues.whatsapp || initialSubmissionValues.phone),
   );
   const [hours, setHours] = useState(() => parseOpeningHours(initialSubmissionValues.openingHours));
+  const [copySourceDay, setCopySourceDay] = useState<DayKey | null>(null);
+  const [copyDestinations, setCopyDestinations] = useState<Set<DayKey>>(() => new Set());
+  const [copyReplacePending, setCopyReplacePending] = useState(false);
+  const [copySourceError, setCopySourceError] = useState<DayKey | null>(null);
+  const copyDialogRef = useRef<HTMLDialogElement>(null);
+  const copyTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const copyConfirmRef = useRef<HTMLButtonElement>(null);
+  const copyWarningCancelRef = useRef<HTMLButtonElement>(null);
   const [businessSummary, setBusinessSummary] = useState(() =>
     initialSubmissionValues.businessSummary.trim() ||
       (initialSubmissionValues.shortDescription.trim() &&
@@ -951,7 +961,18 @@ export function PublishForm({
           contactBody:
             "Questi dati restano privati e servono solo per il follow-up interno con il proprietario.",
           contactPerson: "Contatto privato",
-          copyMonday: "Copia il lunedi a tutti",
+          copyToOtherDays: "Copia su altri giorni",
+          copySubtitle: "Questi orari verranno copiati nei giorni selezionati.",
+          copySelectDays: "Seleziona i giorni su cui copiare",
+          copyDays: (count: number) => `Copia su ${count} ${count === 1 ? "giorno" : "giorni"}`,
+          copyNoEvening: "Nessun orario serale",
+          copyClosedAllDay: "Chiuso tutto il giorno.",
+          copyInvalidSource: "Completa l'orario di apertura e chiusura, inclusa la fascia serale se attiva, prima di copiarlo.",
+          copyReplaceTitle: "Sostituire gli orari esistenti?",
+          copyReplaceBody: (count: number, day: string) => `Gli orari di ${count} ${count === 1 ? "giorno selezionato verranno sostituiti" : "giorni selezionati verranno sostituiti"} con quelli di ${day}.`,
+          copyCancel: "Annulla",
+          copyReplace: "Sostituisci orari",
+          copyClose: "Chiudi",
           dayClosed: "Chiuso",
           details: "Dettagli attività",
           detailsBody:
@@ -966,8 +987,7 @@ export function PublishForm({
           exteriorPhoto: "Foto esterna",
           helper:
             "Completa nome, categoria, indirizzo, telefono, contatto privato, orari e almeno 2 foto.",
-          hoursBody:
-            "Imposta gli orari di apertura giorno per giorno. Se il lunedi e un buon modello, puoi copiarlo a tutti gli altri giorni.",
+          hoursBody: "Imposta gli orari di apertura per ogni giorno. Puoi copiare gli orari di un giorno sugli altri giorni se sono uguali.",
           hoursClose: "Chiusura",
           hoursOpen: "Apertura",
           hoursTitle: "Orari attività",
@@ -1074,7 +1094,7 @@ export function PublishForm({
             "Puoi salvare in bozza in qualsiasi momento e tornare piu tardi.",
           sellOrOffer: "Cosa vendono o offrono",
           sellOrOfferPlaceholder: "Scrivi un punto e premi invio",
-          splitHours: "Fascia serale",
+          splitHours: "Orario serale (aggiungi una seconda fascia oraria)",
           termsLead:
             "Leggi e conferma con il cliente prima di inviare. Questo testo deve essere chiaro e visibile durante la firma.",
           termsHelp:
@@ -1130,7 +1150,18 @@ export function PublishForm({
           contactBody:
             "These details stay private and are only used for internal follow-up with the owner.",
           contactPerson: "Private contact",
-          copyMonday: "Copy Monday to all",
+          copyToOtherDays: "Copy to other days",
+          copySubtitle: "These hours will be copied to the selected days.",
+          copySelectDays: "Select days to copy to",
+          copyDays: (count: number) => `Copy to ${count} ${count === 1 ? "day" : "days"}`,
+          copyNoEvening: "No evening hours",
+          copyClosedAllDay: "Closed all day.",
+          copyInvalidSource: "Complete the opening and closing times, including evening hours if enabled, before copying.",
+          copyReplaceTitle: "Replace existing hours?",
+          copyReplaceBody: (count: number, day: string) => `The hours for ${count} selected ${count === 1 ? "day" : "days"} will be replaced with ${day}'s hours.`,
+          copyCancel: "Cancel",
+          copyReplace: "Replace hours",
+          copyClose: "Close",
           dayClosed: "Closed",
           details: "Business details",
           detailsBody:
@@ -1145,8 +1176,7 @@ export function PublishForm({
           exteriorPhoto: "Exterior photo",
           helper:
             "Complete the name, category, address, phone, private contact, hours, and at least 2 photos.",
-          hoursBody:
-            "Set the opening hours day by day. If Monday is a good template, you can copy it across the week.",
+          hoursBody: "Set the opening hours for each day. You can copy a day's hours to other days if they are the same.",
           hoursClose: "Close",
           hoursOpen: "Open",
           hoursTitle: "Business hours",
@@ -1252,7 +1282,7 @@ export function PublishForm({
           saveHint: "You can save a draft at any time and come back later.",
           sellOrOffer: "What do they sell or offer",
           sellOrOfferPlaceholder: "Write one bullet and press Enter",
-          splitHours: "Evening split",
+          splitHours: "Evening hours (add a second time slot)",
           termsLead:
             "Read and confirm this clearly with the owner before submitting. The wording should stay large and easy to understand.",
           termsHelp:
@@ -1893,6 +1923,7 @@ export function PublishForm({
     key: keyof Omit<OpeningHoursDay, "day">,
     value: string | boolean,
   ) {
+    if (copySourceError === day) setCopySourceError(null);
     setHours((current) =>
       current.map((entry) =>
         entry.day === day
@@ -1905,30 +1936,58 @@ export function PublishForm({
     );
   }
 
-  function applyMondayToAll() {
-    setHours((current) =>
-      {
-        const monday = current.find((entry) => entry.day === "monday");
+  function openHoursCopy(day: OpeningHoursDay, trigger: HTMLButtonElement) {
+    if (!isCompleteCopySource(day)) {
+      setCopySourceError(day.day);
+      return;
+    }
 
-        if (!monday) return current;
-
-        return current.map((entry) => ({
-          ...entry,
-          close1: monday.close1,
-          close2: monday.close2,
-          closed: monday.closed,
-          open1: monday.open1,
-          open2: monday.open2,
-          split: monday.split,
-        }));
-      },
-    );
+    copyTriggerRef.current = trigger;
+    setCopySourceError(null);
+    setCopyDestinations(new Set());
+    setCopyReplacePending(false);
+    setCopySourceDay(day.day);
   }
 
-  // Keep the older, inactive form shell compatible with the shared hours helper.
-  function applyTemplateToAll(_source: OpeningHoursDay) {
-    applyMondayToAll();
+  function closeHoursCopy() {
+    copyDialogRef.current?.close();
+    setCopySourceDay(null);
+    setCopyReplacePending(false);
+    copyTriggerRef.current?.focus();
   }
+
+  function confirmHoursCopy() {
+    if (!copySourceDay || copyDestinations.size === 0) return;
+    const source = hours.find((day) => day.day === copySourceDay);
+    if (!source || !isCompleteCopySource(source)) return;
+
+    const overwriteCount = countConfiguredDestinations(hours, copyDestinations);
+    if (overwriteCount > 0 && !copyReplacePending) {
+      setCopyReplacePending(true);
+      return;
+    }
+
+    setHours((current) => copyHoursToDays(current, copySourceDay, copyDestinations));
+    closeHoursCopy();
+  }
+
+  useEffect(() => {
+    const dialog = copyDialogRef.current;
+    if (!copySourceDay || !dialog) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    dialog.showModal();
+    return () => {
+      if (dialog.open) dialog.close();
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [copySourceDay]);
+
+  useEffect(() => {
+    if (!copyDialogRef.current?.open) return;
+    if (copyReplacePending) copyWarningCancelRef.current?.focus();
+    else copyConfirmRef.current?.focus();
+  }, [copyReplacePending]);
 
   function updateOfferItem(index: number, value: string) {
     setOfferItems((current) => current.map((entry, itemIndex) => (itemIndex === index ? value : entry)));
@@ -2375,18 +2434,10 @@ export function PublishForm({
             <div>
               <p className="section-kicker">{collectionSteps.findIndex((step) => step.key === "hours") + 1}. {locale === "it" ? "Orari" : "Hours"}</p>
               <h1 className="mt-2 font-serif text-[2rem] leading-[1.1] text-[var(--foreground)] sm:text-3xl">
-                {locale === "it" ? (isOwnerFlow ? "Quando è aperta la tua attività?" : "Quando sono aperti?") : (isOwnerFlow ? "When is your business open?" : "When are they open?")}
+                {locale === "it" ? "Quando sono aperti?" : "When are you open?"}
               </h1>
+              <p className="mt-3 text-sm leading-6 text-[var(--muted)]">{copy.hoursBody}</p>
             </div>
-
-            <button
-              type="button"
-              onClick={() => applyTemplateToAll(hours[0])}
-              className="btn-secondary w-fit"
-            >
-              <IconCopy size={18} aria-hidden="true" />
-              {copy.copyMonday}
-            </button>
 
               <div className="hours-mobile-days grid gap-2.5 md:hidden">
               {hours.map((day) => {
@@ -2413,7 +2464,7 @@ export function PublishForm({
                         />
                     </div>
 
-                    <div className="hours-time-row grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2">
+                    {day.closed ? <p className="hours-closed-notice rounded-xl px-3 py-3 text-sm">{copy.copyClosedAllDay}</p> : <div className="hours-time-row grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2">
                         <label className="grid min-w-0 gap-1">
                           <span className="text-sm leading-5 text-[var(--muted)]">{openLabel}</span>
                           <HoursTimeInput
@@ -2433,9 +2484,9 @@ export function PublishForm({
                             onChange={(value) => setHourValue(day.day, "close1", value)}
                           />
                         </label>
-                    </div>
+                    </div>}
 
-                    <div className="grid gap-2">
+                    {!day.closed ? <div className="grid gap-2">
                       <CopyToggle
                         checked={day.split}
                         disabled={day.closed}
@@ -2466,7 +2517,11 @@ export function PublishForm({
                           </label>
                         </div>
                       ) : null}
-                    </div>
+                    </div> : null}
+                    <button type="button" onClick={(event) => openHoursCopy(day, event.currentTarget)} className="hours-copy-button inline-flex min-h-11 w-fit items-center justify-center gap-2 justify-self-end rounded-full px-4 text-sm font-semibold">
+                      <IconCopy size={18} aria-hidden="true" />{copy.copyToOtherDays}
+                    </button>
+                    {copySourceError === day.day ? <p role="alert" className="text-sm text-[var(--accent)]">{copy.copyInvalidSource}</p> : null}
                   </article>
                 );
               })}
@@ -2481,7 +2536,7 @@ export function PublishForm({
                 return (
                   <div
                     key={day.day}
-                    className="rounded-2xl border border-[var(--border)] bg-[rgba(247,244,239,0.56)] p-4"
+                    className="grid gap-3 rounded-2xl border border-[var(--border)] bg-[rgba(247,244,239,0.56)] p-4"
                   >
                     <div className="grid gap-3 sm:grid-cols-[1fr_1.2fr_auto]">
                       <div className="flex items-center justify-between gap-2">
@@ -2537,10 +2592,41 @@ export function PublishForm({
                         ) : null}
                       </div>
                     </div>
+                    <button type="button" onClick={(event) => openHoursCopy(day, event.currentTarget)} className="hours-copy-button inline-flex min-h-11 w-fit items-center justify-center gap-2 justify-self-end rounded-full px-4 text-sm font-semibold"><IconCopy size={18} aria-hidden="true" />{copy.copyToOtherDays}</button>
+                    {copySourceError === day.day ? <p role="alert" className="text-sm text-[var(--accent)]">{copy.copyInvalidSource}</p> : null}
                   </div>
                 );
               })}
             </div>
+            <dialog ref={copyDialogRef} onClose={() => { setCopySourceDay(null); setCopyReplacePending(false); copyTriggerRef.current?.focus(); }} onClick={(event) => { if (event.target === event.currentTarget) closeHoursCopy(); }} className="hours-copy-dialog" aria-labelledby="hours-copy-title" aria-describedby="hours-copy-subtitle">
+              {copySourceDay ? (() => {
+                const source = hours.find((day) => day.day === copySourceDay);
+                const sourceName = days.find((day) => day.key === copySourceDay)?.[locale] ?? "";
+                if (!source) return null;
+                const overwriteCount = countConfiguredDestinations(hours, copyDestinations);
+                return <div className="hours-copy-dialog__content">
+                  <div className="hours-copy-dialog__handle" aria-hidden="true" />
+                  <button type="button" onClick={closeHoursCopy} className="hours-copy-dialog__close" aria-label={copy.copyClose}><IconX size={24} aria-hidden="true" /></button>
+                  {copyReplacePending ? <>
+                    <h2 id="hours-copy-title" className="font-serif text-2xl text-[var(--foreground)]">{copy.copyReplaceTitle}</h2>
+                    <p id="hours-copy-subtitle" className="mt-3 text-sm leading-6 text-[var(--muted)]">{copy.copyReplaceBody(overwriteCount, sourceName)}</p>
+                    <div className="mt-6 flex flex-wrap justify-end gap-3"><button ref={copyWarningCancelRef} type="button" className="btn-secondary" onClick={() => setCopyReplacePending(false)}>{copy.copyCancel}</button><button type="button" className="btn-primary" onClick={confirmHoursCopy}>{copy.copyReplace}</button></div>
+                  </> : <>
+                    <h2 id="hours-copy-title" className="font-serif text-2xl text-[var(--foreground)]">{locale === "it" ? `Copia gli orari di ${sourceName}` : `Copy ${sourceName}'s hours`}</h2>
+                    <p id="hours-copy-subtitle" className="mt-2 text-sm leading-6 text-[var(--muted)]">{copy.copySubtitle}</p>
+                    <div className="hours-copy-dialog__summary mt-4 rounded-2xl border border-[var(--border)] p-4">
+                      <p className="text-sm font-medium">{locale === "it" ? `Orari di ${sourceName}` : `${sourceName} hours`}</p>
+                      <p className="mt-2 font-semibold">{source.closed ? copy.copyClosedAllDay : `${source.open1} – ${source.close1}`}</p>
+                      {!source.closed ? <p className="mt-1 text-sm text-[var(--muted)]">{source.split ? `${source.open2} – ${source.close2}` : copy.copyNoEvening}</p> : null}
+                    </div>
+                    <fieldset className="mt-5"><legend className="font-semibold">{copy.copySelectDays}</legend><div className="mt-2 grid gap-1">
+                      {days.filter((day) => day.key !== copySourceDay).map((day) => <label key={day.key} className="hours-copy-dialog__day flex min-h-11 items-center gap-3 rounded-xl px-2"><input type="checkbox" className="hours-checkbox" checked={copyDestinations.has(day.key)} onChange={(event) => { setCopyDestinations((current) => { const next = new Set(current); if (event.target.checked) next.add(day.key); else next.delete(day.key); return next; }); }} /><span>{day[locale]}</span></label>)}
+                    </div></fieldset>
+                    <button ref={copyConfirmRef} type="button" disabled={copyDestinations.size === 0} onClick={confirmHoursCopy} className="btn-primary mt-5 min-h-12 w-full disabled:cursor-not-allowed disabled:opacity-50">{copy.copyDays(copyDestinations.size)}</button>
+                  </>}
+                </div>;
+              })() : null}
+            </dialog>
           </div>
         ) : null}
 

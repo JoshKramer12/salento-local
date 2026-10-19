@@ -1511,6 +1511,11 @@ button {
     padding: 0.875rem 1rem;
   }
 
+  .hours-closed-notice {
+    background: rgba(202, 132, 54, 0.08);
+    color: var(--foreground);
+  }
+
   .hours-time-row {
     width: 100%;
     min-width: 0;
@@ -1714,4 +1719,86 @@ button {
     color: white;
     box-shadow: none;
   }
+}
+
+.hours-copy-dialog {
+  position: fixed;
+  inset: auto 0 0;
+  width: min(100%, 36rem);
+  max-width: 100%;
+  max-height: min(88dvh, 50rem);
+  margin: 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 1.75rem 1.75rem 0 0;
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: 0 -1rem 3rem rgba(10, 35, 42, 0.16);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.hours-copy-dialog::backdrop {
+  background: rgba(10, 29, 37, 0.55);
+}
+
+.hours-copy-dialog__content {
+  position: relative;
+  padding: 2.75rem 1.25rem max(1.5rem, env(safe-area-inset-bottom));
+}
+
+.hours-copy-dialog__handle {
+  position: absolute;
+  top: 0.75rem;
+  left: 50%;
+  width: 3.5rem;
+  height: 0.3rem;
+  border-radius: 999px;
+  background: rgba(10, 35, 42, 0.25);
+  transform: translateX(-50%);
+}
+
+.hours-copy-dialog__close {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.9rem;
+  display: grid;
+  width: 2.75rem;
+  height: 2.75rem;
+  place-items: center;
+  border-radius: 999px;
+}
+
+.hours-copy-dialog__close:hover,
+.hours-copy-dialog__day:hover {
+  background: rgba(42, 98, 87, 0.08);
+}
+
+.hours-copy-dialog__summary {
+  background: rgba(247, 244, 239, 0.56);
+}
+
+@media (min-width: 768px) {
+  .hours-copy-dialog {
+    inset: 0;
+    margin: auto;
+    border-radius: 1.5rem;
+  }
+
+  .hours-copy-dialog__content {
+    padding: 2.5rem;
+  }
+
+  .hours-copy-dialog__handle {
+    display: none;
+  }
+}
+
+.hours-copy-button {
+  background: rgba(42, 98, 87, 0.08);
+  color: var(--foreground);
+}
+
+.hours-copy-button:hover {
+  background: rgba(42, 98, 87, 0.15);
 }
