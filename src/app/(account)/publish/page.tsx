@@ -2,6 +2,7 @@ import type { Viewport } from "next";
 import { redirect } from "next/navigation";
 
 import { DashboardNav } from "@/components/account/dashboard-nav";
+import { PartnerWorkspaceNav } from "@/components/account/partner-workspace-nav";
 import { PayoutSetupSkipCleanup } from "@/components/account/payout-setup-skip-cleanup";
 import { PublishForm } from "@/components/account/publish-form";
 import { isAdminViewer } from "@/lib/admin";
@@ -128,6 +129,8 @@ export default async function PublishPage({ searchParams }: PublishPageProps) {
   }
 
   return (
+    <>
+    {viewer.role === "GETTER" ? <PartnerWorkspaceNav active="publish" locale={locale} /> : null}
     <main className="publish-page shell px-4 py-12 sm:px-6">
       {skipPayoutSetup ? <PayoutSetupSkipCleanup /> : null}
       <div className="dashboard-nav-shell publish-page-nav mb-8">
@@ -202,5 +205,6 @@ export default async function PublishPage({ searchParams }: PublishPageProps) {
         towns={towns}
       />
     </main>
+    </>
   );
 }
