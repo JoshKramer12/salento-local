@@ -32,11 +32,11 @@ import {
   buildSelectedAddressFromStoredFields,
 } from "@/lib/address-selection";
 import { signIn } from "@/lib/auth";
-import { canManageBusiness, findUserByNormalizedEmail } from "@/lib/business-owner-access";
+import { canManageBusiness } from "@/lib/business-owner-access";
 import {
+  approveVerifiedBusinessClaim,
   getBusinessClaimVerificationEmail,
   isBusinessAlreadyManaged,
-  shouldShowClaimEmailChoice,
 } from "@/lib/business-claim";
 import {
   requireAdminViewer,
@@ -2548,61 +2548,13 @@ export async function verifyBusinessClaimCodeAction(
       error: formCopy[locale].verificationCodeInvalid,
     };
   }
-  const approved = await prisma.$transaction(async (tx) => {
-    const ownershipUpdate = await tx.business.updateMany({
-      where: {
-        id: claim.business.id,
-        ownerUserId: null,
-        ownerAccesses: { none: { userId: { not: null } } },
-      },
-      data: {
-        email: normalizeEmail(claim.businessContactEmail ?? ""),
-        ownerUserId: viewer.id,
-        verificationStatus: "OWNER_VERIFIED",
-      },
-    });
-
-    if (!ownershipUpdate.count) {
-      await tx.businessClaim.updateMany({
-        where: { id: claim.id, status: "AWAITING_VERIFICATION" },
-        data: { status: "REJECTED" },
-      });
-      return false;
-    }
-
-    await tx.businessClaim.update({
-      where: { id: claim.id },
-      data: {
-        reviewedAt: new Date(),
-        status: "APPROVED",
-        verificationCodeExpiresAt: null,
-        verificationCodeHash: null,
-        verificationSentTo: null,
-        verifiedAt: new Date(),
-      },
-    });
-
-    await tx.businessOwnerAccess.upsert({
-      where: {
-        businessId_email: {
-          businessId: claim.business.id,
-          email: normalizeEmail(claim.businessContactEmail ?? ""),
-        },
-      },
-      create: {
-        activatedAt: new Date(),
-        businessId: claim.business.id,
-        email: normalizeEmail(claim.businessContactEmail ?? ""),
-        userId: viewer.id,
-      },
-      update: {
-        activatedAt: new Date(),
-        userId: viewer.id,
-        verifiedAt: new Date(),
-      },
-    });
-    return true;
-  });
+  const approved = await prisma.$transaction((tx) => approveVerifiedBusinessClaim({
+    businessId: claim.business.id,
+    claimId: claim.id,
+    tx,
+    userId: viewer.id,
+    verificationEmail: claim.businessContactEmail ?? "",
+  }));
 
   if (!approved) {
     return {
@@ -2610,120 +2562,6 @@ export async function verifyBusinessClaimCodeAction(
         ? "Questa attività è stata collegata a un altro account mentre verificavi il codice."
         : "This business was connected to another account while you were verifying the code.",
     };
-  }
-
-  revalidatePath("/dashboard");
-  revalidatePath("/dashboard/businesses");
-  revalidatePath(`/businesses/${claim.business.slug}`);
-  if (shouldShowClaimEmailChoice(viewer.email, claim.businessContactEmail)) {
-    redirect(`/claim/email?claim=${encodeURIComponent(claim.id)}`);
-  }
-
-  redirect(`/claim/success?business=${encodeURIComponent(claim.business.slug)}`);
-}
-
-export async function completeBusinessClaimEmailChoiceAction(
-  _previousState: FormState,
-  formData: FormData,
-): Promise<FormState> {
-  const locale = getLocaleFromForm(formData);
-  const viewer = await requireCompletedViewer();
-  const claimId = getStringValue(formData.get("claimId")).trim();
-  const choice = getStringValue(formData.get("emailChoice"));
-
-  if (choice !== "ACCOUNT" && choice !== "BUSINESS") {
-    return { error: formCopy[locale].invalidForm };
-  }
-
-  const claim = await prisma.businessClaim.findUnique({
-    where: { id: claimId },
-    include: { business: { select: { id: true, ownerUserId: true, slug: true } } },
-  });
-  const currentUser = await prisma.user.findUnique({
-    where: { id: viewer.id },
-    select: { email: true, id: true },
-  });
-
-  if (
-    !claim ||
-    !currentUser?.email ||
-    claim.userId !== viewer.id ||
-    claim.status !== "APPROVED" ||
-    claim.business.ownerUserId !== viewer.id ||
-    !claim.businessContactEmail
-  ) {
-    return { error: formCopy[locale].notAllowed };
-  }
-
-  const accountEmail = normalizeEmail(currentUser.email);
-  const businessEmail = normalizeEmail(claim.businessContactEmail);
-  const selectedEmail = choice === "ACCOUNT" ? accountEmail : businessEmail;
-  const emailOwner = await findUserByNormalizedEmail({ email: selectedEmail });
-
-  if (emailOwner && emailOwner.id !== viewer.id) {
-    return {
-      error: locale === "it"
-        ? "Questa email è già collegata a un altro account Salento Local. Continua con l'email del tuo account."
-        : "That email is already connected to another Salento Local account. Please continue using your current account email.",
-    };
-  }
-
-  try {
-    await prisma.$transaction(async (tx) => {
-    const currentAccess = await tx.businessOwnerAccess.findUnique({
-      where: { businessId_userId: { businessId: claim.business.id, userId: viewer.id } },
-    });
-    const selectedAccess = await tx.businessOwnerAccess.findUnique({
-      where: { businessId_email: { businessId: claim.business.id, email: selectedEmail } },
-    });
-
-    if (selectedAccess?.userId && selectedAccess.userId !== viewer.id) {
-      throw new Error("claim_email_access_conflict");
-    }
-
-    if (selectedAccess && selectedAccess.id !== currentAccess?.id) {
-      if (currentAccess) {
-        await tx.businessOwnerAccess.update({
-          where: { id: currentAccess.id },
-          data: { userId: null },
-        });
-      }
-      await tx.businessOwnerAccess.update({
-        where: { id: selectedAccess.id },
-        data: { activatedAt: new Date(), userId: viewer.id, verifiedAt: new Date() },
-      });
-    } else if (currentAccess) {
-      await tx.businessOwnerAccess.update({
-        where: { id: currentAccess.id },
-        data: { email: selectedEmail, verifiedAt: new Date() },
-      });
-    } else {
-      await tx.businessOwnerAccess.create({
-        data: { activatedAt: new Date(), businessId: claim.business.id, email: selectedEmail, userId: viewer.id },
-      });
-    }
-
-    await tx.business.update({
-      where: { id: claim.business.id },
-      data: { email: selectedEmail },
-    });
-
-    if (selectedEmail !== accountEmail) {
-      await tx.user.update({ where: { id: viewer.id }, data: { email: selectedEmail } });
-    }
-    });
-  } catch (error) {
-    if (
-      (error instanceof Error && error.message === "claim_email_access_conflict") ||
-      (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")
-    ) {
-      return {
-        error: locale === "it"
-          ? "Questa email è già associata a un altro accesso per questa attività."
-          : "That email is already associated with another access record for this business.",
-      };
-    }
-    throw error;
   }
 
   revalidatePath("/dashboard");

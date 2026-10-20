@@ -5,7 +5,6 @@ import test from "node:test";
 import {
   getBusinessClaimVerificationEmail,
   isBusinessAlreadyManaged,
-  shouldShowClaimEmailChoice,
 } from "@/lib/business-claim";
 
 const actions = readFileSync("src/app/(account)/actions.ts", "utf8");
@@ -15,6 +14,9 @@ const claimSearchRoute = readFileSync("src/app/api/claim-businesses/route.ts", "
 const hero = readFileSync("src/components/business/business-hero.tsx", "utf8");
 const verifyForm = readFileSync("src/components/account/business-claim-verify-form.tsx", "utf8");
 const editPage = readFileSync("src/app/businesses/[slug]/edit/page.tsx", "utf8");
+const legacyEmailPage = readFileSync("src/app/(account)/claim/email/page.tsx", "utf8");
+const successPage = readFileSync("src/app/(account)/claim/success/page.tsx", "utf8");
+const claimApproval = readFileSync("src/lib/business-claim.ts", "utf8");
 
 test("claim verification uses only the stored owner email and respects the no-email flag", () => {
   assert.equal(getBusinessClaimVerificationEmail({ ownerEmail: " Owner@Example.com ", ownerHasNoEmail: false }), "owner@example.com");
@@ -22,12 +24,10 @@ test("claim verification uses only the stored owner email and respects the no-em
   assert.equal(getBusinessClaimVerificationEmail({ ownerEmail: null, ownerHasNoEmail: false }), null);
 });
 
-test("claim eligibility is hidden for managed businesses and email choice is only shown when needed", () => {
+test("claim eligibility is hidden for managed businesses", () => {
   assert.equal(isBusinessAlreadyManaged({ ownerUserId: "owner" }), true);
   assert.equal(isBusinessAlreadyManaged({ ownerAccessUserIds: [null, "owner"] }), true);
   assert.equal(isBusinessAlreadyManaged({ ownerAccessUserIds: [null], ownerUserId: null }), false);
-  assert.equal(shouldShowClaimEmailChoice("Owner@Example.com", "owner@example.com"), false);
-  assert.equal(shouldShowClaimEmailChoice("account@example.com", "owner@example.com"), true);
 });
 
 test("public listing and claim request enforce the same managed-business and email-only safeguards", () => {
@@ -42,24 +42,35 @@ test("public listing and claim request enforce the same managed-business and ema
   assert.doesNotMatch(actions.slice(actions.indexOf("export async function requestBusinessClaimAction"), actions.indexOf("export async function verifyBusinessClaimCodeAction")), /claimantEmail|claimantPhone|verificationChannel: getStringValue/);
 });
 
-test("claim approval is atomic and email unification updates only active records", () => {
-  const approval = actions.slice(actions.indexOf("export async function verifyBusinessClaimCodeAction"), actions.indexOf("export async function completeBusinessClaimEmailChoiceAction"));
-  const emailChoice = actions.slice(actions.indexOf("export async function completeBusinessClaimEmailChoiceAction"), actions.indexOf("export async function resendBusinessClaimCodeAction"));
+test("claim verification approves ownership atomically and goes straight to success", () => {
+  const verify = actions.slice(actions.indexOf("export async function verifyBusinessClaimCodeAction"), actions.indexOf("export async function resendBusinessClaimCodeAction"));
+  const approval = claimApproval.slice(claimApproval.indexOf("export async function approveVerifiedBusinessClaim"));
 
+  assert.match(verify, /prisma\.\$transaction\(\(tx\) => approveVerifiedBusinessClaim\(/);
+  assert.match(verify, /redirect\(`\/claim\/success\?business=/);
+  assert.doesNotMatch(verify, /\/claim\/email|completeBusinessClaimEmailChoiceAction/);
   assert.match(approval, /ownerUserId: null/);
   assert.match(approval, /ownerAccesses: \{ none: \{ userId: \{ not: null \} \} \}/);
   assert.match(approval, /status: "REJECTED"/);
   assert.match(approval, /verificationCodeHash: null/);
-  assert.match(emailChoice, /findUserByNormalizedEmail/);
-  assert.match(emailChoice, /tx\.business\.update/);
-  assert.match(emailChoice, /tx\.businessOwnerAccess\.(?:update|create)/);
-  assert.match(emailChoice, /tx\.user\.update/);
-  assert.doesNotMatch(emailChoice, /businessSubmission\.(?:update|updateMany)/);
+  assert.match(approval, /businessOwnerAccess\.upsert/);
+  assert.doesNotMatch(approval, /tx\.user\.(?:update|updateMany)/);
+  assert.doesNotMatch(approval, /tx\.businessSubmission\.(?:update|updateMany|create)/);
+  assert.match(successPage, /canManageBusiness\(/);
+});
+
+test("legacy email-choice URLs only redirect authorized, approved claims", () => {
+  assert.match(legacyEmailPage, /claim\.userId !== viewer\.id/);
+  assert.match(legacyEmailPage, /claim\.status !== "APPROVED"/);
+  assert.match(legacyEmailPage, /claim\.business\.ownerUserId !== viewer\.id/);
+  assert.match(legacyEmailPage, /redirect\(`\/claim\/success\?business=/);
+  assert.doesNotMatch(legacyEmailPage, /BusinessClaimEmailChoiceForm|emailChoice|\.update\(/);
+  assert.doesNotMatch(actions, /completeBusinessClaimEmailChoiceAction/);
 });
 
 test("claim resend and invalid-code writes reserve their limits atomically", () => {
   const issueCode = actions.slice(actions.indexOf("async function issueBusinessClaimVerificationCode"), actions.indexOf("export async function loginAction"));
-  const verifyCode = actions.slice(actions.indexOf("export async function verifyBusinessClaimCodeAction"), actions.indexOf("export async function completeBusinessClaimEmailChoiceAction"));
+  const verifyCode = actions.slice(actions.indexOf("export async function verifyBusinessClaimCodeAction"), actions.indexOf("export async function resendBusinessClaimCodeAction"));
 
   assert.match(issueCode, /resendAvailableAt: \{ lte: now \}/);
   assert.match(issueCode, /resendCount: \{ lt: CLAIM_VERIFICATION_MAX_RESENDS \+ 1 \}/);

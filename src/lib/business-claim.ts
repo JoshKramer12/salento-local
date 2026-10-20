@@ -1,3 +1,5 @@
+import type { Prisma } from "@prisma/client";
+
 import { normalizeEmail } from "@/lib/validation";
 
 export function getBusinessClaimVerificationEmail(input: {
@@ -20,13 +22,51 @@ export function isBusinessAlreadyManaged(input: {
   );
 }
 
-export function shouldShowClaimEmailChoice(
-  accountEmail: string | null | undefined,
-  verifiedBusinessEmail: string | null | undefined,
-) {
-  if (!accountEmail?.trim() || !verifiedBusinessEmail?.trim()) {
+export async function approveVerifiedBusinessClaim(input: {
+  businessId: string;
+  claimId: string;
+  userId: string;
+  verificationEmail: string;
+  tx: Prisma.TransactionClient;
+}) {
+  const { businessId, claimId, tx, userId } = input;
+  const verificationEmail = normalizeEmail(input.verificationEmail);
+  const ownershipUpdate = await tx.business.updateMany({
+    where: {
+      id: businessId,
+      ownerUserId: null,
+      ownerAccesses: { none: { userId: { not: null } } },
+    },
+    data: {
+      ownerUserId: userId,
+      verificationStatus: "OWNER_VERIFIED",
+    },
+  });
+
+  if (!ownershipUpdate.count) {
+    await tx.businessClaim.updateMany({
+      where: { id: claimId, status: "AWAITING_VERIFICATION" },
+      data: { status: "REJECTED" },
+    });
     return false;
   }
 
-  return normalizeEmail(accountEmail) !== normalizeEmail(verifiedBusinessEmail);
+  await tx.businessClaim.update({
+    where: { id: claimId },
+    data: {
+      reviewedAt: new Date(),
+      status: "APPROVED",
+      verificationCodeExpiresAt: null,
+      verificationCodeHash: null,
+      verificationSentTo: null,
+      verifiedAt: new Date(),
+    },
+  });
+
+  await tx.businessOwnerAccess.upsert({
+    where: { businessId_email: { businessId, email: verificationEmail } },
+    create: { activatedAt: new Date(), businessId, email: verificationEmail, userId },
+    update: { activatedAt: new Date(), userId, verifiedAt: new Date() },
+  });
+  return true;
 }
