@@ -21,9 +21,20 @@ export function HardNavigationLink({
   title,
 }: HardNavigationLinkProps) {
   const router = useRouter();
+  const startsNewSubmission = href === "/publish" || href === "/publish?mode=admin";
 
   function prefetchRoute() {
-    void router.prefetch(href);
+    if (!startsNewSubmission) void router.prefetch(href);
+  }
+
+  function handleClick(event: React.MouseEvent<HTMLAnchorElement>) {
+    onClick?.(event);
+    if (event.defaultPrevented || !startsNewSubmission || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+
+    event.preventDefault();
+    const url = new URL(href, window.location.origin);
+    url.searchParams.set("new", crypto.randomUUID());
+    router.push(`${url.pathname}${url.search}`);
   }
 
   return (
@@ -31,9 +42,9 @@ export function HardNavigationLink({
       aria-current={ariaCurrent}
       href={href}
       className={className}
-      prefetch
+      prefetch={!startsNewSubmission}
       title={title}
-      onClick={onClick}
+      onClick={handleClick}
       onFocus={prefetchRoute}
       onMouseEnter={prefetchRoute}
       onTouchStart={prefetchRoute}

@@ -15,6 +15,7 @@ import {
 import { getPartnerPayoutSetupSummary } from "@/lib/partner-connect";
 import { buildPhoneCountryOptions } from "@/lib/phone-country-options";
 import { getPublishOwnerContactDefaults } from "@/lib/publish-owner-contact";
+import { resolvePublishNewIntent } from "@/lib/publish-new-intent";
 import { prisma } from "@/lib/prisma";
 import { isPayLaterEnabled } from "@/lib/pay-later-invitations";
 import { isPublicFinancialHold } from "@/lib/stripe";
@@ -38,6 +39,14 @@ export default async function PublishPage({ searchParams }: PublishPageProps) {
   const adminMode = getSingleParam(resolvedSearchParams.mode) === "admin";
   const submissionId = getSingleParam(resolvedSearchParams.submission);
   const skipPayoutSetup = getSingleParam(resolvedSearchParams.skipPayoutSetup) === "1";
+  const { newIntentId, redirectHref } = resolvePublishNewIntent({
+    adminMode,
+    requestedNewIntentId: getSingleParam(resolvedSearchParams.new),
+    skipPayoutSetup,
+    submissionId,
+  });
+
+  if (redirectHref) redirect(redirectHref);
 
   if (adminMode && !isAdminViewer(viewer)) {
     redirect("/publish");
@@ -61,6 +70,7 @@ export default async function PublishPage({ searchParams }: PublishPageProps) {
         const publishParams = new URLSearchParams();
 
         if (submissionId) publishParams.set("submission", submissionId);
+        else if (newIntentId) publishParams.set("new", newIntentId);
         const publishHref = `/publish${publishParams.size ? `?${publishParams.toString()}` : ""}`;
         const returnTo = getPartnerPayoutSetupSkipDestination(publishHref);
 
@@ -122,9 +132,7 @@ export default async function PublishPage({ searchParams }: PublishPageProps) {
       : Promise.resolve(undefined),
   ]);
 
-  if (submission && submission.userId !== viewer.id) {
-    redirect("/dashboard");
-  }
+  if (submissionId && (!submission || submission.userId !== viewer.id)) redirect("/dashboard");
 
   return (
     <>
@@ -142,11 +150,13 @@ export default async function PublishPage({ searchParams }: PublishPageProps) {
       </div>
 
       <PublishForm
+        key={submission?.id ?? newIntentId ?? "new"}
         adminMode={adminMode}
         payLaterEnabled={(viewer.role === "GETTER" || viewer.role === "BUSINESS_OWNER") && !adminMode && isPayLaterEnabled()}
         financialPaymentPaused={isPublicFinancialHold()}
         ownerContactDefaults={ownerContactDefaults}
         viewerId={viewer.id}
+        newIntentId={newIntentId ?? undefined}
         submissionUpdatedAt={submission?.updatedAt.toISOString()}
         categories={categories}
         googlePlacesApiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() ?? ""}

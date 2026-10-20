@@ -67,6 +67,7 @@ import { formatIncompleteHoursMessage, getIncompleteHoursDays } from "@/lib/open
 import { copyHoursToDays, countConfiguredDestinations, isCompleteCopySource } from "@/lib/opening-hours-copy";
 import { initializeOwnerContact, type OwnerContactDefaults } from "@/lib/publish-owner-defaults";
 import { requestPaymentQr } from "@/lib/payment-choice-client";
+import { buildPublishDraftStorageKey, canRestorePublishLocalDraft, replaceNewPublishIntentWithSubmission } from "@/lib/publish-draft-session";
 import { buildPhoneValue, getOwnerPhoneStepError, getOwnerStepError } from "@/lib/publish-owner-phone";
 import {
   isPaymentApprovalReady,
@@ -133,6 +134,7 @@ type PublishFormProps = {
   ownerContactDefaults?: OwnerContactDefaults;
   submissionUpdatedAt?: string;
   viewerId?: string;
+  newIntentId?: string;
   adminMode?: boolean;
   categories: Pick<Category, "id" | "name" | "slug">[];
   googlePlacesApiKey: string;
@@ -746,6 +748,7 @@ export function PublishForm({
   ownerContactDefaults,
   submissionUpdatedAt,
   viewerId,
+  newIntentId,
   role = "USER",
   submission,
   towns,
@@ -874,7 +877,7 @@ export function PublishForm({
   const pendingEditExitDestinationRef = useRef<"dashboard" | "listing">("dashboard");
   const lastServerSavedPayloadRef = useRef<string | null>(null);
   const initialDraftRestoreCheckedRef = useRef(false);
-  const storageKey = useMemo(() => `${buildLocalDraftStorageKey(adminMode)}:${viewerId ?? role}:${currentSubmissionId || "new"}`, [adminMode, currentSubmissionId, role, viewerId]);
+  const storageKey = useMemo(() => buildPublishDraftStorageKey({ adminMode, newIntentId, role, submissionId: currentSubmissionId, viewerId }), [adminMode, currentSubmissionId, newIntentId, role, viewerId]);
   const {
     error: paymentOpeningError,
     openPaymentQr,
@@ -1405,6 +1408,12 @@ export function PublishForm({
     if (!currentSubmissionId && savedId) window.localStorage.removeItem(storageKey);
   });
 
+  const promoteNewDraftUrl = useEffectEvent((savedId: string | undefined) => {
+    if (!currentSubmissionId && savedId && newIntentId) {
+      replaceNewPublishIntentWithSubmission(window.history, window.location.href, newIntentId, savedId);
+    }
+  });
+
   const moveToWizardStep = useCallback((next: WizardStep) => {
     startTransition(() => setWizardStep(skipOwnerStep && next === "owner" ? "contact" : next));
   }, [skipOwnerStep]);
@@ -1438,6 +1447,7 @@ export function PublishForm({
       pendingDraftExitRef.current = false;
       pendingEditExitDestinationRef.current = "dashboard";
       clearNewLocalDraft(submission.id);
+      promoteNewDraftUrl(submission.id);
       startTransition(() => {
         setCurrentSubmissionId(submission.id ?? "");
         setDraftSavePending(false);
@@ -1844,20 +1854,17 @@ export function PublishForm({
     const storedDraft = parseLocalDraftSnapshot(window.localStorage.getItem(storageKey)) ??
       (legacyDraft?.id === currentSubmissionId ? legacyDraft : null);
 
-    if (!storedDraft || (submissionUpdatedAt && (!storedDraft.updatedAt || Date.parse(storedDraft.updatedAt) <= Date.parse(submissionUpdatedAt)))) {
+    if (!storedDraft || !canRestorePublishLocalDraft(storedDraft, {
+      newIntentId,
+      submissionId: currentSubmissionId,
+      submissionUpdatedAt,
+    })) {
       lastServerSavedPayloadRef.current = currentDraftPayload;
       return;
     }
 
-    const { updatedAt: _updatedAt, ...storedSnapshot } = storedDraft;
-    const matchesCurrentSubmission = currentSubmissionId
-      ? storedSnapshot.id === currentSubmissionId
-      : true;
-
-    if (!matchesCurrentSubmission) {
-      lastServerSavedPayloadRef.current = currentDraftPayload;
-      return;
-    }
+    const storedSnapshot = { ...storedDraft };
+    delete storedSnapshot.updatedAt;
 
     if (JSON.stringify(storedSnapshot) === currentDraftPayload) {
       lastServerSavedPayloadRef.current = currentDraftPayload;
@@ -1873,7 +1880,7 @@ export function PublishForm({
           : "Draft recovered from this browser. You can continue right away.",
       );
     });
-  }, [adminMode, currentDraftPayload, currentSubmissionId, isEditMode, locale, skipOwnerStep, storageKey, submissionUpdatedAt]);
+  }, [adminMode, currentDraftPayload, currentSubmissionId, isEditMode, locale, newIntentId, skipOwnerStep, storageKey, submissionUpdatedAt]);
 
   useEffect(() => {
     if (isEditMode || !localDraftReady) {
