@@ -33,7 +33,7 @@ import { prisma } from "@/lib/prisma";
 import { getReceiptData } from "@/lib/receipts";
 import { getOriginFromHeaders } from "@/lib/request-origin";
 import { getSingleParam } from "@/lib/site";
-import { canUseStripeBankTransferTestSimulation, getPaymentElementPublishableKey, isPublicFinancialHold, isStripeSandboxMode } from "@/lib/stripe";
+import { canUseStripeBankTransferTestSimulation, getPaymentElementPublishableKey, isPublicFinancialHold } from "@/lib/stripe";
 import { ensureStripeBankTransferIntent } from "@/lib/stripe-checkout";
 import {
   buildNoEmailPaymentQrPayload,
@@ -107,7 +107,7 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
   const copy = locale === "it"
     ? {
         amountDue: "Importo dovuto", amountPaid: "Importo pagato", bankTitle: "Bonifico bancario", beneficiary: "Beneficiario",
-        cardFallback: "Apri Stripe Checkout", cardIntro: (amount: string) => `Inquadra il codice QR con l'app della tua banca per pagare ${amount} e pubblicare la tua scheda.`, cardPolling: "In attesa della conferma del pagamento.", cardQrHint: "Apri l'app della tua banca, inquadra questo codice e completa il pagamento.", cardQrTitle: "Inquadra per pagare", cardWaiting: "Tieni aperta questa pagina fino alla conferma del pagamento.",
+        cardFallback: "Apri Stripe Checkout", cardIntro: (amount: string) => `Scansiona il codice QR con il tuo telefono per completare il pagamento di ${amount} e pubblicare la tua attività.`, cardPolling: "In attesa della conferma del pagamento.", cardQrHint: "Scansiona il codice QR con la fotocamera del tuo telefono e segui le istruzioni per completare il pagamento.", cardQrTitle: "Inquadra per pagare", cardWaiting: "Tieni aperta questa pagina fino alla conferma del pagamento.",
         membershipLabel: "Adesione annuale Salento Local", secureDirect: "Pagamento sicuro direttamente a Salento Local", confirmationNotice: "Verificheremo automaticamente il pagamento. Una volta confermato, la tua scheda sarà pubblicata.", refundSummary: (amount: string) => `La tua adesione iniziale di ${amount} può essere rimborsata integralmente entro 14 giorni dal pagamento riuscito.`, refundTerms: "Leggi tutti i termini di rimborso",
         date: "Data pagamento", emailSent: "Ricevuta inviata", emailSentHint: viewer.role === "BUSINESS_OWNER" ? "Una ricevuta è stata inviata alla tua email." : "Una ricevuta è stata inviata all'email del titolare.", failed: "Il pagamento non è stato completato. Puoi riprovare quando sei pronto.",
         iban: "IBAN", next: "Cosa succede ora?", nextPending: "Verificheremo automaticamente il pagamento. Quando Stripe lo confermerà, la scheda verrà pubblicata.", nextSuccess: "Il pagamento è stato confermato e la tua scheda è ora pubblicata.",
@@ -121,7 +121,7 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
       }
     : {
         amountDue: "Amount due", amountPaid: "Amount paid", bankTitle: "Bank transfer", beneficiary: "Beneficiary",
-        cardFallback: "Open Stripe Checkout", cardIntro: (amount: string) => `Scan the QR code with your banking app to pay ${amount} and publish your listing.`, cardPolling: "Waiting for payment confirmation.", cardQrHint: "Open your banking app, scan this code, and complete the payment.", cardQrTitle: "Scan to pay", cardWaiting: "Keep this page open until the payment is confirmed.",
+        cardFallback: "Open Stripe Checkout", cardIntro: (amount: string) => `Scan the QR code with your phone to complete your ${amount} payment and publish your listing.`, cardPolling: "Waiting for payment confirmation.", cardQrHint: "Scan the QR code with your phone's camera and follow the instructions to complete your payment.", cardQrTitle: "Scan to pay", cardWaiting: "Keep this page open until the payment is confirmed.",
         membershipLabel: "Salento Local annual membership", secureDirect: "Secure payment directly to Salento Local", confirmationNotice: "We'll automatically check for your payment. Once it's confirmed, your listing will be published.", refundSummary: (amount: string) => `Your initial ${amount} membership is eligible for a full refund within 14 days of successful payment.`, refundTerms: "View full refund terms",
         date: "Payment date", emailSent: "Receipt sent", emailSentHint: viewer.role === "BUSINESS_OWNER" ? "A receipt has been sent to your email." : "A receipt has been sent to the business owner's email.", failed: "The payment was not completed. You can try again whenever you are ready.",
         iban: "IBAN", next: "What happens next?", nextPending: "We'll automatically check for your payment. Once Stripe confirms it, your listing will be published.", nextSuccess: "Your payment is confirmed and your listing is now published.",
@@ -227,7 +227,6 @@ export default async function PublishPaymentPage({ searchParams }: PublishPaymen
   return (
     <main className={submission.paymentMethod !== "BANK_TRANSFER" && !isPaid ? "mx-auto w-full max-w-[1180px] px-5 py-7 sm:px-6 sm:py-12" : "shell px-4 py-9 sm:px-6 sm:py-12"}>
       <div className="mx-auto max-w-3xl">
-        {isStripeSandboxMode() ? <p className="mb-5 text-sm leading-6 text-[var(--muted)]">{locale === "it" ? "Durante questa anteprima i pagamenti sono simulati: non inviare denaro reale e usa una carta di prova." : "During this preview, payments are simulated: do not send real money and use a test card."}</p> : null}
         {isPaid ? (
           <section className="card overflow-hidden p-5 sm:p-8">
             <div className="mx-auto max-w-xl text-center">

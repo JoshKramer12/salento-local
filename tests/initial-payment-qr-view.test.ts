@@ -24,3 +24,22 @@ test("the pending online layout keeps the refund terms and Partner payment warni
     assert.ok(paymentPage.includes(copy) || qrView.includes(copy), `Missing localized copy: ${copy}`);
   }
 });
+
+test("QR payment instructions use the phone camera in both languages", () => {
+  assert.match(paymentPage, /Scansiona il codice QR con il tuo telefono per completare il pagamento di \$\{amount\} e pubblicare la tua attività\./);
+  assert.match(paymentPage, /Scansiona il codice QR con la fotocamera del tuo telefono e segui le istruzioni per completare il pagamento\./);
+  assert.match(paymentPage, /Scan the QR code with your phone to complete your \$\{amount\} payment and publish your listing\./);
+  assert.match(paymentPage, /Scan the QR code with your phone's camera and follow the instructions to complete your payment\./);
+  assert.match(qrView, /locale === "it" \? `€\$\{amount\.replace\("€", ""\)\.trim\(\)\}` : amount/);
+  assert.doesNotMatch(paymentPage, /with your banking app|con l'app della tua banca/);
+});
+
+test("preview payment warnings are absent from customer-facing payment pages", () => {
+  for (const file of [
+    paymentPage,
+    readFileSync("src/app/pay/element/[token]/page.tsx", "utf8"),
+    readFileSync("src/components/account/pay-later-owner-client.tsx", "utf8"),
+  ]) {
+    assert.doesNotMatch(file, /During this preview, payments? (?:are|is) simulated|Durante questa anteprima i[ l] pagament[oi]/);
+  }
+});

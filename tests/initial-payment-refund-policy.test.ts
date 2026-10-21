@@ -28,7 +28,7 @@ for (const locale of ["en", "it"] as const) {
     const root = createRoot(dom.window.document.getElementById("root")!);
     try {
       await act(async () => root.render(createElement("div", null,
-        createElement(InitialPaymentRefundPolicy, { amount: "€100.00", locale }),
+        createElement(InitialPaymentRefundPolicy, { amount: locale === "it" ? "100,00 €" : "€100.00", locale }),
         createElement(PaymentField),
       )));
       const button = dom.window.document.querySelector("button")!;
@@ -46,10 +46,17 @@ for (const locale of ["en", "it"] as const) {
       assert.equal(button.getAttribute("aria-expanded"), "true");
       assert.equal(panel.getAttribute("aria-hidden"), "false");
       assert.equal(panel.hasAttribute("inert"), false);
-      assert.match(panel.textContent!, locale === "it" ? /Rimborso entro 14 giorni/ : /14-day refund policy/);
-      assert.match(panel.textContent!, /€100\.00/);
-      assert.match(panel.textContent!, locale === "it" ? /dall'account/ : /from their account/);
+      assert.match(panel.textContent!, locale === "it" ? /Politica di rimborso entro 14 giorni/ : /14-day refund policy/);
+      assert.match(panel.textContent!, locale === "it" ? /€100,00/ : /€100\.00/);
+      for (const heading of locale === "it"
+        ? ["Politica di rimborso entro 14 giorni", "1. Richiedi un rimborso completo entro 14 giorni", "2. Come richiedere un rimborso", "3. Cosa succede dopo il rimborso?"]
+        : ["14-day refund policy", "1. Request a full refund within 14 days", "2. How to request a refund", "3. What happens after a refund?"]) {
+        assert.ok(panel.textContent!.includes(heading), `Missing refund copy: ${heading}`);
+      }
+      assert.match(panel.textContent!, locale === "it" ? /Ti basta accedere al tuo account/ : /Simply log into your account/);
+      assert.match(panel.textContent!, locale === "it" ? /non sarà più visibile sul sito/ : /will no longer be publicly visible/);
       assert.equal(panel.querySelector("a")?.getAttribute("href"), "/terms#refunds");
+      assert.match(panel.querySelector("a")!.textContent!, locale === "it" ? /Consulta la politica di rimborso completa →/ : /View full refund policy →/);
       assert.equal(dom.window.document.querySelector("input"), field);
       assert.equal(field.value, "entered card state");
       assert.equal(mounts, 1);

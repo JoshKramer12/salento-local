@@ -9,7 +9,7 @@ import { formatCurrencyFromCents } from "@/lib/account";
 import { getCurrentLocale } from "@/lib/locale";
 import { EMAIL_MANUAL_PAYMENT_FLOW, findInitialElementTokenPayment, matchesManualElementPaymentIntent, NO_EMAIL_PAYMENT_FLOW } from "@/lib/no-email-payment";
 import { getOriginFromHeaders } from "@/lib/request-origin";
-import { assertStripeObjectMode, getPaymentElementPublishableKey, getStripe, isPublicFinancialHold, isStripeSandboxMode } from "@/lib/stripe";
+import { assertStripeObjectMode, getPaymentElementPublishableKey, getStripe, isPublicFinancialHold } from "@/lib/stripe";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { referrer: "no-referrer", robots: { index: false, follow: false } };
@@ -70,7 +70,6 @@ export default async function NoEmailPaymentPage({ params }: Props) {
     <section className="card mx-auto max-w-xl overflow-hidden p-5 sm:p-8">
       <p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--primary)]">Salento Local</p>
       <h1 className="mt-4 font-serif text-4xl leading-tight text-[var(--foreground)]">{locale === "it" ? "Completa il pagamento" : "Complete your payment"}</h1>
-      {isStripeSandboxMode() ? <p className="mt-4 text-sm leading-6 text-[var(--muted)]">{locale === "it" ? "Durante questa anteprima il pagamento è simulato: usa una carta di prova. Non verrà addebitato denaro reale." : "During this preview, payment is simulated: use a test card. No real money will be charged."}</p> : null}
       <p className="mt-3 text-lg text-[var(--foreground)]">{payment.businessSubmission.businessName}</p>
       <div className="mt-6 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 rounded-2xl border border-[var(--border)] bg-white p-4">
         <span className="min-w-0 text-sm font-medium leading-5 text-[var(--foreground)]">{locale === "it" ? "Adesione annuale Salento Local" : "Salento Local annual membership"}</span>

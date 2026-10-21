@@ -47,7 +47,7 @@ export function InitialPaymentQrView({
     <header className="mb-5 sm:mb-7">
       <p className="text-xs font-bold uppercase tracking-[0.22em] text-[var(--accent)]">{copy.paymentStep}</p>
       <h1 className="mt-2 max-w-xl font-serif text-[clamp(2.6rem,10vw,4.5rem)] leading-[1.02] tracking-[-0.025em] text-[var(--foreground)]">{copy.titleCard}</h1>
-      <p className="mt-3 max-w-2xl text-[1.05rem] leading-[1.55] text-[var(--muted)] sm:text-lg">{copy.cardIntro(amount)}</p>
+      <p className="mt-3 max-w-2xl text-[1.05rem] leading-[1.55] text-[var(--muted)] sm:text-lg">{copy.cardIntro(locale === "it" ? `€${amount.replace("€", "").trim()}` : amount)}</p>
     </header>
 
     <section aria-label={copy.membershipLabel} className="mb-3 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1 rounded-[1.45rem] border border-[var(--border)] bg-[#fffdfa] px-4 py-4 sm:mb-4 sm:px-5">
