@@ -1,6 +1,6 @@
 FROM node:20-bookworm-slim AS base
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends openssl \
+  && apt-get install -y --no-install-recommends openssl sqlite3 \
   && rm -rf /var/lib/apt/lists/*
 
 FROM base AS deps
