@@ -134,6 +134,11 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "missing_checkout_metadata" }, { status: 400 });
       }
 
+      if (session.payment_status !== "paid" || session.amount_total !== LISTING_OFFER.annualPriceCents ||
+        session.currency !== "eur") {
+        throw new Error("initial_checkout_payment_unverified");
+      }
+
       const amountPaidCents = session.amount_total ?? 0;
       const subscriptionId = typeof session.subscription === "string" ? session.subscription : null;
       let subscription: Awaited<ReturnType<typeof stripe.subscriptions.retrieve>> | null = null;
@@ -342,6 +347,24 @@ export async function POST(request: Request) {
           status: "SKIPPED",
         });
         return NextResponse.json({ received: true });
+      }
+
+      if (paymentIntent.status !== "succeeded" || paymentIntent.amount_received !== LISTING_OFFER.annualPriceCents ||
+        paymentIntent.currency !== "eur" || !paymentIntent.payment_method_types?.includes("customer_balance")) {
+        throw new Error("initial_bank_transfer_payment_unverified");
+      }
+      const bankPayments = await prisma.payment.findMany({
+        where: { stripePaymentIntentId: paymentIntent.id }, take: 2,
+      });
+      const bankPayment = bankPayments[0];
+      if (bankPayments.length !== 1 || !bankPayment || bankPayment.businessSubmissionId !== businessSubmissionId ||
+        bankPayment.userId !== paymentIntent.metadata?.userId?.trim() ||
+        (paymentIntent.metadata?.businessId?.trim() &&
+          bankPayment.businessId !== paymentIntent.metadata.businessId.trim()) ||
+        bankPayment.method !== "BANK_TRANSFER" || bankPayment.purpose !== "INITIAL_MEMBERSHIP" ||
+        bankPayment.amountCents !== LISTING_OFFER.annualPriceCents || bankPayment.currency !== "eur" ||
+        !["AWAITING_BANK_TRANSFER", "PAID", "REFUNDED"].includes(bankPayment.status)) {
+        throw new Error("initial_bank_transfer_payment_association_missing");
       }
 
       await processPaidSubmissionWebhook({

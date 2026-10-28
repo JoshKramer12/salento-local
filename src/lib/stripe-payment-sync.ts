@@ -117,7 +117,11 @@ async function finalizeStripeManagedPayment(params: {
       },
       select: {
         businessId: true,
+        businessSubmissionId: true,
+        amountCents: true,
+        currency: true,
         id: true,
+        method: true,
         paidAt: true,
         status: true,
         refundRequestedAt: true,
@@ -126,6 +130,11 @@ async function finalizeStripeManagedPayment(params: {
     });
 
     if (existingPayment) {
+      if (existingPayment.businessSubmissionId !== params.businessSubmissionId ||
+        existingPayment.amountCents !== params.amountPaidCents ||
+        existingPayment.currency !== (params.currency || "eur") || existingPayment.method !== params.method) {
+        throw new Error("initial_payment_association_conflict");
+      }
       // A delayed checkout/invoice event cannot turn a refunded (or currently
       // refunding) charge back into a paid membership.
       if (existingPayment.status === "REFUNDED" || existingPayment.refundRequestedAt) {
@@ -226,7 +235,7 @@ async function finalizeStripeManagedPayment(params: {
     });
 
     if (!submission) {
-      return;
+      throw new Error("initial_payment_submission_unavailable");
     }
 
     if (
@@ -259,7 +268,7 @@ async function finalizeStripeManagedPayment(params: {
       publishedTownSlug = publishedBusiness?.town.slug ?? "";
       if (publishedBusiness) {
         publishedBusinessId = publishedBusiness.id;
-        await ensureInitialBusinessMembership({
+        const membership = await ensureInitialBusinessMembership({
           businessId: publishedBusiness.id,
           db: tx,
           paidAt: finalizedAt,
@@ -270,13 +279,14 @@ async function finalizeStripeManagedPayment(params: {
           stripeSubscriptionId: params.stripeSubscriptionId,
           stripeSubscriptionStatus: params.stripeSubscriptionStatus,
         });
+        if (!membership) throw new Error("initial_payment_membership_unavailable");
       }
     } else {
       publishedBusinessSlug = submission.createdBusiness?.slug ?? "";
       publishedTownSlug = submission.createdBusiness?.town.slug ?? "";
       if (submission.createdBusiness) {
         publishedBusinessId = submission.createdBusiness.id;
-        await ensureInitialBusinessMembership({
+        const membership = await ensureInitialBusinessMembership({
           businessId: submission.createdBusiness.id,
           db: tx,
           paidAt: finalizedAt,
@@ -287,6 +297,7 @@ async function finalizeStripeManagedPayment(params: {
           stripeSubscriptionId: params.stripeSubscriptionId,
           stripeSubscriptionStatus: params.stripeSubscriptionStatus,
         });
+        if (!membership) throw new Error("initial_payment_membership_unavailable");
       }
     }
 
@@ -310,6 +321,9 @@ async function finalizeStripeManagedPayment(params: {
       data: { completedAt: finalizedAt, remindersStoppedAt: finalizedAt,
         otpCodeHash: null, verifiedSessionHash: null, verifiedSessionExpiresAt: null },
     });
+    if (!finalizedPaymentId || !publishedBusinessId) {
+      throw new Error("initial_payment_publication_incomplete");
+    }
   });
 
   if (refundReplay) {

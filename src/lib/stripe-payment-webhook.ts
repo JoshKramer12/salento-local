@@ -1,4 +1,5 @@
 import type { PaymentRecordMethod } from "@prisma/client";
+import { revalidatePath } from "next/cache";
 
 import { ensurePartnerCommissionForSubmission } from "@/lib/partner-ledger";
 import { attemptPartnerCommissionConfirmationForSubmission, ensurePartnerCommissionConfirmationDeliveryForSubmission } from "@/lib/partner-commission-confirmations";
@@ -33,6 +34,23 @@ type PaidSubmissionWebhookDependencies = {
   syncStripePaymentFromWebhook: typeof syncStripePaymentFromWebhook;
 };
 
+function revalidateInitialViewsAfterFinancialCommit(payment: {
+  publishedBusinessSlug: string;
+  publishedTownSlug: string;
+}) {
+  try {
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/businesses");
+    revalidatePath("/directory");
+    revalidatePath("/explore");
+    revalidatePath("/dashboard/earnings");
+    if (payment.publishedBusinessSlug) revalidatePath(`/businesses/${payment.publishedBusinessSlug}`);
+    if (payment.publishedTownSlug) revalidatePath(`/towns/${payment.publishedTownSlug}`);
+  } catch {
+    console.error("[stripe-webhook] initial payment cache revalidation unavailable");
+  }
+}
+
 /**
  * Authoritative paid-listing lifecycle. Payment/publication and commission are
  * persisted before notification. Owner email failures remain in a durable
@@ -65,12 +83,13 @@ export async function processPaidSubmissionWebhook(
     stripeLivemode: params.stripeLivemode,
     stripeSubscriptionId: params.stripeSubscriptionId,
     stripeSubscriptionStatus: params.stripeSubscriptionStatus,
+    revalidatePaths: false,
   });
   await ensureCommission({
     businessSubmissionId: params.businessSubmissionId,
     sourceEventId: params.stripeEventId,
     sourceEventType: params.eventType,
-  });
+  }, { revalidatePaths: () => revalidateInitialViewsAfterFinancialCommit(payment) });
   await (dependencies.ensurePartnerCommissionConfirmationDeliveryForSubmission ??
     ensurePartnerCommissionConfirmationDeliveryForSubmission)(params.businessSubmissionId);
   await (dependencies.attemptPartnerCommissionConfirmationForSubmission ??

@@ -384,7 +384,7 @@ test("Pay Later bank instructions survive continuation, email once, and stay pen
     assert.equal(await prisma.partnerCommissionConfirmationDelivery.count({ where: {
       commission: { businessSubmissionId: submission.id },
     } }), 0);
-    const event = { amountPaidCents: 10000, businessSubmissionId: submission.id,
+    const event = { amountPaidCents: 10000, businessSubmissionId: submission.id, method: "BANK_TRANSFER" as const,
       paymentIntentId: intentId, stripeEventId: `evt_bank_${submission.id}`, stripeLivemode: false,
       revalidatePaths: false };
     await syncStripePaymentFromWebhook(event);

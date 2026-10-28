@@ -96,6 +96,20 @@ test("a refund before email retry stops the pending purchase confirmation", asyn
   assert.equal(stopped.nextAttemptAt, null);
 });
 
+test("a withdrawn listing cannot receive its queued purchase confirmation", async () => {
+  const f = await fixture();
+  await ensurePurchaseConfirmationDeliveryForSubmission(f.submission.id);
+  await prisma.businessSubmission.update({ where: { id: f.submission.id }, data: { status: "REJECTED" } });
+  let sends = 0;
+  assert.equal(await attemptPurchaseConfirmationDeliveryForSubmission(f.submission.id, {
+    sendConfirmation: async () => { sends++; return true; },
+  }), "review");
+  assert.equal(sends, 0);
+  const row = await prisma.purchaseConfirmationDelivery.findUniqueOrThrow({ where: { businessSubmissionId: f.submission.id } });
+  assert.equal(row.failureMessage, "purchase_confirmation_no_longer_eligible");
+  assert.equal(row.nextAttemptAt, null);
+});
+
 test("email delivery is never backfilled for existing paid rows", async () => {
   const sql = readFileSync("prisma/migrations/20261028180000_webhook_processing_attempts/migration.sql", "utf8");
   assert.match(sql, /CREATE TABLE "PurchaseConfirmationDelivery"/);
