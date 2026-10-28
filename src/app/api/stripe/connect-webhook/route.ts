@@ -54,12 +54,17 @@ export async function POST(request: Request) {
   if (webhookLog.alreadyProcessed) {
     return NextResponse.json({ received: true, duplicate: true });
   }
+  if (webhookLog.inProgress) {
+    return NextResponse.json({ error: "webhook_processing_in_progress" }, { status: 503 });
+  }
+  const complete = (params: Omit<Parameters<typeof completeStripeWebhookProcessing>[0], "attemptCount">) =>
+    completeStripeWebhookProcessing({ ...params, attemptCount: webhookLog.attemptCount });
 
   try {
     if (event.type === "account.updated") {
       const account = event.data.object;
       await syncPartnerStripeAccountStatusByConnectedAccountId(account.id);
-      await completeStripeWebhookProcessing({
+      await complete({
         id: webhookLog.id,
         status: "PROCESSED",
       });
@@ -76,20 +81,21 @@ export async function POST(request: Request) {
         eventType: event.type,
         payoutId: payout.id,
       });
-      await completeStripeWebhookProcessing({
+      await complete({
         id: webhookLog.id,
         status: "PROCESSED",
       });
       return NextResponse.json({ received: true });
     }
 
-    await completeStripeWebhookProcessing({
+    await complete({
       id: webhookLog.id,
       status: "SKIPPED",
     });
   } catch (error) {
-    await completeStripeWebhookProcessing({
-      errorMessage: error instanceof Error ? error.message : "connect_webhook_processing_failed",
+    await complete({
+      errorMessage: error instanceof Error && /^[a-z][a-z0-9_]{2,100}$/.test(error.message)
+        ? error.message : "connect_webhook_processing_failed",
       id: webhookLog.id,
       status: "FAILED",
     });

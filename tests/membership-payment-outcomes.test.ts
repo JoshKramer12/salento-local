@@ -236,6 +236,9 @@ test("additive migration applies to existing paid records without backfilling ma
 test("a paid renewal webhook acknowledges email failure and duplicate delivery without changing paid state", async () => {
   const f = await fixture();
   await prisma.businessMembership.update({ where: { id: f.membership.id }, data: { originatingPartnerUserId: null } });
+  await prisma.payment.create({ data: { businessId: f.business.id, businessSubmissionId: f.submission.id,
+    userId: f.owner.id, method: "STRIPE_CHECKOUT", amountCents: 10000,
+    purpose: "ANNUAL_RENEWAL", status: "PENDING_PAYMENT", stripeCheckoutSessionId: `cs_${f.business.id}` } });
   const secret = "whsec_local_outcome_test";
   const old = { stripe: process.env.STRIPE_SECRET_KEY, publishable: process.env.STRIPE_PUBLISHABLE_KEY, webhook: process.env.STRIPE_WEBHOOK_SECRET,
     host: process.env.SMTP_HOST, port: process.env.SMTP_PORT, resend: process.env.RESEND_API_KEY };
@@ -246,7 +249,9 @@ test("a paid renewal webhook acknowledges email failure and duplicate delivery w
   process.env.SMTP_PORT = "1";
   delete process.env.RESEND_API_KEY;
   const event = { id: `evt_${f.business.id}`, type: "checkout.session.completed", livemode: false,
-    data: { object: { id: `cs_${f.business.id}`, amount_total: 10000, metadata: { paymentFlow: "MEMBERSHIP_RENEWAL", businessId: f.business.id },
+    data: { object: { id: `cs_${f.business.id}`, amount_total: 10000, currency: "eur", payment_status: "paid",
+      metadata: { paymentFlow: "MEMBERSHIP_RENEWAL", businessId: f.business.id,
+        businessSubmissionId: f.submission.id, userId: f.owner.id },
       payment_intent: `pi_webhook_${f.business.id}`, customer: null, subscription: null } } };
   const payload = JSON.stringify(event);
   const signature = Stripe.webhooks.generateTestHeaderString({ payload, secret });

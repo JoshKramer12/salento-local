@@ -26,6 +26,15 @@ test("the paid Stripe webhook persists payment and commission before sending the
       calls.push("partner-delivery");
       return "delivery_123";
     },
+    ensurePurchaseConfirmationDeliveryForSubmission: async () => {
+      calls.push("owner-delivery");
+      return "owner-delivery_123";
+    },
+    attemptPurchaseConfirmationDeliveryForSubmission: async (_id, options) => {
+      calls.push("owner-attempt");
+      await options.sendConfirmation!({ locale: "it", submissionId: "submission_123" });
+      return "accepted";
+    },
     attemptPartnerCommissionConfirmationForSubmission: async () => {
       calls.push("partner-email");
       return "accepted";
@@ -44,23 +53,27 @@ test("the paid Stripe webhook persists payment and commission before sending the
     },
   });
 
-  assert.deepEqual(calls, ["payment", "commission", "partner-delivery", "partner-email", "email:it:submission_123"]);
+  assert.deepEqual(calls, ["payment", "commission", "partner-delivery", "partner-email", "owner-delivery", "owner-attempt", "email:it:submission_123"]);
   assert.equal(result.ownerEmailSent, true);
   assert.equal(result.payment.paymentReceived, true);
 });
 
-test("an owner-email failure is retryable without undoing payment or commission", async () => {
+test("an owner-email failure is tracked separately without undoing payment or commission", async () => {
   let paymentPersisted = false;
   let commissionPersisted = false;
 
-  await assert.rejects(
-    processPaidSubmissionWebhook(paidCheckoutEvent, {
+  const result = await processPaidSubmissionWebhook(paidCheckoutEvent, {
       ensurePartnerCommissionForSubmission: async () => {
         commissionPersisted = true;
         return null;
       },
       ensurePartnerCommissionConfirmationDeliveryForSubmission: async () => "delivery_123",
       attemptPartnerCommissionConfirmationForSubmission: async () => "accepted",
+      ensurePurchaseConfirmationDeliveryForSubmission: async () => "owner-delivery_123",
+      attemptPurchaseConfirmationDeliveryForSubmission: async (_id, options) => {
+        await assert.rejects(options.sendConfirmation!({ locale: "it", submissionId: "submission_123" }), /email_provider_unavailable/);
+        return "pending";
+      },
       sendPurchaseConfirmationForSubmission: async () => {
         throw new Error("email_provider_unavailable");
       },
@@ -72,10 +85,9 @@ test("an owner-email failure is retryable without undoing payment or commission"
           publishedTownSlug: "lecce",
         };
       },
-    }),
-    /email_provider_unavailable/,
-  );
+    });
 
   assert.equal(paymentPersisted, true);
   assert.equal(commissionPersisted, true);
+  assert.equal(result.ownerEmailSent, false);
 });

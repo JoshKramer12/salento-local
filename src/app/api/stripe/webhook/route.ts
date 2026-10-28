@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { ensurePartnerRefundRepurchaseCommissionForPayment, ensurePartnerRenewalCommissionForPayment, reversePartnerCommissionForPayment } from "@/lib/partner-ledger";
 import { assertStripeObjectMode, getStripe, isPublicFinancialHold } from "@/lib/stripe";
 import { markStripePaymentRefunded } from "@/lib/stripe-payment-sync";
@@ -16,6 +17,25 @@ import { EMAIL_MANUAL_PAYMENT_FLOW, getVerifiedManualElementPaymentIntent, NO_EM
 import { getVerifiedInitialSubscriptionInvoice, MEMBERSHIP_SUBSCRIPTION_FLOW } from "@/lib/embedded-subscription";
 import { MEMBERSHIP_ELEMENT_FLOW, syncMembershipElementPayment } from "@/lib/membership-element-payment";
 import { reconcileInitialRefund } from "@/lib/self-service-refunds";
+import { LISTING_OFFER } from "@/lib/listing-offer";
+import { verifyBankRenewalAssociation, verifyCheckoutRenewalAssociation } from "@/lib/stripe-renewal-webhook";
+
+function safeWebhookError(error: unknown) {
+  const message = error instanceof Error ? error.message : "webhook_processing_failed";
+  return /^[a-z][a-z0-9_]{2,100}$/.test(message) ? message : "webhook_processing_failed";
+}
+
+function revalidatePartnerViewsAfterFinancialCommit() {
+  try {
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/businesses");
+    revalidatePath("/dashboard/earnings");
+    revalidatePath("/dashboard/admin/users");
+  } catch {
+    // A cache failure must not turn a committed payment into a failed webhook.
+    console.error("[stripe-webhook] partner cache revalidation unavailable");
+  }
+}
 
 export async function POST(request: Request) {
   const signature = request.headers.get("stripe-signature");
@@ -59,10 +79,15 @@ export async function POST(request: Request) {
   if (webhookLog.alreadyProcessed) {
     return NextResponse.json({ received: true, duplicate: true });
   }
+  if (webhookLog.inProgress) {
+    return NextResponse.json({ error: "webhook_processing_in_progress" }, { status: 503 });
+  }
+  const complete = (params: Omit<Parameters<typeof completeStripeWebhookProcessing>[0], "attemptCount">) =>
+    completeStripeWebhookProcessing({ ...params, attemptCount: webhookLog.attemptCount });
 
   if (isPublicFinancialHold() && !event.livemode &&
     ["checkout.session.completed", "invoice.paid", "payment_intent.succeeded"].includes(event.type)) {
-    await completeStripeWebhookProcessing({ id: webhookLog.id, status: "SKIPPED" });
+    await complete({ id: webhookLog.id, status: "SKIPPED" });
     return NextResponse.json({ received: true, sandboxFinancialHold: true });
   }
 
@@ -75,6 +100,7 @@ export async function POST(request: Request) {
       const businessId = session.metadata?.businessId?.trim() || null;
 
       if (paymentFlow === "MEMBERSHIP_RENEWAL") {
+        await verifyCheckoutRenewalAssociation(session);
         const result = await prisma.$transaction((tx) => finalizeMembershipRenewalPayment({
           amountPaidCents: session.amount_total ?? 0,
           automaticRenewal: session.metadata?.automaticRenewal === "true",
@@ -89,17 +115,18 @@ export async function POST(request: Request) {
           stripeCustomerId: typeof session.customer === "string" ? session.customer : null,
           subscriptionId: typeof session.subscription === "string" ? session.subscription : null,
         }));
+        if (!result?.paymentId) throw new Error("renewal_membership_unavailable");
         if (result?.paymentId) {
-          await ensurePartnerRenewalCommissionForPayment({ paymentId: result.paymentId, sourceEventId: event.id, sourceEventType: event.type });
-          await ensurePartnerRefundRepurchaseCommissionForPayment({ paymentId: result.paymentId, sourceEventId: event.id, sourceEventType: event.type });
+          await ensurePartnerRenewalCommissionForPayment({ paymentId: result.paymentId, sourceEventId: event.id, sourceEventType: event.type }, { revalidatePaths: revalidatePartnerViewsAfterFinancialCommit });
+          await ensurePartnerRefundRepurchaseCommissionForPayment({ paymentId: result.paymentId, sourceEventId: event.id, sourceEventType: event.type }, { revalidatePaths: revalidatePartnerViewsAfterFinancialCommit });
           await attemptMembershipPaymentOutcomeDelivery(result.paymentId);
         }
-        await completeStripeWebhookProcessing({ id: webhookLog.id, status: result ? "PROCESSED" : "FAILED" });
+        await complete({ id: webhookLog.id, status: "PROCESSED" });
         return NextResponse.json({ received: true });
       }
 
       if (!businessSubmissionId || !userId) {
-        await completeStripeWebhookProcessing({
+        await complete({
           errorMessage: "missing_checkout_metadata",
           id: webhookLog.id,
           status: "FAILED",
@@ -133,7 +160,7 @@ export async function POST(request: Request) {
         stripeSubscriptionId: subscriptionId,
         stripeSubscriptionStatus: subscription?.status ?? null,
       });
-      await completeStripeWebhookProcessing({
+      await complete({
         id: webhookLog.id,
         status: "PROCESSED",
       });
@@ -157,7 +184,7 @@ export async function POST(request: Request) {
           }
           const result = await syncMembershipElementPayment(payment.id, { eventId: event.id, eventType: event.type });
           if (!result) throw new Error("membership_element_invoice_not_confirmed");
-          await completeStripeWebhookProcessing({ id: webhookLog.id, status: "PROCESSED" });
+          await complete({ id: webhookLog.id, status: "PROCESSED" });
           return NextResponse.json({ received: true });
         }
         const exactPayment = await prisma.payment.findUnique({
@@ -185,14 +212,14 @@ export async function POST(request: Request) {
             stripeSubscriptionStatus: verified.subscription.status,
             stripeCancelAtPeriodEnd: verified.subscription.cancel_at_period_end,
           });
-          await completeStripeWebhookProcessing({ id: webhookLog.id, status: "PROCESSED" });
+          await complete({ id: webhookLog.id, status: "PROCESSED" });
           return NextResponse.json({ received: true });
         }
       }
       // The first invoice belongs to the Checkout purchase that already made
       // the initial 365-day membership. Only cycle invoices buy a new term.
       if (!subscriptionId || invoice.status !== "paid" || invoice.billing_reason === "subscription_create") {
-        await completeStripeWebhookProcessing({ id: webhookLog.id, status: "SKIPPED" });
+        await complete({ id: webhookLog.id, status: "SKIPPED" });
         return NextResponse.json({ received: true });
       }
       // Stripe's invoice.paid snapshot omits the `payments` collection. Read
@@ -208,6 +235,12 @@ export async function POST(request: Request) {
         paidIntent.currency !== currentInvoice.currency || paidIntent.customer !== customerId) {
         throw new Error("renewal_invoice_payment_identity_unavailable");
       }
+      const memberships = await prisma.businessMembership.findMany({
+        where: { stripeSubscriptionId: subscriptionId }, select: { stripeCustomerId: true }, take: 2,
+      });
+      if (memberships.length !== 1 || memberships[0].stripeCustomerId !== customerId) {
+        throw new Error("renewal_invoice_membership_association_missing");
+      }
       const result = await prisma.$transaction((tx) => finalizeMembershipRenewalPayment({
         amountPaidCents: currentInvoice.amount_paid,
         db: tx,
@@ -219,12 +252,13 @@ export async function POST(request: Request) {
         stripeLivemode: event.livemode,
         subscriptionId,
       }));
+      if (!result?.paymentId) throw new Error("renewal_invoice_membership_unavailable");
       if (result?.paymentId) {
-        await ensurePartnerRenewalCommissionForPayment({ paymentId: result.paymentId, sourceEventId: event.id, sourceEventType: event.type });
-        await ensurePartnerRefundRepurchaseCommissionForPayment({ paymentId: result.paymentId, sourceEventId: event.id, sourceEventType: event.type });
+        await ensurePartnerRenewalCommissionForPayment({ paymentId: result.paymentId, sourceEventId: event.id, sourceEventType: event.type }, { revalidatePaths: revalidatePartnerViewsAfterFinancialCommit });
+        await ensurePartnerRefundRepurchaseCommissionForPayment({ paymentId: result.paymentId, sourceEventId: event.id, sourceEventType: event.type }, { revalidatePaths: revalidatePartnerViewsAfterFinancialCommit });
         await attemptMembershipPaymentOutcomeDelivery(result.paymentId);
       }
-      await completeStripeWebhookProcessing({ id: webhookLog.id, status: "PROCESSED" });
+      await complete({ id: webhookLog.id, status: "PROCESSED" });
       return NextResponse.json({ received: true });
     }
 
@@ -236,7 +270,7 @@ export async function POST(request: Request) {
         const result = await recordMembershipInvoiceFailure(invoice.id, subscriptionId);
         if (result === "recorded") await attemptMembershipFailedPaymentDelivery(invoice.id);
       }
-      await completeStripeWebhookProcessing({ id: webhookLog.id, status: "PROCESSED" });
+      await complete({ id: webhookLog.id, status: "PROCESSED" });
       return NextResponse.json({ received: true });
     }
 
@@ -248,14 +282,14 @@ export async function POST(request: Request) {
       if (paymentFlow === MEMBERSHIP_ELEMENT_FLOW) {
         const result = await syncMembershipElementPayment(paymentIntent.metadata.paymentId, { eventId: event.id, eventType: event.type });
         if (!result) throw new Error("membership_element_intent_not_confirmed");
-        await completeStripeWebhookProcessing({ id: webhookLog.id, status: "PROCESSED" });
+        await complete({ id: webhookLog.id, status: "PROCESSED" });
         return NextResponse.json({ received: true });
       }
 
       if (paymentFlow === NO_EMAIL_PAYMENT_FLOW || paymentFlow === EMAIL_MANUAL_PAYMENT_FLOW) {
         const payment = await getVerifiedManualElementPaymentIntent(paymentIntent);
         if (!payment || paymentIntent.amount_received !== payment.amountCents) {
-          await completeStripeWebhookProcessing({
+          await complete({
             errorMessage: "invalid_manual_element_payment_intent",
             id: webhookLog.id,
             status: "FAILED",
@@ -272,11 +306,16 @@ export async function POST(request: Request) {
           stripeEventId: event.id,
           stripeLivemode: event.livemode,
         });
-        await completeStripeWebhookProcessing({ id: webhookLog.id, status: "PROCESSED" });
+        await complete({ id: webhookLog.id, status: "PROCESSED" });
         return NextResponse.json({ received: true });
       }
 
-      if (businessSubmissionId && paymentFlow === "MEMBERSHIP_RENEWAL_BANK_TRANSFER") {
+      if (paymentFlow === "MEMBERSHIP_RENEWAL_BANK_TRANSFER") {
+        if (paymentIntent.status !== "succeeded" || paymentIntent.amount_received !== LISTING_OFFER.renewalPriceCents ||
+          paymentIntent.currency !== "eur" || !paymentIntent.payment_method_types?.includes("customer_balance")) {
+          throw new Error("renewal_bank_transfer_payment_unverified");
+        }
+        await verifyBankRenewalAssociation(paymentIntent);
         const result = await prisma.$transaction((tx) => finalizeMembershipRenewalPayment({
           amountPaidCents: paymentIntent.amount_received || paymentIntent.amount || 0,
           businessId: paymentIntent.metadata?.businessId?.trim() || null,
@@ -287,17 +326,18 @@ export async function POST(request: Request) {
           paymentIntentId: paymentIntent.id,
           stripeLivemode: event.livemode,
         }));
+        if (!result?.paymentId) throw new Error("renewal_membership_unavailable");
         if (result?.paymentId) {
-          await ensurePartnerRenewalCommissionForPayment({ paymentId: result.paymentId, sourceEventId: event.id, sourceEventType: event.type });
-          await ensurePartnerRefundRepurchaseCommissionForPayment({ paymentId: result.paymentId, sourceEventId: event.id, sourceEventType: event.type });
+          await ensurePartnerRenewalCommissionForPayment({ paymentId: result.paymentId, sourceEventId: event.id, sourceEventType: event.type }, { revalidatePaths: revalidatePartnerViewsAfterFinancialCommit });
+          await ensurePartnerRefundRepurchaseCommissionForPayment({ paymentId: result.paymentId, sourceEventId: event.id, sourceEventType: event.type }, { revalidatePaths: revalidatePartnerViewsAfterFinancialCommit });
           await attemptMembershipPaymentOutcomeDelivery(result.paymentId);
         }
-        await completeStripeWebhookProcessing({ id: webhookLog.id, status: result ? "PROCESSED" : "FAILED" });
+        await complete({ id: webhookLog.id, status: "PROCESSED" });
         return NextResponse.json({ received: true });
       }
 
       if (!businessSubmissionId || paymentFlow !== "BANK_TRANSFER") {
-        await completeStripeWebhookProcessing({
+        await complete({
           id: webhookLog.id,
           status: "SKIPPED",
         });
@@ -315,7 +355,7 @@ export async function POST(request: Request) {
         stripeEventId: event.id,
         stripeLivemode: event.livemode,
       });
-      await completeStripeWebhookProcessing({
+      await complete({
         id: webhookLog.id,
         status: "PROCESSED",
       });
@@ -330,7 +370,7 @@ export async function POST(request: Request) {
       const selfService = chargeRefunds.find((refund) => refund.metadata?.salentoRefundType === "initial_membership_14_day");
       if (selfService) {
         await reconcileInitialRefund(selfService, event.id);
-        await completeStripeWebhookProcessing({ id: webhookLog.id, status: "PROCESSED" });
+        await complete({ id: webhookLog.id, status: "PROCESSED" });
         return NextResponse.json({ received: true });
       }
 
@@ -338,13 +378,14 @@ export async function POST(request: Request) {
       // it only to a durable timely support request for this exact payment.
       for (const refund of chargeRefunds) {
         if (await reconcileInitialRefund(refund, event.id)) {
-          await completeStripeWebhookProcessing({ id: webhookLog.id, status: "PROCESSED" });
+          await complete({ id: webhookLog.id, status: "PROCESSED" });
           return NextResponse.json({ received: true });
         }
       }
 
       if (typeof charge.payment_intent === "string") {
         await markStripePaymentRefunded({
+          revalidatePaths: false,
           revokeMembershipEntitlement: charge.amount_refunded >= charge.amount,
           stripePaymentIntentId: charge.payment_intent,
         });
@@ -354,10 +395,10 @@ export async function POST(request: Request) {
           sourceEventId: event.id,
           stripeChargeId: charge.id,
           stripePaymentIntentId: charge.payment_intent,
-        });
+        }, { revalidatePaths: revalidatePartnerViewsAfterFinancialCommit });
       }
 
-      await completeStripeWebhookProcessing({
+      await complete({
         id: webhookLog.id,
         status: "PROCESSED",
       });
@@ -366,7 +407,7 @@ export async function POST(request: Request) {
 
     if (event.type === "refund.updated" || event.type === "refund.created" || event.type === "refund.failed") {
       const handled = await reconcileInitialRefund(event.data.object, event.id);
-      await completeStripeWebhookProcessing({ id: webhookLog.id, status: handled ? "PROCESSED" : "SKIPPED" });
+      await complete({ id: webhookLog.id, status: handled ? "PROCESSED" : "SKIPPED" });
       return NextResponse.json({ received: true });
     }
 
@@ -374,7 +415,7 @@ export async function POST(request: Request) {
       // A dispute can still be won. Commission reversal waits for Stripe's
       // authoritative `lost` outcome below rather than pre-emptively taking
       // back an otherwise valid acquisition or renewal commission.
-      await completeStripeWebhookProcessing({
+      await complete({
         id: webhookLog.id,
         status: "PROCESSED",
       });
@@ -391,6 +432,7 @@ export async function POST(request: Request) {
 
         if (typeof charge.payment_intent === "string") {
           await markStripePaymentRefunded({
+            revalidatePaths: false,
             revokeMembershipEntitlement: true,
             stripePaymentIntentId: charge.payment_intent,
           });
@@ -400,33 +442,33 @@ export async function POST(request: Request) {
             sourceEventId: event.id,
             stripeChargeId: charge.id,
             stripePaymentIntentId: charge.payment_intent,
-          });
+          }, { revalidatePaths: revalidatePartnerViewsAfterFinancialCommit });
         }
       }
 
-      await completeStripeWebhookProcessing({
+      await complete({
         id: webhookLog.id,
         status: "PROCESSED",
       });
       return NextResponse.json({ received: true });
     }
 
-    await completeStripeWebhookProcessing({
+    await complete({
       id: webhookLog.id,
       status: "SKIPPED",
     });
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "webhook_processing_failed";
+    const errorMessage = safeWebhookError(error);
     console.error("[stripe-webhook] processing failed", {
       errorMessage,
       eventType: event.type,
     });
-    await completeStripeWebhookProcessing({
+    await complete({
       errorMessage,
       id: webhookLog.id,
       status: "FAILED",
     });
-    throw error;
+    return NextResponse.json({ error: errorMessage }, { status: 503 });
   }
 
   return NextResponse.json({ received: true });

@@ -313,7 +313,13 @@ test("no-email authoritative webhook uses the existing payment, commission, and 
     ensurePartnerCommissionForSubmission: async () => { calls.push("commission"); return null; },
     ensurePartnerCommissionConfirmationDeliveryForSubmission: async () => { calls.push("partner_delivery"); return "delivery_test"; },
     attemptPartnerCommissionConfirmationForSubmission: async () => { calls.push("partner_notification"); return "accepted"; },
+    ensurePurchaseConfirmationDeliveryForSubmission: async () => { calls.push("owner_delivery"); return "owner_delivery_test"; },
+    attemptPurchaseConfirmationDeliveryForSubmission: async (_id, options) => {
+      calls.push("owner_attempt");
+      await options.sendConfirmation!({ locale: "it", submissionId: submission.id });
+      return "pending";
+    },
     sendPurchaseConfirmationForSubmission: async () => { calls.push("owner_notification"); return false; },
   });
-  assert.deepEqual(calls, ["payment_and_publication", "commission", "partner_delivery", "partner_notification", "owner_notification"]);
+  assert.deepEqual(calls, ["payment_and_publication", "commission", "partner_delivery", "partner_notification", "owner_delivery", "owner_attempt", "owner_notification"]);
 });

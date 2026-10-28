@@ -3,6 +3,7 @@ import type { PaymentRecordMethod } from "@prisma/client";
 import { ensurePartnerCommissionForSubmission } from "@/lib/partner-ledger";
 import { attemptPartnerCommissionConfirmationForSubmission, ensurePartnerCommissionConfirmationDeliveryForSubmission } from "@/lib/partner-commission-confirmations";
 import { sendPurchaseConfirmationForSubmission } from "@/lib/receipts";
+import { attemptPurchaseConfirmationDeliveryForSubmission, ensurePurchaseConfirmationDeliveryForSubmission } from "@/lib/purchase-confirmation-delivery";
 import { syncStripePaymentFromWebhook } from "@/lib/stripe-payment-sync";
 
 type PaidSubmissionWebhookParams = {
@@ -27,13 +28,15 @@ type PaidSubmissionWebhookDependencies = {
   ensurePartnerCommissionConfirmationDeliveryForSubmission: typeof ensurePartnerCommissionConfirmationDeliveryForSubmission;
   ensurePartnerCommissionForSubmission: typeof ensurePartnerCommissionForSubmission;
   sendPurchaseConfirmationForSubmission: typeof sendPurchaseConfirmationForSubmission;
+  ensurePurchaseConfirmationDeliveryForSubmission: typeof ensurePurchaseConfirmationDeliveryForSubmission;
+  attemptPurchaseConfirmationDeliveryForSubmission: typeof attemptPurchaseConfirmationDeliveryForSubmission;
   syncStripePaymentFromWebhook: typeof syncStripePaymentFromWebhook;
 };
 
 /**
  * Authoritative paid-listing lifecycle. Payment/publication and commission are
- * persisted before notification. If notification fails, the webhook fails and
- * can retry delivery without rolling back or duplicating the persisted work.
+ * persisted before notification. Owner email failures remain in a durable
+ * delivery record and do not invalidate completed financial processing.
  */
 export async function processPaidSubmissionWebhook(
   params: PaidSubmissionWebhookParams,
@@ -72,10 +75,12 @@ export async function processPaidSubmissionWebhook(
     ensurePartnerCommissionConfirmationDeliveryForSubmission)(params.businessSubmissionId);
   await (dependencies.attemptPartnerCommissionConfirmationForSubmission ??
     attemptPartnerCommissionConfirmationForSubmission)(params.businessSubmissionId);
-  const ownerEmailSent = await sendOwnerEmail({
-    locale: "it",
-    submissionId: params.businessSubmissionId,
-  });
+  const deliveryId = await (dependencies.ensurePurchaseConfirmationDeliveryForSubmission ??
+    ensurePurchaseConfirmationDeliveryForSubmission)(params.businessSubmissionId);
+  const ownerEmailSent = deliveryId ? (await (dependencies.attemptPurchaseConfirmationDeliveryForSubmission ??
+    attemptPurchaseConfirmationDeliveryForSubmission)(params.businessSubmissionId, {
+      sendConfirmation: sendOwnerEmail,
+    })) === "accepted" : false;
 
   return { ownerEmailSent, payment };
 }
