@@ -208,6 +208,7 @@ enum StripeWebhookEndpointType {
 }
 
 enum StripeWebhookProcessingStatus {
+  PROCESSING
   PROCESSED
   SKIPPED
   FAILED
@@ -508,6 +509,24 @@ model MembershipPaymentOutcomeDelivery {
   @@index([membershipId])
 }
 
+// Created only for new paid initial submissions. Old payments are never
+// backfilled into an automatic email retry.
+model PurchaseConfirmationDelivery {
+  id                   String   @id @default(cuid())
+  businessSubmissionId String   @unique
+  attemptedAt          DateTime?
+  firstAttemptedAt     DateTime?
+  nextAttemptAt        DateTime? @default(now())
+  acceptedAt           DateTime?
+  attemptCount         Int      @default(0)
+  failureMessage       String?
+  businessSubmission   BusinessSubmission @relation(fields: [businessSubmissionId], references: [id], onDelete: Cascade)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([acceptedAt, nextAttemptAt])
+}
+
 // Created only for a current failed Stripe invoice. Existing invoices are not
 // backfilled, so a migration cannot schedule historical failure notices.
 model MembershipFailedPaymentDelivery {
@@ -658,6 +677,7 @@ model BusinessSubmission {
   automaticRenewalAtAcceptance Boolean?
   contractualEmail   String?
   purchaseConfirmationSentAt DateTime?
+  purchaseConfirmationDelivery PurchaseConfirmationDelivery?
   photoUrls          Json?
   paymentMethod      PaymentMethod?
   businessPriceCents Int               @default(10000)
@@ -1010,6 +1030,7 @@ model StripeWebhookEvent {
   stripeAccountId       String?
   livemode              Boolean                      @default(false)
   status                StripeWebhookProcessingStatus
+  attemptCount          Int                          @default(0)
   errorMessage          String?
   summary               Json?
   processedAt           DateTime?

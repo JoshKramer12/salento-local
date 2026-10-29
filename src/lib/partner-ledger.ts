@@ -864,7 +864,7 @@ export async function ensurePartnerCommissionForSubmission(params: {
   businessSubmissionId: string;
   sourceEventId: string;
   sourceEventType: string;
-}) {
+}, dependencies: { revalidatePaths?: () => void } = {}) {
   await prisma.$transaction(async (tx) => {
     const submission = await tx.businessSubmission.findUnique({
       where: {
@@ -978,7 +978,7 @@ export async function ensurePartnerCommissionForSubmission(params: {
     });
   });
 
-  revalidatePartnerLedgerPaths();
+  (dependencies.revalidatePaths ?? revalidatePartnerLedgerPaths)();
 }
 
 export async function reversePartnerCommissionForPayment(params: {

@@ -101,8 +101,15 @@ export async function finalizeMembershipRenewalPayment(params: {
   });
   if (existing) {
     const existingPayment = await params.db.payment.findUnique({
-      where: { id: existing.id }, select: { status: true, purpose: true, refundRequestedAt: true, stripeLivemode: true },
+      where: { id: existing.id }, select: { businessId: true, businessSubmissionId: true,
+        amountCents: true, currency: true, status: true, purpose: true,
+        refundRequestedAt: true, stripeLivemode: true },
     });
+    if (existingPayment?.businessId !== membership.businessId ||
+      existingPayment.businessSubmissionId !== membership.business.submissions[0].id ||
+      existingPayment.amountCents !== params.amountPaidCents || existingPayment.currency !== "eur") {
+      throw new Error("renewal_payment_association_conflict");
+    }
     if (existingPayment?.stripeLivemode != null && params.stripeLivemode != null &&
       existingPayment.stripeLivemode !== params.stripeLivemode) throw new Error("stripe_payment_mode_mismatch");
     if (existingPayment?.status === "PAID" && !existingPayment.refundRequestedAt) {

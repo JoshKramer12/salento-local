@@ -169,7 +169,9 @@ test("a late renewal webhook cannot restore a refunded or refunding payment", as
     let created = 0;
     const paymentModel = store.db.payment as Record<string, unknown>;
     paymentModel.findFirst = async (args: { where: { OR?: unknown } }) => args.where.OR ? { id: "old-payment" } : null;
-    paymentModel.findUnique = async () => ({ status, purpose: "INITIAL_MEMBERSHIP", refundRequestedAt: status === "PAID" ? addUtcDays(paidAt, 7) : null });
+    paymentModel.findUnique = async () => ({ businessId: "business-1", businessSubmissionId: "submission-1",
+      amountCents: 10000, currency: "eur", status, purpose: "INITIAL_MEMBERSHIP",
+      refundRequestedAt: status === "PAID" ? addUtcDays(paidAt, 7) : null });
     paymentModel.update = async () => { updates++; return {}; };
     paymentModel.create = async () => { created++; return { id: "unexpected" }; };
     const result = await finalizeMembershipRenewalPayment({ amountPaidCents: 10000, businessId: "business-1", db: store.db as never, method: "STRIPE_CHECKOUT", paidAt: addUtcDays(paidAt, 60), paymentIntentId: "pi-old" });
