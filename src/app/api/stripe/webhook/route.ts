@@ -19,6 +19,7 @@ import { MEMBERSHIP_ELEMENT_FLOW, syncMembershipElementPayment } from "@/lib/mem
 import { reconcileInitialRefund } from "@/lib/self-service-refunds";
 import { LISTING_OFFER } from "@/lib/listing-offer";
 import { verifyBankRenewalAssociation, verifyCheckoutRenewalAssociation } from "@/lib/stripe-renewal-webhook";
+import { getHistoricalWebhookDisposition } from "@/lib/historical-webhook-quarantine";
 
 function safeWebhookError(error: unknown) {
   const message = error instanceof Error ? error.message : "webhook_processing_failed";
@@ -63,6 +64,26 @@ export async function POST(request: Request) {
     assertStripeObjectMode(event.livemode);
   } catch {
     return NextResponse.json({ error: "stripe_payment_mode_mismatch" }, { status: 400 });
+  }
+
+  let historicalDisposition;
+  try {
+    historicalDisposition = await getHistoricalWebhookDisposition(event, stripe);
+  } catch {
+    // If the account cannot be verified, leave the historical row untouched.
+    return NextResponse.json({ error: "historical_webhook_verification_unavailable" }, { status: 503 });
+  }
+  if (historicalDisposition === "identity_conflict") {
+    return NextResponse.json({ error: "historical_webhook_identity_conflict" }, { status: 409 });
+  }
+  if (historicalDisposition === "historical_processing_in_progress") {
+    // A worker may already have committed side effects. Require review rather
+    // than taking over a stale historical claim automatically.
+    return NextResponse.json({ error: "historical_webhook_processing_requires_review" }, { status: 503 });
+  }
+  if (historicalDisposition === "reconciled_no_replay") {
+    console.info("[stripe-webhook] reconciled historical event suppressed", { eventId: event.id });
+    return NextResponse.json({ received: true, historicalDisposition: "RECONCILED_NO_REPLAY" });
   }
 
   const webhookLog = await beginStripeWebhookProcessing({
