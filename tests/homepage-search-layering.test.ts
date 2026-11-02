@@ -30,3 +30,8 @@ test("homepage category cards use all real directory routes and the approved col
     assert.match(homepage, new RegExp(`(?:"${slug}"|${slug}): "${color}"`));
   }
 });
+
+test("the homepage removes Popular shortcuts and keeps the business card inside its image", () => {
+  assert.doesNotMatch(homepage, /home-popular|popular: "Popular:|popular: "Popolari:/);
+  assert.match(styles, /\.home-listing-card\s*\{[^}]*left:1\.5rem; right:1\.5rem;/);
+});

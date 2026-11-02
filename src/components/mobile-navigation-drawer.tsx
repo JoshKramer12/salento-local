@@ -101,7 +101,7 @@ export function MobileNavigationDrawer({
         logout: "Esci",
         settings: "Impostazioni",
         support: "Assistenza",
-        townsAndLocalities: "Comuni e localita",
+        townsAndLocalities: "Comuni e costa",
       }
     : {
         account: "Your account",
@@ -115,7 +115,7 @@ export function MobileNavigationDrawer({
         logout: "Log out",
         settings: "Settings",
         support: "Support",
-        townsAndLocalities: "Towns & localities",
+        townsAndLocalities: "Towns & coast",
       };
   const displayName = viewer?.name?.trim() || viewer?.username.trim() || "";
   const initial = displayName.charAt(0).toUpperCase() || "?";

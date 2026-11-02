@@ -69,3 +69,12 @@ test("owner headers defer language selection to Settings while visitor and Partn
   );
   assert.match(mobileDrawer, /viewer\?\.role !== "BUSINESS_OWNER"[\s\S]*<LanguageToggle locale=\{locale\} \/>/);
 });
+
+test("the public header restores Explore and keeps town and locality destinations", () => {
+  const header = readFileSync("src/components/site-header.tsx", "utf8");
+  assert.match(header, /isPublicSitePath\(pathname\)/);
+  assert.match(header, /<HardNavigationLink href="\/explore"[^>]*>\{copy\.explore\}<\/HardNavigationLink>/);
+  assert.match(header, /<details className="home-nav-places">[\s\S]*href="\/towns"[\s\S]*href="\/localities"/);
+  assert.match(header, /<SearchAutocomplete locale=\{locale\} placeholder=\{copy\.searchPlaceholder\} searchPath="\/directory" variant="header"/);
+  assert.match(header, /<NotificationBadge count=\{notificationCount\} className="home-menu-badge" \/>/);
+});

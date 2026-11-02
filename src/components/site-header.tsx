@@ -19,6 +19,7 @@ import {
 import { SearchAutocomplete } from "@/components/search-autocomplete";
 import { getDesktopPartnerAddBusinessAction } from "@/lib/account-navigation";
 import type { Locale } from "@/lib/i18n";
+import { isPublicSitePath } from "@/lib/public-site-path";
 
 type HeaderViewer = {
   name?: string | null;
@@ -100,28 +101,39 @@ export function SiteHeader({ locale, notificationCount = 0, viewer }: SiteHeader
     };
   }, [closeMobileMenu]);
 
-  if (pathname === "/") {
+  if (isPublicSitePath(pathname)) {
     return <>
-      <header className="home-topbar">
-        <HardNavigationLink href="/" className="home-brand" ariaCurrent="true">
+      <header className={`home-topbar ${pathname === "/" ? "" : "home-topbar-interior"}`}>
+        <HardNavigationLink href="/" className="home-brand" ariaCurrent={pathname === "/" ? "true" : undefined}>
           <span className="home-brand-mark"><IconMapPin size={23} stroke={1.8} /></span>
-          <span>Salento<i>Local</i></span>
+          <span className="home-brand-wordmark">Salento<i>Local</i></span>
         </HardNavigationLink>
         <nav className="home-nav" aria-label={locale === "it" ? "Navigazione principale" : "Main navigation"}>
-          <HardNavigationLink href="/explore">{copy.discover}</HardNavigationLink>
-          <HardNavigationLink href="/towns">{locale === "it" ? "Comuni e costa" : "Towns & coast"}</HardNavigationLink>
+          <HardNavigationLink href="/" ariaCurrent={pathname === "/" ? "true" : undefined}>{copy.discover}</HardNavigationLink>
+          <details className="home-nav-places">
+            <summary aria-current={pathname.startsWith("/towns") || pathname.startsWith("/localities") ? "page" : undefined}>
+              {locale === "it" ? "Comuni e costa" : "Towns & coast"}<IconChevronDown size={16} />
+            </summary>
+            <div className="home-nav-places-menu">
+              <HardNavigationLink href="/towns">{copy.townsAndLocalities}</HardNavigationLink>
+              <HardNavigationLink href="/localities">{copy.localities}</HardNavigationLink>
+            </div>
+          </details>
+          <HardNavigationLink href="/explore" ariaCurrent={pathname === "/explore" ? "true" : undefined}>{copy.explore}</HardNavigationLink>
+          {viewer ? <HardNavigationLink href="/dashboard">{copy.dashboard}</HardNavigationLink> : null}
         </nav>
         <div className="home-header-actions">
           {viewer?.role !== "BUSINESS_OWNER" ? <LanguageToggle locale={locale} variant="compact" /> : null}
-          {viewer ? <AccountMenu locale={locale} user={viewer} /> : <HardNavigationLink className="home-header-login" href="/login">{copy.login}</HardNavigationLink>}
+          {viewer ? <div className="home-header-account"><AccountMenu locale={locale} user={viewer} /></div> : <HardNavigationLink className="home-header-login" href="/login">{copy.login}</HardNavigationLink>}
           {!viewer ? <HardNavigationLink className="home-header-earn" href="/earn">{copy.earn}</HardNavigationLink> : null}
           {desktopPartnerAddBusinessAction ? <HardNavigationLink className="home-header-business" href={desktopPartnerAddBusinessAction.href}>{desktopPartnerAddBusinessAction.label}</HardNavigationLink> : !viewer ? <HardNavigationLink className="home-header-business" href="/signup/business">{locale === "it" ? "Inserisci la tua attività" : "List your business"}</HardNavigationLink> : null}
         </div>
         <button type="button" className="home-menu-button" aria-controls="mobile-navigation" aria-expanded={mobileOpen} aria-label={mobileOpen ? locale === "it" ? "Chiudi menu" : "Close menu" : locale === "it" ? "Apri menu" : "Open menu"} onClick={() => setMobileOpen((value) => !value)}>
+          {!mobileOpen && viewer && notificationCount > 0 ? <NotificationBadge count={notificationCount} className="home-menu-badge" /> : null}
           {mobileOpen ? <IconX size={24} /> : <IconMenu2 size={24} />}
-          {!mobileOpen && viewer && notificationCount > 0 ? <NotificationBadge count={notificationCount} className="absolute -right-1 -top-1 ring-2 ring-white" /> : null}
         </button>
       </header>
+      {pathname !== "/" ? <div className="home-header-search"><SearchAutocomplete locale={locale} placeholder={copy.searchPlaceholder} searchPath="/directory" variant="header" className="home-header-search-field" /></div> : null}
       <MobileNavigationDrawer locale={locale} notificationCount={notificationCount} onClose={closeMobileMenu} open={mobileOpen} viewer={viewer} />
     </>;
   }
@@ -252,7 +264,7 @@ export function SiteHeader({ locale, notificationCount = 0, viewer }: SiteHeader
               )}
               <button
                 type="button"
-                className="relative inline-flex h-10 w-10 items-center justify-center rounded-xl text-[var(--color-charcoal)] transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(42,98,87,0.32)]"
+                className="relative inline-flex h-10 min-w-10 items-center justify-center gap-1.5 rounded-xl px-1 text-[var(--color-charcoal)] transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(42,98,87,0.32)]"
                 aria-controls="mobile-navigation"
                 aria-expanded={mobileOpen}
                 aria-label={
@@ -266,13 +278,13 @@ export function SiteHeader({ locale, notificationCount = 0, viewer }: SiteHeader
                 }
                 onClick={() => setMobileOpen((value) => !value)}
               >
-                {mobileOpen ? <IconX size={23} /> : <IconMenu2 size={23} />}
                 {!mobileOpen && viewer && notificationCount > 0 ? (
                   <NotificationBadge
                     count={notificationCount}
-                    className="absolute -right-1 -top-1 ring-2 ring-[var(--color-cream)]"
+                    className="shrink-0"
                   />
                 ) : null}
+                {mobileOpen ? <IconX size={23} /> : <IconMenu2 size={23} />}
               </button>
             </div>
           </div>
