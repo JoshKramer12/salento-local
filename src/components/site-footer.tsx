@@ -17,7 +17,7 @@ export function SiteFooter({ locale }: SiteFooterProps) {
   const legalLinks = [[copy.terms, "/terms"], [copy.privacy, "/privacy"], ["Cookie Policy", "/cookies"]];
 
   return (
-    <footer className="mt-12 bg-[var(--primary)] text-white sm:mt-16">
+    <footer className="site-footer mt-12 bg-[var(--primary)] text-white sm:mt-16">
       <div className="shell px-4 py-10 sm:px-6 sm:py-12">
         <div className="grid grid-cols-2 gap-x-5 gap-y-7 sm:grid-cols-[1.3fr_repeat(4,minmax(0,1fr))] sm:gap-7">
           <div className="col-span-2 max-w-52 sm:col-span-1">

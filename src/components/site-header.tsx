@@ -89,19 +89,42 @@ export function SiteHeader({ locale, notificationCount = 0, viewer }: SiteHeader
 
   useEffect(() => {
     const desktopQuery = window.matchMedia("(min-width: 1280px)");
-
     function handleBreakpointChange(event: MediaQueryListEvent) {
       if (event.matches) closeMobileMenu();
     }
-
     desktopQuery.addEventListener("change", handleBreakpointChange);
     window.addEventListener("popstate", closeMobileMenu);
-
     return () => {
       desktopQuery.removeEventListener("change", handleBreakpointChange);
       window.removeEventListener("popstate", closeMobileMenu);
     };
   }, [closeMobileMenu]);
+
+  if (pathname === "/") {
+    return <>
+      <header className="home-topbar">
+        <HardNavigationLink href="/" className="home-brand" ariaCurrent="true">
+          <span className="home-brand-mark"><IconMapPin size={23} stroke={1.8} /></span>
+          <span>Salento<i>Local</i></span>
+        </HardNavigationLink>
+        <nav className="home-nav" aria-label={locale === "it" ? "Navigazione principale" : "Main navigation"}>
+          <HardNavigationLink href="/explore">{copy.discover}</HardNavigationLink>
+          <HardNavigationLink href="/towns">{locale === "it" ? "Comuni e costa" : "Towns & coast"}</HardNavigationLink>
+        </nav>
+        <div className="home-header-actions">
+          {viewer?.role !== "BUSINESS_OWNER" ? <LanguageToggle locale={locale} variant="compact" /> : null}
+          {viewer ? <AccountMenu locale={locale} user={viewer} /> : <HardNavigationLink className="home-header-login" href="/login">{copy.login}</HardNavigationLink>}
+          {!viewer ? <HardNavigationLink className="home-header-earn" href="/earn">{copy.earn}</HardNavigationLink> : null}
+          {desktopPartnerAddBusinessAction ? <HardNavigationLink className="home-header-business" href={desktopPartnerAddBusinessAction.href}>{desktopPartnerAddBusinessAction.label}</HardNavigationLink> : !viewer ? <HardNavigationLink className="home-header-business" href="/signup/business">{locale === "it" ? "Inserisci la tua attività" : "List your business"}</HardNavigationLink> : null}
+        </div>
+        <button type="button" className="home-menu-button" aria-controls="mobile-navigation" aria-expanded={mobileOpen} aria-label={mobileOpen ? locale === "it" ? "Chiudi menu" : "Close menu" : locale === "it" ? "Apri menu" : "Open menu"} onClick={() => setMobileOpen((value) => !value)}>
+          {mobileOpen ? <IconX size={24} /> : <IconMenu2 size={24} />}
+          {!mobileOpen && viewer && notificationCount > 0 ? <NotificationBadge count={notificationCount} className="absolute -right-1 -top-1 ring-2 ring-white" /> : null}
+        </button>
+      </header>
+      <MobileNavigationDrawer locale={locale} notificationCount={notificationCount} onClose={closeMobileMenu} open={mobileOpen} viewer={viewer} />
+    </>;
+  }
 
   return (
     <>

@@ -1,100 +1,175 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { IconArrowRight, IconBuildingStore, IconChevronRight, IconUsersGroup } from "@tabler/icons-react";
+import { IconArrowRight, IconBread, IconBuilding, IconCar, IconCoffee, IconCompass, IconMapPin, IconMedicalCross, IconShoppingBag, IconSparkles, IconTool, IconToolsKitchen2, IconUmbrella, IconWallet } from "@tabler/icons-react";
 
-import { CategoryIconGlyph } from "@/components/category-icon-glyph";
 import { HardNavigationLink } from "@/components/hard-navigation-link";
 import { SearchAutocomplete } from "@/components/search-autocomplete";
+import { getPublicBusinessMembershipWhere } from "@/lib/business-membership";
 import { getCurrentLocale } from "@/lib/locale";
-import { getHomePageData } from "@/lib/public-data";
-import { buildBusinessImage, buildBusinessPhoto, buildLocalityImage, buildTownImage, getCategoryLabel, homeCategorySlugs } from "@/lib/site";
+import { prisma } from "@/lib/prisma";
+import { getDirectoryCatalog, getHomePageData } from "@/lib/public-data";
+import { buildLocalityImage, buildTownImage, getCategoryLabel, homeCategorySlugs } from "@/lib/site";
 import { publicUrl } from "@/lib/seo";
 
 export const metadata: Metadata = { alternates: { canonical: publicUrl("/") } };
 
+const categoryAccent: Record<string, "coral" | "blue"> = {
+  restaurants: "coral", cafes: "blue", beaches: "coral", hotels: "blue", grocery: "coral",
+  mechanics: "blue", pharmacies: "coral", plumbers: "blue", bakeries: "coral", "things-to-do": "blue",
+};
+const categoryVisualIcons = {
+  restaurants: IconToolsKitchen2, cafes: IconCoffee, beaches: IconUmbrella, hotels: IconBuilding,
+  grocery: IconShoppingBag, mechanics: IconCar, pharmacies: IconMedicalCross, plumbers: IconTool,
+  bakeries: IconBread, "things-to-do": IconSparkles,
+};
+const preferredTownSlugs = ["otranto", "lecce", "porto-cesareo", "gallipoli"];
+const preferredLocalitySlugs = ["santa-maria-di-leuca", "porto-badisco", "torre-lapillo", "santa-cesarea-terme", "punta-prosciutto"];
+const categoryNames: Record<string, { en: string; it: string }> = {
+  restaurants: { en: "Restaurants", it: "Ristoranti" }, cafes: { en: "Bars & Cafés", it: "Bar e caffè" },
+  beaches: { en: "Beaches", it: "Spiagge" }, hotels: { en: "Hotels", it: "Hotel" },
+  grocery: { en: "Groceries", it: "Alimentari" }, mechanics: { en: "Mechanics", it: "Meccanici" },
+  pharmacies: { en: "Pharmacies", it: "Farmacie" }, plumbers: { en: "Plumbers", it: "Idraulici" },
+  bakeries: { en: "Bakeries", it: "Panifici" }, "things-to-do": { en: "Things to Do", it: "Cose da fare" },
+};
+
 export default async function HomePage() {
-  const locale = await getCurrentLocale();
-  const { categories, featuredBusinesses, featuredLocalities, featuredTowns } = await getHomePageData();
-  const categoryBySlug = new Map(categories.map((category) => [category.slug, category]));
-  const orderedCategories = homeCategorySlugs
-    .map((slug) => categoryBySlug.get(slug))
-    .filter((category): category is (typeof categories)[number] => Boolean(category));
-  const heroTown = featuredTowns.find((town) => town.slug === "otranto") ?? featuredTowns[0] ?? null;
-  const localities = Array.from(new Map(featuredLocalities.map((locality) => [locality.name, locality])).values()).slice(0, 6);
-  const towns = featuredTowns.slice(0, 4);
+  const [locale, home, catalog, selectedTowns, selectedLocalities] = await Promise.all([
+    getCurrentLocale(), getHomePageData(), getDirectoryCatalog(),
+    prisma.town.findMany({ where: { slug: { in: preferredTownSlugs } }, select: { id: true, slug: true, name: true, province: true, imageUrl: true, heroImageSeed: true } }),
+    prisma.locality.findMany({ where: { slug: { in: preferredLocalitySlugs }, businesses: { some: getPublicBusinessMembershipWhere() } }, select: { id: true, slug: true, name: true, imageUrl: true, heroImageSeed: true, town: { select: { name: true, slug: true, imageUrl: true, heroImageSeed: true } } } }),
+  ]);
+  const { categories, featuredLocalities, featuredTowns } = home;
   const copy = getCopy(locale);
-  const heroOverlay = "linear-gradient(180deg,rgba(24,29,27,0.4),rgba(24,29,27,0.48) 54%,rgba(24,29,27,0.68))";
+  const towns = [...new Map([...selectedTowns, ...featuredTowns].map((town) => [town.slug, town])).values()].sort((a, b) => {
+    const ai = preferredTownSlugs.indexOf(a.slug), bi = preferredTownSlugs.indexOf(b.slug);
+    return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+  }).slice(0, 4);
+  const localities = [...new Map([...selectedLocalities, ...featuredLocalities].map((locality) => [locality.slug, locality])).values()].sort((a, b) => {
+    const ai = preferredLocalitySlugs.indexOf(a.slug), bi = preferredLocalitySlugs.indexOf(b.slug);
+    return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+  }).slice(0, 5);
+  const townById = new Map(catalog.towns.map((town) => [town.id, town.name]));
+  const locations = [
+    ...catalog.towns.map((town) => ({ kind: "town" as const, label: town.name, slug: town.slug })),
+    ...catalog.localities.map((locality) => ({ kind: "locality" as const, label: `${locality.name}, ${townById.get(locality.townId) ?? "Salento"}`, slug: locality.slug })),
+  ];
+  const categoryBySlug = new Map(categories.map((category) => [category.slug, category]));
+  const businessHref = "/signup/business";
 
-  return (
-    <main className="homepage">
-      <section className="homepage-hero relative overflow-visible bg-cover bg-center" style={{ backgroundImage: heroTown ? `${heroOverlay}, url("${buildTownImage(heroTown, 1800)}")` : heroOverlay }}>
-        <div className="mx-auto flex min-h-[29rem] max-w-4xl flex-col items-center justify-center px-4 pb-24 pt-20 text-center sm:min-h-[32rem] sm:px-6 sm:pt-24">
-          <h1 className="font-serif text-5xl leading-[0.94] tracking-[-0.035em] text-white sm:text-6xl lg:text-7xl">{copy.heroTitle}<span className="mt-1 block font-normal italic text-white/90">{copy.heroTitleAccent}</span></h1>
-          <p className="mx-auto mt-5 max-w-2xl text-sm leading-6 text-white/85 sm:text-base">{copy.heroBody}</p>
-          <div className="mt-7 w-full max-w-2xl"><SearchAutocomplete buttonLabel={copy.searchButton} locale={locale} placeholder={copy.searchPlaceholder} searchPath="/directory" variant="hero" /></div>
+  return <div className="homepage">
+    <section className="home-hero">
+      <div className="home-hero-shade" />
+      <div className="home-hero-inner">
+        <div className="home-hero-copy">
+          <p className="home-eyebrow home-eyebrow-light"><IconCompass size={20} />{copy.heroKicker}</p>
+          <h1>{copy.heroTitle}<em>{copy.heroAccent}</em></h1>
+          <p className="home-hero-description">{copy.heroBody}</p>
+          <SearchAutocomplete buttonLabel={copy.search} locale={locale} locations={locations} locationPlaceholder={copy.nearPlaceholder} placeholder={copy.searchPlaceholder} searchPath="/directory" variant="home" />
+          <div className="home-popular"><span>{copy.popular}</span>
+            {["restaurants", "beaches", "pharmacies"].map((slug) => <Link key={slug} href={`/directory?category=${slug}`}>{getCategoryLabel(slug, slug, locale)}</Link>)}
+          </div>
         </div>
-      </section>
+        <aside className="home-partner-card">
+          <p className="home-partner-kicker"><span><IconWallet size={24} /></span>{copy.partnerKicker}</p>
+          <h2>{copy.partnerTitle}</h2>
+          <p>{copy.partnerBody}</p>
+          <div className="home-commission"><strong>{copy.commissionPrimary}</strong><span>{copy.commissionSecondary}</span><small>{copy.commissionTerms}</small></div>
+          <HardNavigationLink href="/earn">{copy.partnerCta}<IconArrowRight size={20} /></HardNavigationLink>
+        </aside>
+      </div>
+    </section>
 
-      <section className="shell homepage-category-row relative z-10 -mt-10 px-3 sm:px-6">
-        <div className="grid grid-cols-4 gap-2 sm:grid-cols-5 sm:gap-3 lg:grid-cols-10">
-          {orderedCategories.map((category) => <Link key={category.id} href={`/directory?category=${category.slug}`} className="homepage-category group flex min-h-24 flex-col items-center justify-center gap-1.5 rounded-xl border border-[var(--border)] bg-white px-1.5 py-2.5 text-center shadow-[0_8px_18px_rgba(40,51,48,0.08)] sm:min-h-28 sm:px-2 sm:py-3"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[rgba(42,98,87,0.09)] text-[var(--primary)] sm:h-9 sm:w-9"><CategoryIconGlyph slug={category.slug} size={18} /></span><span className="text-[0.66rem] font-semibold leading-tight text-[var(--foreground)] sm:text-xs">{getCategoryLabel(category.slug, category.name, locale)}</span><span className="hidden text-[10px] text-[var(--muted)] lg:block">{category._count.businesses} {locale === "it" ? "risultati" : "results"}</span></Link>)}
-        </div>
-      </section>
+    <section className="home-pathways home-container" id="discover">
+      <header className="home-heading home-heading-center"><p className="home-eyebrow">{copy.pathsKicker}</p><h2>{copy.pathsTitle}</h2><p>{copy.pathsBody}</p></header>
+      <div className="home-path-grid">
+        <article className="home-path-card"><span className="home-path-icon"><IconCompass size={27} /></span><small>01</small><h3>{copy.pathExplore}</h3><p>{copy.pathExploreBody}</p><HardNavigationLink href="/explore">{copy.exploreCta}<IconArrowRight size={19} /></HardNavigationLink></article>
+        <article className="home-path-card home-path-card-partner"><span className="home-path-icon"><IconWallet size={27} /></span><small>02</small><h3>{copy.pathPartner}</h3><p>{copy.pathPartnerBody}</p><HardNavigationLink href="/earn">{copy.learnCta}<IconArrowRight size={19} /></HardNavigationLink></article>
+        <article className="home-path-card"><span className="home-path-icon home-path-icon-business"><IconBuilding size={27} /></span><small>03</small><h3>{copy.pathBusiness}</h3><p>{copy.pathBusinessBody}</p><HardNavigationLink href={businessHref}>{copy.listCta}<IconArrowRight size={19} /></HardNavigationLink></article>
+      </div>
+    </section>
 
-      <section className="shell px-4 pb-14 sm:px-6 sm:pb-20">
-        <SectionHeading action={copy.allTowns} href="/towns" title={copy.townsTitle} />
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
-          {towns.map((town) => <Link key={town.id} href={`/towns/${town.slug}`} className="homepage-town-card group overflow-hidden rounded-xl border border-[var(--border)] bg-white shadow-[0_6px_18px_rgba(40,51,48,0.06)]"><div className="relative h-36 overflow-hidden sm:h-44 lg:h-48"><img src={buildTownImage(town, 1000)} alt={town.name} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" loading="lazy" decoding="async" /></div><div className="min-w-0 p-3.5 sm:p-4"><h3 className="font-serif text-xl text-[var(--foreground)]">{town.name}</h3>{town.shortDescription ? <p className="mt-1 line-clamp-1 text-xs text-[var(--muted)]">{town.shortDescription}</p> : null}<div className="mt-3 flex items-center justify-between gap-2 text-xs"><span className="text-[var(--muted)]">{town.businessCount} {copy.townPlaces}</span><span className="inline-flex shrink-0 items-center gap-0.5 font-semibold text-[var(--primary)]">{copy.discover}<IconChevronRight size={14} /></span></div></div></Link>)}
-        </div>
-        <HardNavigationLink href="/towns" className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-[var(--primary)] sm:hidden">{copy.viewAllTowns}<IconArrowRight size={15} /></HardNavigationLink>
-      </section>
-
-      <section className="shell px-4 pb-14 sm:px-6 sm:pb-20">
-        <SectionHeading action={copy.allLocalities} href="/localities" title={copy.localityTitle} />
-        <div className="grid gap-2.5 sm:grid-cols-3 sm:gap-3 lg:grid-cols-6 lg:gap-3">
-          {localities.map((locality) => <Link key={locality.id} href={`/localities/${locality.slug}`} className="homepage-locality-card group overflow-hidden rounded-xl border border-[var(--border)] bg-white shadow-[0_5px_16px_rgba(40,51,48,0.05)]"><div className="h-20 shrink-0 overflow-hidden sm:h-28"><img src={buildLocalityImage(locality, 700)} alt={locality.name} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.05]" loading="lazy" decoding="async" /></div><div className="min-w-0 p-2.5 sm:p-3"><h3 className="truncate text-sm font-semibold text-[var(--foreground)]">{locality.name}</h3><p className="mt-0.5 truncate text-xs text-[var(--muted)]">{locality.town.name}</p></div></Link>)}
-        </div>
-        <HardNavigationLink href="/localities" className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-[var(--primary)] sm:hidden">{copy.viewAllLocalities}<IconArrowRight size={15} /></HardNavigationLink>
-      </section>
-
-      <section className="shell px-4 pb-14 sm:px-6 sm:pb-20">
-        <SectionHeading action={copy.exploreMore} href="/directory" title={copy.placesTitle} />
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
-          {featuredBusinesses.slice(0, 4).map((business) => {
-            const primaryImage = business.images?.[0];
-            const image = buildBusinessPhoto(primaryImage?.url, 900, { label: business.name, seed: business.heroImageSeed, type: business.category.slug === "beaches" ? "beach" : "business" }) ?? buildBusinessImage(business, business.category.slug, 900);
-            const location = business.locality ? `${business.locality.name}, ${business.town.name}` : business.town.name;
-            const description = getHomepageBusinessDescription(business.shortDescription);
-            return <Link key={business.id} href={`/businesses/${business.slug}`} className="homepage-place-card group overflow-hidden rounded-xl border border-[var(--border)] bg-white shadow-[0_6px_18px_rgba(40,51,48,0.06)]"><div className="relative h-36 overflow-hidden sm:h-44 lg:h-40"><img src={image} alt={primaryImage?.alt || business.name} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" loading="lazy" decoding="async" /><div className="absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-transparent" /><span className="absolute bottom-3 left-3 rounded-full bg-white/95 px-2 py-1 text-[10px] font-semibold text-[var(--primary)]">{getCategoryLabel(business.category.slug, business.category.name, locale)}</span></div><div className="p-3.5 sm:p-4"><h3 className="truncate font-serif text-xl text-[var(--foreground)]">{business.name}</h3><p className="mt-1 truncate text-xs text-[var(--muted)]">{location}</p>{description ? <p className="mt-2 line-clamp-2 text-xs leading-5 text-[var(--muted)]">{description}</p> : null}<span className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-[var(--primary)]">{copy.viewPlace}<IconArrowRight size={13} /></span></div></Link>;
+    <section className="home-category-wave" id="categories"><div className="home-container home-category-inner">
+      <header className="home-heading"><p className="home-eyebrow">{copy.categoryKicker}</p><h2>{copy.categoryTitle}</h2><p>{copy.categoryBody}</p></header>
+      <div className="home-category-layout">
+        <div className="home-category-grid">
+          {homeCategorySlugs.map((slug) => {
+            const category = categoryBySlug.get(slug);
+            const label = categoryNames[slug]?.[locale] ?? getCategoryLabel(slug, category?.name ?? slug, locale);
+            const Icon = categoryVisualIcons[slug];
+            return <Link key={slug} className="home-category-card" href={`/directory?category=${slug}`} aria-label={label}>
+              <span className={`home-category-icon home-category-icon-${categoryAccent[slug]}`}><Icon size={31} stroke={1.8} /></span>
+              <strong>{label}</strong>
+            </Link>;
           })}
         </div>
-      </section>
+        <aside className="home-category-promo">
+          <span className="home-promo-pin"><IconMapPin size={27} /></span>
+          <h3>{copy.promoTitle}</h3><p>{copy.promoBody}</p>
+          <HardNavigationLink href="/directory">{copy.allCategories}<IconArrowRight size={19} /></HardNavigationLink>
+        </aside>
+      </div>
+    </div></section>
 
-      <section className="shell px-4 pb-4 sm:px-6 sm:pb-8"><div className="text-center"><h2 className="font-serif text-3xl tracking-[-0.02em] text-[var(--foreground)] sm:text-4xl">{copy.joinTitle}</h2><p className="mt-2 text-sm text-[var(--muted)]">{copy.joinSubtitle}</p></div><div className="mx-auto mt-7 grid max-w-4xl gap-4 sm:grid-cols-2"><JoinCard body={copy.businessBody} cta={copy.businessCta} href="/signup/business" icon="business" title={copy.businessTitle} /><JoinCard body={copy.partnerBody} cta={copy.partnerCta} href="/earn" icon="partner" title={copy.partnerTitle} /></div></section>
-    </main>
-  );
+    <section className="home-places home-container" id="places">
+      <header className="home-heading home-heading-split"><div><p className="home-eyebrow">{copy.placesKicker}</p><h2>{copy.placesTitle}</h2><p>{copy.placesBody}</p></div><HardNavigationLink href="/towns">{copy.allPlaces}<IconArrowRight size={20} /></HardNavigationLink></header>
+      <div className="home-places-grid">{towns.map((town, index) => <Link className={`home-place-card ${index === 0 ? "home-place-large" : index === 3 ? "home-place-wide" : ""}`} key={town.id} href={`/towns/${town.slug}`}>
+        <img src={buildTownImage(town, 1100)} alt={town.name} loading="lazy" /><span className="home-image-shade" /><span className="home-image-copy"><small>{getTownCaption(town.slug, locale, town.province ?? copy.townLabel)}</small><strong>{town.name}</strong><i>{copy.discover}<IconArrowRight size={17} /></i></span>
+      </Link>)}</div>
+    </section>
+
+    <section className="home-localities" id="localities"><div className="home-container">
+      <header className="home-heading home-heading-split"><div><p className="home-eyebrow">{copy.localitiesKicker}</p><h2>{copy.localitiesTitle}</h2><p>{copy.localitiesBody}</p></div><HardNavigationLink href="/localities">{copy.allLocalities}<IconArrowRight size={20} /></HardNavigationLink></header>
+      <div className="home-locality-grid">{localities.map((locality, index) => <Link className={`home-locality-card ${index === 0 ? "home-locality-large" : ""}`} key={locality.id} href={`/localities/${locality.slug}`}>
+        <img src={buildLocalityImage(locality, 1000)} alt={locality.name} loading="lazy" /><span className="home-image-shade" /><span className="home-image-copy"><small>{getLocalityCaption(locality.slug, locale, locality.town.name)}</small><strong>{locality.name}</strong><i>{copy.discover}<IconArrowRight size={17} /></i></span>
+      </Link>)}</div>
+    </div></section>
+
+    <section className="home-business home-container" id="business">
+      <div className="home-business-visual"><img src="/homepage/business.jpg" alt={copy.businessImageAlt} loading="lazy" /><div className="home-listing-card"><span><IconBuilding size={28} /></span><div><small>{copy.listingSmall}</small><strong>{copy.listingTitle}</strong></div><IconSparkles size={22} /></div></div>
+      <div className="home-business-copy"><p className="home-eyebrow">{copy.businessKicker}</p><h2>{copy.businessTitle}</h2><p>{copy.businessBody}</p><ul>{copy.benefits.map((benefit) => <li key={benefit}><span>✓</span>{benefit}</li>)}</ul><HardNavigationLink href={businessHref}>{copy.businessCta}<IconArrowRight size={20} /></HardNavigationLink></div>
+    </section>
+
+    <footer className="home-footer"><div className="home-container home-footer-main"><div><HardNavigationLink className="home-footer-brand" href="/"><span><IconMapPin size={23} /></span>Salento<i>Local</i></HardNavigationLink><p>{copy.footerLine}</p></div><nav aria-label={copy.footerNav}><div><strong>{copy.footerExplore}</strong><HardNavigationLink href="/directory">Directory</HardNavigationLink><HardNavigationLink href="/towns">{copy.footerTowns}</HardNavigationLink><HardNavigationLink href="/localities">{copy.footerCoast}</HardNavigationLink></div><div><strong>{copy.footerJoin}</strong><HardNavigationLink href="/earn">{copy.footerPartners}</HardNavigationLink><HardNavigationLink href={businessHref}>{copy.footerBusiness}</HardNavigationLink><HardNavigationLink href="/login">{copy.login}</HardNavigationLink></div><div><strong>{copy.footerAbout}</strong><HardNavigationLink href="/explore">{copy.footerHow}</HardNavigationLink><HardNavigationLink href="/privacy">{copy.privacy}</HardNavigationLink><HardNavigationLink href="/terms">{copy.terms}</HardNavigationLink><HardNavigationLink href="/cookies">{copy.cookies}</HardNavigationLink></div></nav></div><div className="home-container home-footer-bottom"><span>© {new Date().getFullYear()} Salento Local</span><span>Salento, Puglia · Italia</span></div></footer>
+  </div>;
 }
 
-function SectionHeading({ action, href, title }: { action: string; href: string; title: string }) {
-  return <div className="mb-6 flex items-end justify-between gap-4 sm:mb-7"><h2 className="font-serif text-3xl tracking-[-0.02em] text-[var(--foreground)] sm:text-4xl">{title}</h2><HardNavigationLink href={href} className="hidden shrink-0 items-center gap-1 text-sm font-semibold text-[var(--primary)] sm:inline-flex">{action}<IconArrowRight size={15} /></HardNavigationLink></div>;
+function getTownCaption(slug: string, locale: "en" | "it", fallback: string) {
+  const captions: Record<string, { en: string; it: string }> = {
+    otranto: { en: "Adriatic coast", it: "Costa adriatica" }, lecce: { en: "Baroque city", it: "Città barocca" },
+    "porto-cesareo": { en: "Ionian coast", it: "Costa ionica" }, gallipoli: { en: "Old town & sea", it: "Borgo antico e mare" },
+  };
+  return captions[slug]?.[locale] ?? fallback;
 }
 
-function JoinCard({ body, cta, href, icon, title }: { body: string; cta: string; href: string; icon: "business" | "partner"; title: string }) {
-  const isBusiness = icon === "business";
-  const Icon = isBusiness ? IconBuildingStore : IconUsersGroup;
-  return <article className="rounded-xl border border-[var(--border)] bg-white p-5 shadow-[0_6px_18px_rgba(40,51,48,0.05)] sm:p-6"><div className={`flex h-10 w-10 items-center justify-center rounded-lg ${isBusiness ? "bg-[rgba(42,98,87,0.1)] text-[var(--primary)]" : "bg-[rgba(191,91,42,0.12)] text-[var(--accent)]"}`}><Icon size={21} /></div><h3 className="mt-4 font-serif text-2xl text-[var(--foreground)]">{title}</h3><p className="mt-2 text-sm leading-6 text-[var(--muted)]">{body}</p><HardNavigationLink href={href} className={`${isBusiness ? "btn-primary" : "btn-secondary"} mt-5`}>{cta}</HardNavigationLink></article>;
-}
-
-function getHomepageBusinessDescription(description: string) {
-  return /(?:imported from|openstreetmap|listing imported)/i.test(description)
-    ? ""
-    : description;
+function getLocalityCaption(slug: string, locale: "en" | "it", fallback: string) {
+  const captions: Record<string, { en: string; it: string }> = {
+    "santa-maria-di-leuca": { en: "Finibus Terrae", it: "Finibus Terrae" },
+    "porto-badisco": { en: "Adriatic coast", it: "Costa adriatica" },
+    "torre-lapillo": { en: "Ionian coast", it: "Costa ionica" },
+    "santa-cesarea-terme": { en: "Adriatic coast", it: "Costa adriatica" },
+    "punta-prosciutto": { en: "Porto Cesareo", it: "Porto Cesareo" },
+  };
+  return captions[slug]?.[locale] ?? fallback;
 }
 
 function getCopy(locale: "en" | "it") {
   return locale === "it" ? {
-    allLocalities: "Tutte le località", allTowns: "Tutti i comuni", businessCta: "Inserisci la tua attività", businessBody: "Hai un'attività locale? Crea un account e rendila più facile da trovare per chi vive qui e chi visita il Salento.", businessTitle: "Aggiungi la tua attività", discover: "Scopri", exploreMore: "Esplora di più", heroBody: "Ristoranti, spiagge, servizi, attrazioni e luoghi quotidiani. Tutto ciò di cui hai bisogno, in vacanza o a casa.", heroTitle: "Trova qualsiasi cosa", heroTitleAccent: "nel Salento", joinSubtitle: "Unisciti a Salento Local e fai parte di una comunità in crescita.", joinTitle: "Fai parte del Salento?", partnerCta: "Guadagna con noi", partnerBody: "Aiuta le attività locali a entrare in Salento Local e guadagna una commissione per ogni scheda idonea completata.", partnerTitle: "Diventa Partner locale", placesTitle: "Luoghi da scoprire", searchButton: "Cerca", searchPlaceholder: "Cerca ristoranti, farmacie, spiagge...", townPlaces: "luoghi da scoprire", townsTitle: "I comuni del Salento", viewAllLocalities: "Vedi tutte le località", viewAllTowns: "Vedi tutti i comuni", viewPlace: "Vedi luogo", localityTitle: "Località e marine",
+    heroKicker: "La guida locale del Salento", heroTitle: "Tutto il Salento,", heroAccent: "più vicino a te.", heroBody: "Trova i luoghi che rendono migliore ogni giornata e ogni vacanza — dalle spiagge nascoste ai servizi di fiducia.", search: "Cerca", searchPlaceholder: "Cosa stai cercando?", nearPlaceholder: "Comune o località", popular: "Popolari:",
+    partnerKicker: "Diventa Partner Locale", partnerTitle: "Conosci il territorio? Fallo contare.", partnerBody: "Aiuta le attività locali a entrare in Salento Local e guadagna per ogni iscrizione pagata idonea.", commissionPrimary: "Guadagna €50 per ogni nuovo abbonamento pagato idoneo", commissionSecondary: "Più €15 sui rinnovi annuali o sulle riattivazioni idonee.", commissionTerms: "La commissione matura solo dopo un pagamento idoneo andato a buon fine.", partnerCta: "Scopri come funziona",
+    pathsKicker: "Per chiunque viva il Salento", pathsTitle: "Un solo luogo. Tre modi di viverlo.", pathsBody: "Per scoprire, guadagnare o far crescere la tua attività — inizia qui.", pathExplore: "Esplora il Salento", pathExploreBody: "Cerca attività, servizi essenziali, spiagge, borghi e luoghi del cuore.", pathPartner: "Guadagna come Partner", pathPartnerBody: "Un lavoro flessibile e locale che aiuta le attività a farsi conoscere.", pathBusiness: "Fai crescere la tua attività", pathBusinessBody: "Inserisci o rivendica la scheda e raggiungi turisti e residenti a €100/anno.", exploreCta: "Inizia a esplorare", learnCta: "Scopri di più", listCta: "Inserisci la tua attività",
+    categoryKicker: "Trova ciò che ti serve", categoryTitle: "Lo trovi in Salento", categoryBody: "Ristoranti, spiagge, servizi e molto altro — tutto in un solo posto.", promoTitle: "Esplora tutte le categorie", promoBody: "Sfoglia la directory completa dei luoghi del Salento.", allCategories: "Tutte le categorie",
+    placesKicker: "Dalla costa alla campagna", placesTitle: "Dove ti porterà il Salento?", placesBody: "Scopri città barocche, località sul mare e tutto ciò che c’è nel mezzo.", allPlaces: "Esplora tutti i luoghi", townLabel: "Salento", discover: "Scopri",
+    localitiesKicker: "La vita vicino al mare", localitiesTitle: "Località e luoghi sul mare", localitiesBody: "Piccole baie, borghi costieri e luoghi estivi amati in tutto il Salento.", allLocalities: "Vedi tutte le località",
+    businessKicker: "Pensato per le attività indipendenti", businessTitle: "Fatti trovare da chi ti sta già cercando.", businessBody: "Presenta la tua attività a turisti e residenti in cerca nel Salento. Aggiorna i dati, racconta chi sei e, se vuoi, fatti aiutare da un Partner Locale.", benefits: ["Raggiungi turisti e residenti", "Gestisci facilmente la scheda", "Abbonamento annuale: €100"], businessCta: "Inserisci o rivendica la tua attività", businessImageAlt: "Architettura tradizionale pugliese", listingSmall: "La tua attività locale", listingTitle: "Pronta per farsi scoprire",
+    footerLine: "Scopri di più. Sostieni il territorio. Vivi il Salento.", footerNav: "Navigazione a piè di pagina", footerExplore: "Esplora", footerTowns: "Comuni", footerCoast: "Costa e località", footerJoin: "Partecipa", footerPartners: "Partner locali", footerBusiness: "Per le attività", footerAbout: "Informazioni", footerHow: "Esplora Salento Local", login: "Accedi", privacy: "Privacy", terms: "Termini", cookies: "Cookie",
   } : {
-    allLocalities: "All localities", allTowns: "All towns", businessCta: "List your business", businessBody: "Own a local business? Create an account and make it easier for residents and visitors to find you.", businessTitle: "Add your business", discover: "Discover", exploreMore: "Explore more", heroBody: "Restaurants, beaches, services, attractions, and everyday places. Everything you need, whether you are visiting or living here.", heroTitle: "Find anything", heroTitleAccent: "in Salento", joinSubtitle: "Join Salento Local and be part of a growing community.", joinTitle: "Are you part of Salento?", partnerCta: "Earn with us", partnerBody: "Help local businesses join Salento Local and earn commission for every eligible successful listing.", partnerTitle: "Become a Local Partner", placesTitle: "Places worth discovering", searchButton: "Search", searchPlaceholder: "Search restaurants, pharmacies, beaches...", townPlaces: "places to discover", townsTitle: "The towns of Salento", viewAllLocalities: "View all localities", viewAllTowns: "View all towns", viewPlace: "View place", localityTitle: "Localities & seaside places",
+    heroKicker: "The local guide to southern Puglia", heroTitle: "All of Salento,", heroAccent: "closer to you.", heroBody: "Find the places that make everyday life and every holiday better — from hidden beaches to trusted local services.", search: "Search", searchPlaceholder: "What are you looking for?", nearPlaceholder: "Town or locality", popular: "Popular:",
+    partnerKicker: "Become a Local Partner", partnerTitle: "Know your area? Make it count.", partnerBody: "Help local businesses join Salento Local and earn for every eligible paid membership.", commissionPrimary: "Earn €50 for each eligible new paid membership", commissionSecondary: "Plus €15 on eligible annual renewals or reactivations.", commissionTerms: "Commission is earned only after a successful qualifying payment.", partnerCta: "See how it works",
+    pathsKicker: "Made for everyone in Salento", pathsTitle: "One place. Three ways to be local.", pathsBody: "Whether you are exploring, earning, or growing a business — start here.", pathExplore: "Explore Salento", pathExploreBody: "Search businesses, essential services, beaches, towns, and local favourites.", pathPartner: "Earn as a Partner", pathPartnerBody: "Flexible, local work that helps independent businesses get discovered.", pathBusiness: "Grow your business", pathBusinessBody: "Add or claim your listing and reach tourists and residents for €100/year.", exploreCta: "Start exploring", learnCta: "Learn more", listCta: "List your business",
+    categoryKicker: "Find what you need", categoryTitle: "Find it in Salento", categoryBody: "Restaurants, beaches, services, and more — all in one place.", promoTitle: "Explore all categories", promoBody: "Browse the complete directory of places across Salento.", allCategories: "View all categories",
+    placesKicker: "From coast to countryside", placesTitle: "Where will Salento take you?", placesBody: "Explore baroque towns, seaside localities, and the places in between.", allPlaces: "Explore all places", townLabel: "Salento", discover: "Discover",
+    localitiesKicker: "Life by the water", localitiesTitle: "Localities & Seaside Places", localitiesBody: "Small coves, coastal villages, and beloved summer places across Salento.", allLocalities: "View all localities",
+    businessKicker: "Built for independent businesses", businessTitle: "Be found by the people already looking.", businessBody: "Put your business in front of tourists and residents searching across Salento. Keep your details current, tell your story, and get support from a Local Partner if you need it.", benefits: ["Reach tourists and residents", "Manage your listing easily", "Annual membership: €100"], businessCta: "Add or claim your business", businessImageAlt: "Traditional architecture in Puglia", listingSmall: "Your local business", listingTitle: "Ready to be discovered",
+    footerLine: "Discover more. Support local. Belong in Salento.", footerNav: "Footer navigation", footerExplore: "Explore", footerTowns: "Towns", footerCoast: "Coast & localities", footerJoin: "Join", footerPartners: "Local Partners", footerBusiness: "For businesses", footerAbout: "About", footerHow: "Explore Salento Local", login: "Log in", privacy: "Privacy", terms: "Terms", cookies: "Cookies",
   };
 }

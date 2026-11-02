@@ -10,6 +10,7 @@ import { buildDraftLikeSubmissionWhere } from "@/lib/submission-drafts";
 import { PUBLIC_SITE_URL } from "@/lib/seo";
 
 import "./globals.css";
+import "./homepage.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL(PUBLIC_SITE_URL),
