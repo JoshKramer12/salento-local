@@ -23,7 +23,7 @@ const categoryVisualIcons = {
   bakeries: IconBread, "things-to-do": IconSparkles,
 };
 const preferredTownSlugs = ["otranto", "lecce", "porto-cesareo", "gallipoli"];
-const preferredLocalitySlugs = ["santa-maria-di-leuca", "porto-badisco", "torre-lapillo", "santa-cesarea-terme", "punta-prosciutto"];
+const preferredLocalitySlugs = ["santa-maria-di-leuca-castrignano-del-capo", "porto-badisco-otranto", "torre-lapillo-porto-cesareo", "punta-prosciutto-porto-cesareo"];
 const categoryNames: Record<string, { en: string; it: string }> = {
   restaurants: { en: "Restaurants", it: "Ristoranti" }, cafes: { en: "Bars & Cafés", it: "Bar e caffè" },
   beaches: { en: "Beaches", it: "Spiagge" }, hotels: { en: "Hotels", it: "Hotel" },
@@ -35,7 +35,7 @@ const categoryNames: Record<string, { en: string; it: string }> = {
 export default async function HomePage() {
   const [locale, home, catalog, selectedTowns, selectedLocalities] = await Promise.all([
     getCurrentLocale(), getHomePageData(), getDirectoryCatalog(),
-    prisma.town.findMany({ where: { slug: { in: preferredTownSlugs } }, select: { id: true, slug: true, name: true, province: true, imageUrl: true, heroImageSeed: true } }),
+    prisma.town.findMany({ where: { slug: { in: [...preferredTownSlugs, "santa-cesarea-terme"] } }, select: { id: true, slug: true, name: true, province: true, imageUrl: true, heroImageSeed: true } }),
     prisma.locality.findMany({ where: { slug: { in: preferredLocalitySlugs }, businesses: { some: getPublicBusinessMembershipWhere() } }, select: { id: true, slug: true, name: true, imageUrl: true, heroImageSeed: true, town: { select: { name: true, slug: true, imageUrl: true, heroImageSeed: true } } } }),
   ]);
   const { categories, featuredLocalities, featuredTowns } = home;
@@ -44,10 +44,19 @@ export default async function HomePage() {
     const ai = preferredTownSlugs.indexOf(a.slug), bi = preferredTownSlugs.indexOf(b.slug);
     return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
   }).slice(0, 4);
+  const seasideTown = selectedTowns.find((town) => town.slug === "santa-cesarea-terme");
   const localities = [...new Map([...selectedLocalities, ...featuredLocalities].map((locality) => [locality.slug, locality])).values()].sort((a, b) => {
     const ai = preferredLocalitySlugs.indexOf(a.slug), bi = preferredLocalitySlugs.indexOf(b.slug);
     return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
-  }).slice(0, 5);
+  }).slice(0, seasideTown ? 4 : 5);
+  const localityCards = localities.map((locality) => ({
+    id: locality.id, href: `/localities/${locality.slug}`, name: locality.name,
+    image: buildLocalityImage(locality, 1000), caption: getLocalityCaption(locality.slug, locale, locality.town.name),
+  }));
+  if (seasideTown) localityCards.splice(3, 0, {
+    id: seasideTown.id, href: `/towns/${seasideTown.slug}`, name: seasideTown.name,
+    image: buildTownImage(seasideTown, 1000), caption: locale === "it" ? "Costa adriatica" : "Adriatic coast",
+  });
   const townById = new Map(catalog.towns.map((town) => [town.id, town.name]));
   const locations = [
     ...catalog.towns.map((town) => ({ kind: "town" as const, label: town.name, slug: town.slug })),
@@ -119,8 +128,8 @@ export default async function HomePage() {
 
     <section className="home-localities" id="localities"><div className="home-container">
       <header className="home-heading home-heading-split"><div><p className="home-eyebrow">{copy.localitiesKicker}</p><h2>{copy.localitiesTitle}</h2><p>{copy.localitiesBody}</p></div><HardNavigationLink href="/localities">{copy.allLocalities}<IconArrowRight size={20} /></HardNavigationLink></header>
-      <div className="home-locality-grid">{localities.map((locality, index) => <Link className={`home-locality-card ${index === 0 ? "home-locality-large" : ""}`} key={locality.id} href={`/localities/${locality.slug}`}>
-        <img src={buildLocalityImage(locality, 1000)} alt={locality.name} loading="lazy" /><span className="home-image-shade" /><span className="home-image-copy"><small>{getLocalityCaption(locality.slug, locale, locality.town.name)}</small><strong>{locality.name}</strong><i>{copy.discover}<IconArrowRight size={17} /></i></span>
+      <div className="home-locality-grid">{localityCards.map((locality, index) => <Link className={`home-locality-card ${index === 0 ? "home-locality-large" : ""}`} key={locality.id} href={locality.href}>
+        <img src={locality.image} alt={locality.name} loading="lazy" /><span className="home-image-shade" /><span className="home-image-copy"><small>{locality.caption}</small><strong>{locality.name}</strong><i>{copy.discover}<IconArrowRight size={17} /></i></span>
       </Link>)}</div>
     </div></section>
 
@@ -143,11 +152,10 @@ function getTownCaption(slug: string, locale: "en" | "it", fallback: string) {
 
 function getLocalityCaption(slug: string, locale: "en" | "it", fallback: string) {
   const captions: Record<string, { en: string; it: string }> = {
-    "santa-maria-di-leuca": { en: "Finibus Terrae", it: "Finibus Terrae" },
-    "porto-badisco": { en: "Adriatic coast", it: "Costa adriatica" },
-    "torre-lapillo": { en: "Ionian coast", it: "Costa ionica" },
-    "santa-cesarea-terme": { en: "Adriatic coast", it: "Costa adriatica" },
-    "punta-prosciutto": { en: "Porto Cesareo", it: "Porto Cesareo" },
+    "santa-maria-di-leuca-castrignano-del-capo": { en: "Finibus Terrae", it: "Finibus Terrae" },
+    "porto-badisco-otranto": { en: "Adriatic coast", it: "Costa adriatica" },
+    "torre-lapillo-porto-cesareo": { en: "Ionian coast", it: "Costa ionica" },
+    "punta-prosciutto-porto-cesareo": { en: "Porto Cesareo", it: "Porto Cesareo" },
   };
   return captions[slug]?.[locale] ?? fallback;
 }
