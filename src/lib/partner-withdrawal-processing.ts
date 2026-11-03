@@ -4,6 +4,7 @@ import { addUtcDays } from "@/lib/business-membership";
 import { INITIAL_COMMISSION_HOLD_DAYS } from "@/lib/partner-ledger";
 import { prisma } from "@/lib/prisma";
 import { areRealPartnerDisbursementsAllowed } from "@/lib/stripe";
+import { sandboxWithdrawalExecutionAllowed, withdrawalPaymentLivemode } from "@/lib/partner-withdrawal-sandbox-context";
 import {
   stripeWithdrawalProvider, type AccountEvidence, type PayoutEvidence,
   type TransferEvidence, type WithdrawalProvider,
@@ -15,8 +16,9 @@ const LEASE_MS = 5 * 60 * 1000;
 const ACCOUNT_SYNC_MS = 24 * 60 * 60 * 1000;
 
 export function withdrawalExecutionAllowed() {
-  return process.env.PARTNER_WITHDRAWAL_PROCESSING_ENABLED === "true" &&
-    areRealPartnerDisbursementsAllowed();
+  return sandboxWithdrawalExecutionAllowed() ||
+    (process.env.PARTNER_WITHDRAWAL_PROCESSING_ENABLED === "true" &&
+    areRealPartnerDisbursementsAllowed());
 }
 
 async function lockPartner(tx: Tx, partnerUserId: string, now: Date) {
@@ -34,6 +36,7 @@ async function recordEvent(tx: Tx, withdrawal: PartnerWithdrawal, toStatus: Part
 }
 
 async function validateAllocations(tx: Tx, withdrawal: PartnerWithdrawal, now: Date) {
+  const paymentLivemode = withdrawalPaymentLivemode(withdrawal.partnerUserId);
   const allocations = await tx.partnerWithdrawalCommission.findMany({
     where: { withdrawalId: withdrawal.id, releasedAt: null },
     include: { commission: {
@@ -72,7 +75,7 @@ async function validateAllocations(tx: Tx, withdrawal: PartnerWithdrawal, now: D
         credit.type !== "COMMISSION" || credit.currency !== "eur" ||
         credit.partnerUserId !== withdrawal.partnerUserId ||
         credit.payoutId !== withdrawal.payoutId ||
-        !payment || payment.status !== "PAID" || payment.stripeLivemode !== true ||
+        !payment || payment.status !== "PAID" || payment.stripeLivemode !== paymentLivemode ||
         payment.currency !== "eur" || payment.businessId !== credit.businessId ||
         payment.businessSubmissionId !== credit.businessSubmissionId ||
         !credit.business || !credit.businessSubmission ||
@@ -152,7 +155,8 @@ async function freezeNewerWithdrawal(tx: Tx, older: PartnerWithdrawal, now: Date
 
 function checkAccount(account: AccountEvidence, withdrawal: PartnerWithdrawal) {
   if (account.id !== withdrawal.stripeConnectedAccountId ||
-      !account.payoutsEnabled || !account.detailsSubmitted || account.livemode !== true ||
+      !account.payoutsEnabled || !account.detailsSubmitted ||
+      account.livemode !== withdrawalPaymentLivemode(withdrawal.partnerUserId) ||
       !account.externalAccountId || account.externalAccountLast4 !== withdrawal.destinationLast4 ||
       (withdrawal.destinationExternalAccountId &&
         withdrawal.destinationExternalAccountId !== account.externalAccountId)) {
@@ -165,7 +169,8 @@ function checkTransfer(evidence: TransferEvidence, withdrawal: PartnerWithdrawal
   if (evidence.withdrawalId !== withdrawal.id || evidence.payoutId !== payoutId ||
       evidence.amountCents !== withdrawal.requestedAmountCents ||
       evidence.currency !== withdrawal.currency ||
-      evidence.destination !== withdrawal.stripeConnectedAccountId || !evidence.livemode ||
+      evidence.destination !== withdrawal.stripeConnectedAccountId ||
+      evidence.livemode !== withdrawalPaymentLivemode(withdrawal.partnerUserId) ||
       evidence.amountReversedCents < 0 || evidence.amountReversedCents > evidence.amountCents) {
     throw new Error("withdrawal_transfer_evidence_mismatch");
   }
@@ -175,7 +180,8 @@ function checkPayout(evidence: PayoutEvidence, withdrawal: PartnerWithdrawal, pa
   if (evidence.withdrawalId !== withdrawal.id || evidence.payoutId !== payoutId ||
       evidence.amountCents !== withdrawal.requestedAmountCents ||
       evidence.currency !== withdrawal.currency ||
-      evidence.connectedAccountId !== withdrawal.stripeConnectedAccountId || !evidence.livemode ||
+      evidence.connectedAccountId !== withdrawal.stripeConnectedAccountId ||
+      evidence.livemode !== withdrawalPaymentLivemode(withdrawal.partnerUserId) ||
       evidence.destinationExternalAccountId !== withdrawal.destinationExternalAccountId) {
     throw new Error("withdrawal_payout_evidence_mismatch");
   }

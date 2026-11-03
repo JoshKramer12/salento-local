@@ -3,6 +3,7 @@ import { getViewer } from "@/lib/auth-guards";
 import { payableCommissionWhere } from "@/lib/partner-ledger";
 import { prisma } from "@/lib/prisma";
 import { areRealPartnerDisbursementsAllowed } from "@/lib/stripe";
+import { sandboxWithdrawalExecutionAllowed, withdrawalPaymentLivemode } from "@/lib/partner-withdrawal-sandbox-context";
 
 // Stage 1 has no route, Server Action, worker, or provider call. Future entry
 // points must use these session-derived functions, never a submitted user ID.
@@ -47,6 +48,7 @@ async function assertPartnerRecord(tx: Tx, viewer: Viewer) {
 }
 
 async function readState(tx: Tx, partnerUserId: string, now: Date) {
+  const paymentLivemode = withdrawalPaymentLivemode(partnerUserId);
   const [profile, credits, debts, recoveries, reserved, activeWithdrawal, unresolvedLegacyPayout] = await Promise.all([
     tx.localPartnerProfile.findUnique({
       where: { userId: partnerUserId },
@@ -59,7 +61,7 @@ async function readState(tx: Tx, partnerUserId: string, now: Date) {
       },
     }),
     tx.partnerCommission.findMany({
-      where: { ...payableCommissionWhere(now), partnerUserId, currency: "eur" },
+      where: { ...payableCommissionWhere(now, paymentLivemode), partnerUserId, currency: "eur" },
       orderBy: [{ eligibleAt: "asc" }, { createdAt: "asc" }, { id: "asc" }],
       include: {
         payment: { select: { id: true, businessId: true, businessSubmissionId: true, currency: true, status: true, stripeLivemode: true } },
@@ -110,7 +112,7 @@ async function readState(tx: Tx, partnerUserId: string, now: Date) {
   const debtById = new Map(debts.map((debt) => [debt.id, debt]));
   for (const debt of debts) {
     requireWholeCents(Math.abs(debt.amountCents), "partner_debt_requires_review");
-    if (debt.amountCents >= 0 || debt.currency !== "eur" || debt.payment?.stripeLivemode !== true ||
+    if (debt.amountCents >= 0 || debt.currency !== "eur" || debt.payment?.stripeLivemode !== paymentLivemode ||
         !debt.sourceKey.startsWith("commission:reversal:")) throw new Error("partner_debt_requires_review");
     const originalId = debt.sourceKey.slice("commission:reversal:".length);
     const original = await tx.partnerCommission.findUnique({
@@ -132,7 +134,7 @@ async function readState(tx: Tx, partnerUserId: string, now: Date) {
         recovery.creditCommission.amountCents <= 0 ||
         recovery.creditCommission.status === "REVERSED" ||
         recovery.creditCommission.payment?.status !== "PAID" ||
-        recovery.creditCommission.payment.stripeLivemode !== true) {
+        recovery.creditCommission.payment.stripeLivemode !== paymentLivemode) {
       throw new Error("partner_recovery_invalid");
     }
     recoveredByDebt.set(recovery.debtCommissionId, (recoveredByDebt.get(recovery.debtCommissionId) ?? 0) + recovery.amountCents);
@@ -163,7 +165,8 @@ async function readState(tx: Tx, partnerUserId: string, now: Date) {
     profile.stripePayoutsEnabled && profile.stripeDetailsSubmitted && profile.stripeOnboardingComplete &&
     Boolean(profile.stripeLastSyncedAt && profile.stripeLastSyncedAt <= now &&
       now.getTime() - profile.stripeLastSyncedAt.getTime() <= MAX_ACCOUNT_SYNC_AGE_MS);
-  const disbursementsAllowed = areRealPartnerDisbursementsAllowed();
+  const disbursementsAllowed = paymentLivemode
+    ? areRealPartnerDisbursementsAllowed() : sandboxWithdrawalExecutionAllowed();
   const withdrawableCents = destinationReady && disbursementsAllowed && !activeWithdrawal && !unresolvedLegacyPayout &&
     netEligibleCents >= MINIMUM_WITHDRAWAL_CENTS ? netEligibleCents : 0;
   return {
@@ -281,7 +284,8 @@ export async function requestPartnerWithdrawal(
     } });
     for (const allocation of allocations) {
       const reserved = await tx.partnerCommission.updateMany({
-        where: { id: allocation.id, partnerUserId: viewer.id, currency: "eur", ...payableCommissionWhere(now) },
+        where: { id: allocation.id, partnerUserId: viewer.id, currency: "eur",
+          ...payableCommissionWhere(now, withdrawalPaymentLivemode(viewer.id)) },
         data: { status: "RESERVED" },
       });
       if (reserved.count !== 1) throw new Error("commission_reservation_changed");

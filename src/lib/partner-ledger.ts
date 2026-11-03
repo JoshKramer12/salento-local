@@ -284,13 +284,13 @@ export const INITIAL_COMMISSION_HOLD_DAYS = 14;
 
 /** This predicate is used again inside the payout reservation transaction.
  * Old rows with an early eligibleAt remain held by the paidAt condition. */
-export function payableCommissionWhere(now: Date): Prisma.PartnerCommissionWhereInput {
+export function payableCommissionWhere(now: Date, stripeLivemode = true): Prisma.PartnerCommissionWhereInput {
   return {
     amountCents: { gt: 0 },
     eligibleAt: { lte: now },
-    // Null (historical/unverified) and false (Stripe test mode) never fund a
-    // payout, even if the deployment later switches to live credentials.
-    payment: { is: { stripeLivemode: true } },
+    // Callers use the live default. Only the account-verified Stage 5A local
+    // harness may request false for test-only provider verification.
+    payment: { is: { stripeLivemode } },
     payoutId: null,
     status: { in: ["PENDING", "AVAILABLE"] },
     type: "COMMISSION",
