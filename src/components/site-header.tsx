@@ -19,7 +19,7 @@ import {
 import { SearchAutocomplete } from "@/components/search-autocomplete";
 import { getDesktopPartnerAddBusinessAction } from "@/lib/account-navigation";
 import type { Locale } from "@/lib/i18n";
-import { isPublicSitePath } from "@/lib/public-site-path";
+import { usesRedesignedSiteHeader } from "@/lib/public-site-path";
 
 type HeaderViewer = {
   name?: string | null;
@@ -101,7 +101,7 @@ export function SiteHeader({ locale, notificationCount = 0, viewer }: SiteHeader
     };
   }, [closeMobileMenu]);
 
-  if (isPublicSitePath(pathname)) {
+  if (usesRedesignedSiteHeader(pathname)) {
     return <>
       <header className={`home-topbar ${pathname === "/" ? "" : "home-topbar-interior"}`}>
         <HardNavigationLink href="/" className="home-brand" ariaCurrent={pathname === "/" ? "true" : undefined}>
@@ -120,7 +120,7 @@ export function SiteHeader({ locale, notificationCount = 0, viewer }: SiteHeader
             </div>
           </details>
           <HardNavigationLink href="/explore" ariaCurrent={pathname === "/explore" ? "true" : undefined}>{copy.explore}</HardNavigationLink>
-          {viewer ? <HardNavigationLink href="/dashboard">{copy.dashboard}</HardNavigationLink> : null}
+          {viewer ? <HardNavigationLink href="/dashboard" ariaCurrent={pathname.startsWith("/dashboard") ? "true" : undefined}>{copy.dashboard}</HardNavigationLink> : null}
         </nav>
         <div className="home-header-actions">
           {viewer?.role !== "BUSINESS_OWNER" ? <LanguageToggle locale={locale} variant="compact" /> : null}

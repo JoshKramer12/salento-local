@@ -55,13 +55,10 @@ test("owner headers defer language selection to Settings while visitor and Partn
     "utf8",
   );
 
+  assert.match(siteHeader, /viewer\?\.role !== "BUSINESS_OWNER" \? <LanguageToggle locale=\{locale\} variant="compact" \/>/);
   assert.match(
     siteHeader,
-    /className="hidden items-center gap-1\.5 xl:flex"[\s\S]*desktopPartnerAddBusinessAction[\s\S]*viewer\?\.role !== "BUSINESS_OWNER"[\s\S]*<LanguageToggle locale=\{locale\} \/>/,
-  );
-  assert.match(
-    siteHeader,
-    /className="flex min-w-0 items-center gap-1 xl:hidden"[\s\S]*href="\/publish"[\s\S]*\+ \{copy\.addBusiness\}/,
+    /getDesktopPartnerAddBusinessAction[\s\S]*home-header-business/,
   );
   const mobileDrawer = readFileSync(
     new URL("../src/components/mobile-navigation-drawer.tsx", import.meta.url),
@@ -72,9 +69,10 @@ test("owner headers defer language selection to Settings while visitor and Partn
 
 test("the public header restores Explore and keeps town and locality destinations", () => {
   const header = readFileSync("src/components/site-header.tsx", "utf8");
-  assert.match(header, /isPublicSitePath\(pathname\)/);
+  assert.match(header, /usesRedesignedSiteHeader\(pathname\)/);
   assert.match(header, /<HardNavigationLink href="\/explore"[^>]*>\{copy\.explore\}<\/HardNavigationLink>/);
   assert.match(header, /<details className="home-nav-places">[\s\S]*href="\/towns"[\s\S]*href="\/localities"/);
+  assert.match(header, /href="\/dashboard" ariaCurrent=\{pathname\.startsWith\("\/dashboard"\) \? "true" : undefined\}/);
   assert.match(header, /<SearchAutocomplete locale=\{locale\} placeholder=\{copy\.searchPlaceholder\} searchPath="\/directory" variant="header"/);
   assert.match(header, /<NotificationBadge count=\{notificationCount\} className="home-menu-badge" \/>/);
 });
