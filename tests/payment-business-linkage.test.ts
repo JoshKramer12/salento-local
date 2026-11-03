@@ -165,7 +165,8 @@ test("full refund and lost-dispute commission reversals keep the original €50 
           async findFirst() {
             return { ...original, status: originalStatus };
           },
-          async findUnique() {
+          async findUnique(args: { where: { id?: string; sourceKey?: string } }) {
+            if (args.where.id === original.id) return { ...original, status: originalStatus };
             return createdReversals.length ? { id: "reversal_123" } : null;
           },
           async update() {
@@ -175,6 +176,9 @@ test("full refund and lost-dispute commission reversals keep the original €50 
             createdReversals.push(args.data);
           },
         },
+        localPartnerProfile: { async updateMany() { return { count: 1 }; } },
+        partnerDebtRecovery: { async count() { return 0; }, async updateMany() { return { count: 0 }; } },
+        partnerWithdrawal: { async findUnique() { return null; } },
       });
     },
   };

@@ -7,6 +7,7 @@ import { PartnerWorkspaceNav } from "@/components/account/partner-workspace-nav"
 import { PartnerOutstandingCommissionCard } from "@/components/account/partner-outstanding-commission-card";
 import { PartnerPayoutSummary } from "@/components/account/partner-payout-summary";
 import { formatCurrencyFromCents } from "@/lib/account";
+import { earningsAccessForRole } from "@/lib/earnings-access";
 import { requireCompletedViewer } from "@/lib/auth-guards";
 import { getCurrentLocale } from "@/lib/locale";
 import { getPartnerNextRoute } from "@/lib/partner-onboarding";
@@ -227,11 +228,12 @@ export default async function DashboardEarningsPage({
 }: DashboardEarningsPageProps) {
   const [locale, viewer] = await Promise.all([getCurrentLocale(), requireCompletedViewer()]);
 
-  if (viewer.role === "BUSINESS_OWNER") {
+  const access = earningsAccessForRole(viewer.role);
+  if (access === "redirect") {
     redirect("/dashboard");
   }
 
-  if (viewer.role === "GETTER") {
+  if (access === "partner") {
     const profile = await prisma.localPartnerProfile.findUnique({
       where: { userId: viewer.id },
       select: { completedAt: true, partnerOnboardingCompletedAt: true },

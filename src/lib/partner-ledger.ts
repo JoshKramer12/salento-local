@@ -995,7 +995,7 @@ export async function reversePartnerCommissionForPayment(params: {
   const db = dependencies.db ?? prisma;
 
   await db.$transaction(async (tx) => {
-    const original = await tx.partnerCommission.findFirst({
+    const candidate = await tx.partnerCommission.findFirst({
       where: {
         type: "COMMISSION",
         ...(params.paymentId ? { paymentId: params.paymentId } : { OR: [
@@ -1010,9 +1010,17 @@ export async function reversePartnerCommissionForPayment(params: {
       },
     });
 
-    if (!original) {
+    if (!candidate) {
       return;
     }
+
+    // Serialize with Stage 1 withdrawal creation/cancellation and the legacy
+    // batch reservation, then re-read the commission after acquiring the lock.
+    await tx.localPartnerProfile.updateMany({
+      where: { userId: candidate.partnerUserId }, data: { updatedAt: new Date() },
+    });
+    const original = await tx.partnerCommission.findUnique({ where: { id: candidate.id } });
+    if (!original) return;
 
     // Stripe can emit more than one event for the same final refund/dispute.
     // The commission (not delivery event) is the reversal idempotency target.
@@ -1029,6 +1037,22 @@ export async function reversePartnerCommissionForPayment(params: {
     if (existingReversal) {
       return;
     }
+
+    const { invalidateWithdrawalForReversal } = await import("@/lib/partner-withdrawals");
+    const reversedAt = new Date();
+    const priorRecoveryCount = await tx.partnerDebtRecovery.count({
+      where: { creditCommissionId: original.id, voidedAt: null },
+    });
+    await invalidateWithdrawalForReversal(
+      tx, original.partnerUserId, original.id,
+      original.status === "PAID" || priorRecoveryCount > 0, reversedAt, params.sourceEventId,
+    );
+    // A credit that previously recovered debt is no longer valid after its
+    // payment is refunded. Keep the allocation history, but reopen that debt.
+    await tx.partnerDebtRecovery.updateMany({
+      where: { creditCommissionId: original.id, voidedAt: null },
+      data: { voidedAt: reversedAt, voidReason: "credit_commission_reversed" },
+    });
 
     const reversalStatus =
       original.status === "PAID" ? ("DEBT" as const) : ("REVERSED" as const);
@@ -1053,7 +1077,7 @@ export async function reversePartnerCommissionForPayment(params: {
         currency: original.currency,
         partnerUserId: original.partnerUserId,
         paymentId: original.paymentId,
-        reversedAt: new Date(),
+        reversedAt,
         reversalReason: params.reason,
         sourceEventId: params.sourceEventId,
         sourceEventType: params.eventType,
@@ -1070,7 +1094,7 @@ export async function reversePartnerCommissionForPayment(params: {
   (dependencies.revalidatePaths ?? revalidatePartnerLedgerPaths)();
 }
 
-async function reserveAvailablePartnerCommissions(params: {
+export async function reserveAvailablePartnerCommissions(params: {
   partnerUserId: string;
   payoutRunId: string;
 }) {
@@ -1101,6 +1125,19 @@ async function reserveAvailablePartnerCommissions(params: {
     if (!profile) {
       return null;
     }
+
+    await tx.localPartnerProfile.update({
+      where: { userId: params.partnerUserId }, data: { updatedAt: new Date() },
+    });
+
+    // A Partner using the new request/debt ledger must never also enter the
+    // old all-commission batch. The batch cannot represent partial debt use.
+    const [withdrawalCount, recoveryCount, debtCount] = await Promise.all([
+      tx.partnerWithdrawal.count({ where: { partnerUserId: params.partnerUserId } }),
+      tx.partnerDebtRecovery.count({ where: { partnerUserId: params.partnerUserId } }),
+      tx.partnerCommission.count({ where: { partnerUserId: params.partnerUserId, type: "REVERSAL", status: "DEBT" } }),
+    ]);
+    if (withdrawalCount || recoveryCount || debtCount) return null;
 
     const commissions = await tx.partnerCommission.findMany({
       where: {
