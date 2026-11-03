@@ -214,6 +214,20 @@ enum PartnerWithdrawalStatus {
   OUTCOME_UNKNOWN
 }
 
+enum PartnerWithdrawalOperation {
+  TRANSFER
+  PAYOUT
+  TRANSFER_REVERSAL
+}
+
+enum PartnerWithdrawalAttemptStatus {
+  INTENT
+  SUCCEEDED
+  OUTCOME_UNKNOWN
+  FAILED_CONFIRMED
+  ACTION_REQUIRED
+}
+
 enum StripeWebhookEndpointType {
   PLATFORM
   CONNECT
@@ -1055,22 +1069,51 @@ model PartnerWithdrawal {
   payoutMethod           PartnerPayoutMethod     @default(STRIPE)
   stripeConnectedAccountId String
   destinationLast4       String?
+  destinationExternalAccountId String?
   destinationVerifiedAt  DateTime
   payoutId               String?                 @unique
   providerStartedAt      DateTime?
   canceledAt             DateTime?
   completedAt            DateTime?
   failureCode            String?
+  leaseOwner             String?
+  leaseExpiresAt         DateTime?
+  lastReconciledAt       DateTime?
   createdAt              DateTime                @default(now())
   updatedAt              DateTime                @updatedAt
   partnerUser            User                    @relation(fields: [partnerUserId], references: [id], onDelete: Restrict)
   payout                 PartnerPayout?          @relation(fields: [payoutId], references: [id], onDelete: Restrict)
   commissions            PartnerWithdrawalCommission[]
   events                 PartnerWithdrawalEvent[]
+  attempts               PartnerWithdrawalAttempt[]
 
   @@unique([partnerUserId, requestKey])
   @@index([partnerUserId, createdAt])
   @@index([status, createdAt])
+  @@index([status, lastReconciledAt])
+}
+
+model PartnerWithdrawalAttempt {
+  id                 String                         @id @default(cuid())
+  withdrawalId       String
+  operation          PartnerWithdrawalOperation
+  sequence           Int
+  status             PartnerWithdrawalAttemptStatus @default(INTENT)
+  idempotencyKey     String                         @unique
+  connectedAccountId String
+  amountCents        Int
+  currency           String
+  providerObjectId   String?                        @unique
+  errorCode          String?
+  evidence           String?
+  requestedAt        DateTime                       @default(now())
+  lastReconciledAt   DateTime?
+  createdAt          DateTime                       @default(now())
+  updatedAt          DateTime                       @updatedAt
+  withdrawal         PartnerWithdrawal              @relation(fields: [withdrawalId], references: [id], onDelete: Restrict)
+
+  @@unique([withdrawalId, operation, sequence])
+  @@index([status, requestedAt])
 }
 
 model PartnerWithdrawalCommission {

@@ -1688,7 +1688,11 @@ export async function runWeeklyPartnerPayouts(params?: {
   const now = new Date();
   const isManualRun = Boolean(params?.force);
   const targetDate = isManualRun ? now : getNextPartnerPayoutDate(now);
-  if (!areRealPartnerDisbursementsAllowed()) {
+  // The legacy provider path releases reservations after ambiguous failures.
+  // Keep history and signed-webhook reconciliation available, but require a
+  // separate, explicit execution release until that path is repaired.
+  if (process.env.PARTNER_LEGACY_PAYOUT_EXECUTION_ENABLED !== "true" ||
+      !areRealPartnerDisbursementsAllowed()) {
     return {
       processedPartners: 0,
       runKey: buildRunKey(targetDate),
