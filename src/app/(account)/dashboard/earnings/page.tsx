@@ -6,6 +6,7 @@ import { DashboardNav } from "@/components/account/dashboard-nav";
 import { PartnerWorkspaceNav } from "@/components/account/partner-workspace-nav";
 import { PartnerOutstandingCommissionCard } from "@/components/account/partner-outstanding-commission-card";
 import { PartnerPayoutSummary } from "@/components/account/partner-payout-summary";
+import { PartnerCashoutPanel } from "@/components/account/partner-cashout-panel";
 import { formatCurrencyFromCents } from "@/lib/account";
 import { earningsAccessForRole } from "@/lib/earnings-access";
 import { requireCompletedViewer } from "@/lib/auth-guards";
@@ -13,6 +14,7 @@ import { getCurrentLocale } from "@/lib/locale";
 import { getPartnerNextRoute } from "@/lib/partner-onboarding";
 import { getPartnerPayoutSetupSummary } from "@/lib/partner-connect";
 import { prisma } from "@/lib/prisma";
+import { cashoutUiEnabled, getPartnerCashoutView } from "@/lib/partner-cashout-view";
 import { getSingleParam } from "@/lib/site";
 import { areRealPartnerDisbursementsAllowed } from "@/lib/stripe";
 import { buildDraftLikeSubmissionWhere } from "@/lib/submission-drafts";
@@ -234,6 +236,10 @@ export default async function DashboardEarningsPage({
   }
 
   if (access === "partner") {
+    const showCashout = cashoutUiEnabled();
+    const partnerParams = await searchParams;
+    const requestedPage = Number(getSingleParam(partnerParams.cashoutPage) ?? "1");
+    const cashoutView = showCashout ? await getPartnerCashoutView(requestedPage) : null;
     const profile = await prisma.localPartnerProfile.findUnique({
       where: { userId: viewer.id },
       select: { completedAt: true, partnerOnboardingCompletedAt: true },
@@ -276,7 +282,7 @@ export default async function DashboardEarningsPage({
           </h1>
         </div>
 
-        <p className="mb-6 max-w-5xl rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+        {cashoutView ? <PartnerCashoutPanel view={cashoutView} locale={locale} /> : <><p className="mb-6 max-w-5xl rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
           {locale === "it" ? "Solo le commissioni da pagamenti live verificati entrano nei saldi pagabili. Attività test e storico non verificato sono registrati, ma non pagabili." : "Only commissions from verified live payments enter payable balances. Test activity and unverified history are recorded, but are not payable."}
         </p>
         <p className="mb-6 text-sm text-[var(--muted)]">
@@ -314,6 +320,7 @@ export default async function DashboardEarningsPage({
           payoutsPaused={!areRealPartnerDisbursementsAllowed()}
           setup={setup}
         />
+        </>}
         </main>
       </>
     );

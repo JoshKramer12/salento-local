@@ -84,10 +84,27 @@ test("minimum, whole-balance reservation, idempotency, cancellation, and authori
   await assert.rejects(requestPartnerWithdrawal(key(), auth(f.partner.id, "USER")), /not_authorized/);
   assert.equal((await cancelPartnerWithdrawal(request.id, deps)).status, "CANCELED");
   assert.equal((await cancelPartnerWithdrawal(request.id, deps)).status, "CANCELED");
+  assert.equal((await requestPartnerWithdrawal(requestKey, deps)).status, "CANCELED");
   assert.equal((await prisma.partnerCommission.findUniqueOrThrow({ where: { id: f.commission.id } })).status, "AVAILABLE");
   assert.equal((await prisma.partnerWithdrawalCommission.findFirstOrThrow({ where: { withdrawalId: request.id } })).releasedAt !== null, true);
   const again = await requestPartnerWithdrawal(key(), deps);
   assert.equal(again.requestedAmountCents, 5000);
+});
+
+test("reviewed amount must match the transactional full balance; a lost response reuses its request key", async () => {
+  const f = await readyPartner();
+  const deps = auth(f.partner.id);
+  const requestKey = key();
+  await assert.rejects(
+    requestPartnerWithdrawal(requestKey, { ...deps, expectedAmountCents: 10000 }),
+    /withdrawal_balance_changed/,
+  );
+  assert.equal(await prisma.partnerWithdrawal.count({ where: { partnerUserId: f.partner.id } }), 0);
+  assert.equal((await prisma.partnerCommission.findUniqueOrThrow({ where: { id: f.commission.id } })).status, "PENDING");
+  const submitted = await requestPartnerWithdrawal(requestKey, { ...deps, expectedAmountCents: 5000 });
+  const repeated = await requestPartnerWithdrawal(requestKey, { ...deps, expectedAmountCents: 5000 });
+  assert.equal(repeated.id, submitted.id);
+  assert.equal(await prisma.partnerWithdrawal.count({ where: { partnerUserId: f.partner.id } }), 1);
 });
 
 test("unpaid refund reverses once and reduces a larger eligible balance", async () => {

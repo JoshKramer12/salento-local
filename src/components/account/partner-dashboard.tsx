@@ -7,11 +7,13 @@ import { startPartnerPayoutSetupAction } from "@/app/(account)/actions";
 import { DashboardNav } from "@/components/account/dashboard-nav";
 import { PartnerWorkspaceNav } from "@/components/account/partner-workspace-nav";
 import { PartnerOwnerAccess } from "@/components/account/partner-owner-access";
+import { PartnerCashoutPanel } from "@/components/account/partner-cashout-panel";
 import { HardNavigationLink } from "@/components/hard-navigation-link";
 import { formatCurrencyFromCents, getSubmissionStatusLabel } from "@/lib/account";
 import { getBusinessPhotoUrls } from "@/lib/business-photos";
 import { getPartnerCommissionDisplay, getPartnerInitialHoldProgress, type DashboardCommission } from "@/lib/partner-dashboard-display";
 import type { Locale } from "@/lib/i18n";
+import type { CashoutView } from "@/lib/partner-cashout-view";
 
 import styles from "./partner-dashboard.module.css";
 
@@ -19,7 +21,7 @@ type Submission = { businessName: string; category: { name: string; slug: string
 type Commission = DashboardCommission & { business: { name: string } | null; businessId: string | null; businessSubmission: { businessName: string } | null; businessSubmissionId: string | null; createdAt: Date; earnedAt: Date | null; eligibleAt: Date | null };
 type Payout = { amountCents: number; id: string; initiatedAt: Date; paidAt: Date | null; status: "ACTION_REQUIRED" | "CANCELED" | "FAILED" | "PAID" | "PROCESSING" | "SCHEDULED" };
 type Setup = { bankAccountLast4?: string | null; bankName?: string | null; payoutsEnabled?: boolean; setupState: "action-required" | "ready" | "restricted" | "setup-incomplete" | "setup-not-started" } | null;
-type Props = { now: string; balances: { available: number; nextPayoutDate: Date; paid: number; testActivity: number; totalEarned: number; unverifiedActivity: number }; commissionLedger: Commission[]; commissionRates: { initial: number; renewal: number }; history: Payout[]; holdDays: number; locale: Locale; payoutsPaused: boolean; recentCommissions: Commission[]; payableCommissionIds: string[]; setup: Setup; submissions: Submission[]; totals: { drafts: number; published: number; awaitingPayment: number }; username: string };
+type Props = { now: string; balances: { available: number; nextPayoutDate: Date; paid: number; testActivity: number; totalEarned: number; unverifiedActivity: number }; cashoutView?: CashoutView | null; commissionLedger: Commission[]; commissionRates: { initial: number; renewal: number }; history: Payout[]; holdDays: number; locale: Locale; payoutsPaused: boolean; recentCommissions: Commission[]; payableCommissionIds: string[]; setup: Setup; submissions: Submission[]; totals: { drafts: number; published: number; awaitingPayment: number }; username: string };
 
 const copy = { en: { add: "Add a business", allBusinesses: "View all businesses", businesses: "Your businesses", connect: "Connect payout account", connected: "Payout account connected", continue: "Continue", drafts: "Drafts", emptyEarnings: "Your earnings will appear here after a business joins.", emptyBusinesses: "Add a local business to start tracking it here.", first: "Ready to earn your first €50?", guide: "Partner guide", guideBody: "Everything you need, right on your phone.", guideTitle: "Talking to a business?", latest: "Latest", localPartner: "LOCAL PARTNER", newBusiness: "New business", nextPayout: "Eligible for real payout", noDate: "No real payout scheduled", paid: "Verified live payouts", payout: "PAYOUT ACCOUNT", payoutBody: "Connect your payout account so we can send your eligible commissions.", recentBusinesses: "Recent businesses", recentEarnings: "Recent earnings", renewal: "Renewal", setup: "Finish setting up your payout account", setupAction: "Finish setup", total: "Verified live earnings", viewEarnings: "View earnings & payouts", viewListing: "View listing", welcome: "Welcome", welcomeAgain: "Ready to earn another €50?", waiting: "Waiting for payment", waitingBody: "The owner hasn't paid yet.", yourEarnings: "YOUR EARNINGS" }, it: { add: "Aggiungi attività", allBusinesses: "Vedi tutte le attività", businesses: "Le tue attività", connect: "Collega il conto per i pagamenti", connected: "Conto per pagamenti collegato", continue: "Continua", drafts: "Bozze", emptyEarnings: "I tuoi guadagni compariranno qui quando un'attività aderisce.", emptyBusinesses: "Aggiungi un'attività locale per iniziare a seguirla qui.", first: "Pronto a guadagnare i tuoi primi €50?", guide: "Guida Partner", guideBody: "Tutto ciò che ti serve, direttamente sul tuo telefono.", guideTitle: "Stai parlando con un'attività?", latest: "Ultimo", localPartner: "PARTNER LOCALE", newBusiness: "Nuova attività", nextPayout: "Idoneo al pagamento reale", noDate: "Nessun pagamento reale previsto", paid: "Pagamenti live verificati", payout: "CONTO PAGAMENTI", payoutBody: "Collega il conto per ricevere le commissioni idonee.", recentBusinesses: "Attività recenti", recentEarnings: "Guadagni recenti", renewal: "Rinnovo", setup: "Completa la configurazione del conto per i pagamenti", setupAction: "Completa configurazione", total: "Guadagni live verificati", viewEarnings: "Vedi guadagni e pagamenti", viewListing: "Vedi scheda", welcome: "Benvenuto", welcomeAgain: "Pronto a guadagnare altri €50?", waiting: "In attesa di pagamento", waitingBody: "Il titolare non ha ancora pagato.", yourEarnings: "I TUOI GUADAGNI" } } as const;
 
@@ -31,7 +33,7 @@ const overviewCopy = {
 function formatDate(locale: Locale, value: Date) { return new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-US", { dateStyle: "medium" }).format(value); }
 function commissionKind(entry: DashboardCommission, locale: Locale) { const isInitial = entry.payment?.purpose === "INITIAL_MEMBERSHIP" || entry.sourceKey.startsWith("commission:submission:"); return { isInitial, label: isInitial ? copy[locale].newBusiness : copy[locale].renewal }; }
 
-export function PartnerDashboard({ now, balances, commissionLedger, commissionRates, holdDays, locale, payoutsPaused, recentCommissions, payableCommissionIds, setup, submissions, totals, username }: Props) {
+export function PartnerDashboard({ now, balances, cashoutView, commissionLedger, commissionRates, holdDays, locale, payoutsPaused, recentCommissions, payableCommissionIds, setup, submissions, totals, username }: Props) {
   const text = copy[locale];
   const overview = overviewCopy[locale];
   const firstName = username.trim().split(/\s+/)[0] || username;
@@ -53,8 +55,9 @@ export function PartnerDashboard({ now, balances, commissionLedger, commissionRa
         <div className={styles.welcomeCopy}><span className={styles.eyebrow}>{text.localPartner}</span><h1>{text.welcome}, {firstName}.</h1><h2>{overview.subtitle}</h2></div>
         <div className={styles.welcomeAction}><HardNavigationLink href="/publish" className={styles.primary}><span>+</span>{text.add}<IconArrowRight aria-hidden="true" size={19} /></HardNavigationLink><small><b>{formatCurrencyFromCents(commissionRates.initial, locale)}</b> {locale === "it" ? "quando un'attività aderisce, più" : "when a business joins, plus"} {formatCurrencyFromCents(commissionRates.renewal, locale)} {locale === "it" ? "a ogni rinnovo riuscito" : "on each successful renewal"}</small></div>
       </section>
+      {cashoutView ? <PartnerCashoutPanel view={cashoutView} locale={locale} compact /> : null}
       <div className={styles.dashboardGrid}>
-        <section className={styles.earningsCard}>
+        {!cashoutView ? <section className={styles.earningsCard}>
           <div className={styles.commissionsHeading}><span className={styles.coinIcon}><IconCoin size={24} stroke={1.6} aria-hidden="true" /></span><span className={styles.eyebrow}>{overview.commissions}</span></div>
           <div className={styles.earningBreakdown}>
             <Earning label={overview.total} value={formatCurrencyFromCents(balances.totalEarned + pendingHold, locale)} />
@@ -63,16 +66,16 @@ export function PartnerDashboard({ now, balances, commissionLedger, commissionRa
             <Earning label={overview.paid} value={formatCurrencyFromCents(balances.paid, locale)} />
           </div>
           <div className={styles.holdNotice}><span className={styles.noticeIcon}><IconClock size={23} stroke={1.7} aria-hidden="true" /></span><div><strong>{overview.noticeTitle}</strong><p>{overview.notice}</p><HardNavigationLink href="/dashboard/earnings">{overview.learn}<IconArrowRight size={17} aria-hidden="true" /></HardNavigationLink></div></div>
-        </section>
-        <div className={styles.payoutColumn}>
-          <section className={styles.payoutCard}><h2>{overview.payout}</h2>{setupReady ? <><div className={styles.payoutStatus}><IconCircleCheck aria-hidden="true" /><div><h3>{text.connected}</h3>{setup?.bankAccountLast4 ? <p>{setup.bankName ? `${setup.bankName} ` : ""}•••• {setup.bankAccountLast4}</p> : null}</div></div><HardNavigationLink href="/partner/payout" className={styles.ghostButton}>{locale === "it" ? "Gestisci pagamenti" : "Manage payouts"}<IconArrowRight aria-hidden="true" size={18} /></HardNavigationLink></> : <><div className={styles.payoutStatus}><span className={styles.payoutPending}>€</span><div><h3>{setup?.setupState === "setup-not-started" || !setup ? (locale === "it" ? "Preparati a ricevere i tuoi guadagni" : "Get ready to receive your earnings") : text.setup}</h3><p>{text.payoutBody}</p></div></div><PayoutAction locale={locale} label={setup?.setupState === "setup-not-started" || !setup ? text.connect : text.setupAction} /></>}</section>
+        </section> : null}
+        <div className={styles.payoutColumn} style={cashoutView ? { gridColumn: "1 / -1" } : undefined}>
+          {!cashoutView ? <section className={styles.payoutCard}><h2>{overview.payout}</h2>{setupReady ? <><div className={styles.payoutStatus}><IconCircleCheck aria-hidden="true" /><div><h3>{text.connected}</h3>{setup?.bankAccountLast4 ? <p>{setup.bankName ? `${setup.bankName} ` : ""}•••• {setup.bankAccountLast4}</p> : null}</div></div><HardNavigationLink href="/partner/payout" className={styles.ghostButton}>{locale === "it" ? "Gestisci pagamenti" : "Manage payouts"}<IconArrowRight aria-hidden="true" size={18} /></HardNavigationLink></> : <><div className={styles.payoutStatus}><span className={styles.payoutPending}>€</span><div><h3>{setup?.setupState === "setup-not-started" || !setup ? (locale === "it" ? "Preparati a ricevere i tuoi guadagni" : "Get ready to receive your earnings") : text.setup}</h3><p>{text.payoutBody}</p></div></div><PayoutAction locale={locale} label={setup?.setupState === "setup-not-started" || !setup ? text.connect : text.setupAction} /></>}</section> : null}
           <section className={styles.breakdownCard}><h2>{overview.breakdown}</h2><p><strong>{formatCurrencyFromCents(commissionRates.initial, locale)}</strong><span>{overview.initial}</span></p><p><strong>{formatCurrencyFromCents(commissionRates.renewal, locale)}</strong><span>{overview.renewal}</span></p></section>
         </div>
-        <aside className={styles.financialNote}>
+        {!cashoutView ? <aside className={styles.financialNote}>
           {payoutsPaused ? <span>{locale === "it" ? "Test in corso: i pagamenti reali ai Partner sono sospesi. " : "Testing in progress: real Partner payouts are paused. "}</span> : null}
           {locale === "it" ? "Le commissioni test e lo storico non verificato non sono pagabili." : "Test commissions and unverified history are not payable."}
           {" "}{locale === "it" ? "Test" : "Test"}: {formatCurrencyFromCents(balances.testActivity, locale)} · {locale === "it" ? "Storico non verificato" : "Unverified history"}: {formatCurrencyFromCents(balances.unverifiedActivity, locale)}
-        </aside>
+        </aside> : null}
         <section className={styles.recentEarnings}>
           <div className={styles.recentHeader}><div><h2>{text.recentEarnings}</h2><p>{overview.earningsSubtitle}</p></div><HardNavigationLink href="/dashboard/earnings">{overview.viewAll}<IconArrowRight size={18} aria-hidden="true" /></HardNavigationLink></div>
           {recentCommissions.length ? <div className={styles.commissionList}><div className={styles.commissionHead}><span>{overview.business}</span><span>{overview.type}</span><span>{overview.commission}</span><span>{overview.paymentDate}</span><span>{overview.refundPeriod}</span><span>{overview.status}</span><span>{overview.availableOn}</span></div>{recentCommissions.map((commission) => <CommissionRow key={commission.id} entry={commission} holdDays={holdDays} locale={locale} ledger={ledger} now={currentDate} payableIds={payableIds} submissions={submissions} />)}</div> : <div className={styles.emptyEarnings}><IconCoin aria-hidden="true" size={25} /><p>{text.emptyEarnings}</p></div>}

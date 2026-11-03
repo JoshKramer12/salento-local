@@ -4,6 +4,7 @@ import { DashboardNav } from "@/components/account/dashboard-nav";
 import { AdminPartnerPayoutButton } from "@/components/account/admin-partner-payout-button";
 import { PartnerOutstandingCommissionCard } from "@/components/account/partner-outstanding-commission-card";
 import { PartnerPayoutSummary } from "@/components/account/partner-payout-summary";
+import { PartnerCashoutPanel } from "@/components/account/partner-cashout-panel";
 import { PartnerDashboard } from "@/components/account/partner-dashboard";
 import { PartnerFirstBusinessDashboard } from "@/components/account/partner-first-business-dashboard";
 import { PartnerTermsNotice } from "@/components/account/partner-terms-notice";
@@ -43,6 +44,7 @@ import {
 } from "@/lib/partner-ledger";
 import { selectPartnerPaidBusinesses, selectPartnerPaidBusinessCommissions } from "@/lib/partner-dashboard-display";
 import { prisma } from "@/lib/prisma";
+import { cashoutUiEnabled, getPartnerCashoutView } from "@/lib/partner-cashout-view";
 import { getSingleParam } from "@/lib/site";
 import { areRealPartnerDisbursementsAllowed } from "@/lib/stripe";
 import { buildDraftLikeSubmissionWhere } from "@/lib/submission-drafts";
@@ -645,13 +647,14 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       : 0;
 
   if (viewer.role === "GETTER" && partnerBalances) {
+    const cashoutView = cashoutUiEnabled() ? await getPartnerCashoutView() : null;
     const currentTermsAcceptance = await prisma.legalAcceptance.findFirst({
       where: { userId: viewer.id, documentType: "PARTNER_TERMS", documentVersion: LEGAL_DOCUMENTS.partnerTerms.version },
       select: { id: true },
     });
     const termsNotice = currentTermsAcceptance ? null : <PartnerTermsNotice locale={locale} />;
     if (shouldShowPartnerFirstBusinessDashboard(submissions.length)) {
-      return <>{termsNotice}<PartnerFirstBusinessDashboard locale={locale} username={viewer.username} /></>;
+      return <>{termsNotice}<PartnerFirstBusinessDashboard locale={locale} username={viewer.username} />{cashoutView ? <div className="shell px-4 pb-10 sm:px-6"><PartnerCashoutPanel view={cashoutView} locale={locale} compact /></div> : null}</>;
     }
 
     const paidBusinesses = selectPartnerPaidBusinesses(submissions);
@@ -661,6 +664,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       <>{termsNotice}<PartnerDashboard
         now={dashboardNow.toISOString()}
         balances={partnerBalances}
+        cashoutView={cashoutView}
         history={partnerHistory}
         locale={locale}
         payoutsPaused={!areRealPartnerDisbursementsAllowed()}

@@ -10,7 +10,7 @@ const MINIMUM_WITHDRAWAL_CENTS = 5000;
 const MAX_ACCOUNT_SYNC_AGE_MS = 24 * 60 * 60 * 1000;
 type Tx = Prisma.TransactionClient;
 type Viewer = { id: string; role: string; profileCompleted: boolean };
-type Dependencies = { authenticate?: () => Promise<Viewer | null>; now?: Date };
+type Dependencies = { authenticate?: () => Promise<Viewer | null>; now?: Date; expectedAmountCents?: number };
 
 function sum(values: number[]) {
   return values.reduce((total, value) => total + value, 0);
@@ -258,6 +258,12 @@ export async function requestPartnerWithdrawal(
     }
     if (state.outstandingDebtCents !== 0) throw new Error("partner_debt_requires_review");
     if (state.withdrawableCents < MINIMUM_WITHDRAWAL_CENTS) throw new Error("partner_withdrawal_below_minimum");
+    // The browser's reviewed amount is a comparison only. The ledger still
+    // selects the full amount and exact commissions inside this transaction.
+    if (dependencies.expectedAmountCents !== undefined &&
+        state.withdrawableCents !== dependencies.expectedAmountCents) {
+      throw new Error("withdrawal_balance_changed");
+    }
     const allocations = state.credits.map((credit) => ({
       id: credit.id, amountCents: credit.amountCents - (state.recoveredByCredit.get(credit.id) ?? 0),
     })).filter((entry) => entry.amountCents > 0);
