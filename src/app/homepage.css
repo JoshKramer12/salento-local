@@ -165,6 +165,9 @@ body:has(.homepage) > div > .site-footer { display: none; }
   .home-header-search-field { width:100%; }
 }
 body:has(.home-topbar) #mobile-navigation > div:last-child { top:84px; }
+@media (max-width:359px) {
+  body:has(#partner-panel-awaiting) .home-brand-wordmark { display:none; }
+}
 @media (max-width:800px) {
   body:has(.home-topbar) #mobile-navigation > div:last-child { top:72px; }
 }
