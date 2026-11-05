@@ -7,47 +7,37 @@ const dashboardPage = readFileSync("src/app/(account)/dashboard/page.tsx", "utf8
 const dashboardStyles = readFileSync("src/components/account/partner-dashboard.module.css", "utf8");
 const partnerWorkspaceNav = readFileSync("src/components/account/partner-workspace-nav.tsx", "utf8");
 
-test("partner dashboard projects authoritative commission purpose and payout setup data", () => {
-  assert.match(dashboardPage, /payment: \{ select: \{ paidAt: true, purpose: true, status: true, refundRequestedAt: true, refundStatus: true, stripeLivemode: true \} \}/);
-  assert.match(dashboardPage, /type: "COMMISSION"/);
-  assert.doesNotMatch(dashboardPage, /status: \{ not: "REVERSED" \}/);
-  assert.match(dashboard, /purpose === "INITIAL_MEMBERSHIP"/);
-  assert.match(dashboard, /sourceKey\.startsWith\("commission:submission:"\)/);
-  assert.match(dashboard, /setup\?\.setupState === "ready"/);
-  assert.match(dashboard, /Boolean\(setup\.payoutsEnabled\)/);
+test("dashboard uses authoritative financial data and excludes unverified activity", () => {
+  assert.match(dashboardPage, /payableCommissionWhere\(dashboardNow\)/);
+  assert.match(dashboardPage, /getPartnerBalanceSummary\(viewer.id\)/);
+  assert.match(dashboard, /getPartnerCommissionDisplay\(entry, commissionLedger, payableIds, locale\)/);
+  assert.match(dashboard, /getPartnerInitialHoldProgress\(entry, currentDate, holdDays\)/);
+  assert.match(dashboard, /balances\.testActivity/);
+  assert.match(dashboard, /balances\.unverifiedActivity/);
+  assert.match(dashboard, /balances\.debt/);
+  assert.match(dashboard, /payoutsPaused \|\| !setupReady \|\| balances\.debt > 0 \? t\.balance : t\.available/);
+  assert.match(dashboard, /payableIds\.has\(entry\.id\) && payoutsPaused \? t\.pausedStatus/);
+  assert.match(dashboard, /payableIds\.has\(entry\.id\) && balances\.debt > 0 \? t\.debtStatus/);
+  assert.doesNotMatch(dashboard, /Cash out|Cash Out|€685|stripe\.|prisma\./);
 });
 
-test("partner dashboard keeps the existing financial and workflow destinations", () => {
-  for (const destination of ["/publish", "/dashboard/earnings", "/dashboard/businesses", "/partner/payout", "/partner/onboarding\\?guide=1"]) {
+test("attention and portfolio reuse the My Submissions grouping and existing routes", () => {
+  assert.match(dashboard, /isAwaitingPartnerPayment/);
+  assert.match(dashboard, /isDraftLikeSubmission/);
+  assert.match(dashboard, /isPublished\(entry, currentDate\)/);
+  assert.match(dashboardPage, /submissions=\{submissions\}/);
+  assert.match(dashboardPage, /payLaterInvitation: \{ select: \{ revokedAt: true, declinedAt: true, completedAt: true \} \}/);
+  for (const destination of ["/publish", "/dashboard/earnings", "/dashboard/businesses", "/partner/onboarding\\?guide=1"]) {
     assert.match(dashboard, new RegExp(`href=\\"${destination.replaceAll("/", "\\/")}\\"`));
   }
-
   assert.match(dashboard, /startPartnerPayoutSetupAction/);
-  assert.match(dashboard, /getBusinessPhotoUrls/);
-  assert.doesNotMatch(dashboard, /PartnerCommission\.create|prisma\.|stripe\./);
+  assert.match(dashboard, /publish\?submission=/);
 });
 
-test("recent-business cards keep their image, details, and action in separate responsive flow regions", () => {
-  assert.match(dashboard, /<div className=\{styles\.cardContent\}>[\s\S]*?<\/div><div className=\{styles\.cardActions\}>/);
-  assert.match(dashboardStyles, /\.businessCard\{display:flex;min-width:0;flex-direction:column;overflow:hidden\}/);
-  assert.match(dashboardStyles, /\.photo\{position:relative;width:100%;height:7rem;min-height:7rem;max-height:7rem;flex:0 0 7rem;overflow:hidden\}/);
-  assert.match(dashboardStyles, /\.photo img\{position:absolute;inset:0;display:block;width:100%;height:100%;[^}]*object-fit:cover;object-position:center\}/);
-  assert.match(dashboardStyles, /\.cardActions\{display:grid;gap:7px;[^}]*padding:0 11px 11px\}/);
-  assert.match(dashboardStyles, /\.businessCards\{grid-template-columns:repeat\(4,minmax\(0,1fr\)\)\}/);
-  assert.match(dashboardStyles, /@media\(max-width:767px\)\{[\s\S]*?\.businessCards\{grid-template-columns:1fr\}/);
-});
-
-test("the Partner mobile navigation remains in page flow below the global header", () => {
+test("dashboard keeps compact responsive cards and existing mobile navigation", () => {
   assert.match(partnerWorkspaceNav, /scrollable[\s\S]*sticky=\{false\}/);
-});
-
-test("the lower dashboard uses intentional rows and does not render a redundant help card", () => {
-  const guideIndex = dashboard.indexOf("<section className={styles.guide}>");
-  const summaryIndex = dashboard.indexOf("<section className={styles.businessSummary}>");
-
-  assert.ok(guideIndex > 0 && summaryIndex > guideIndex);
-  assert.doesNotMatch(dashboard, /styles\.help|Need more help\?|Hai bisogno di altro aiuto\?/);
-  assert.doesNotMatch(dashboardStyles, /\.businessPanel\{grid-row:2 \/ span 2/);
-  assert.match(dashboardStyles, /@media\(min-width:901px\)\{\.businessPanel\{grid-column:1;grid-row:auto\}\.guide\{grid-column:1;grid-row:auto\}\.businessSummary\{grid-column:2;grid-row:auto\}\.recentEarnings\{grid-column:1\/-1;grid-row:auto\}\}/);
-  assert.match(dashboardStyles, /@media\(max-width:900px\)\{[\s\S]*?\.payoutColumn,\.financialNote,\.recentEarnings\{grid-column:auto\}/);
+  assert.match(dashboardStyles, /\.grid\{display:grid;grid-template-columns:/);
+  assert.match(dashboardStyles, /@media\(max-width:767px\)/);
+  assert.match(dashboardStyles, /\.businessStats\{display:grid/);
+  assert.doesNotMatch(dashboardStyles, /background:linear-gradient\(125deg,#005748/);
 });

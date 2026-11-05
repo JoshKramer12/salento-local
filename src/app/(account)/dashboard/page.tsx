@@ -32,13 +32,12 @@ import { getCurrentLocale } from "@/lib/locale";
 import { LEGAL_DOCUMENTS } from "@/lib/legal";
 import { getPartnerNextRoute } from "@/lib/partner-onboarding";
 import { shouldShowPartnerFirstBusinessDashboard } from "@/lib/partner-first-business-dashboard";
-import { getPartnerCommissionCents, getPartnerPayoutSetupSummary } from "@/lib/partner-connect";
+import { getPartnerPayoutSetupSummary } from "@/lib/partner-connect";
 import {
   getPartnerBalanceSummary,
   getPartnerOutstandingCommissionItems,
   getPartnerPayoutHistory,
   INITIAL_COMMISSION_HOLD_DAYS,
-  PARTNER_RENEWAL_COMMISSION_CENTS,
   payableCommissionWhere,
 } from "@/lib/partner-ledger";
 import { selectPartnerPaidBusinesses, selectPartnerPaidBusinessCommissions } from "@/lib/partner-dashboard-display";
@@ -391,6 +390,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         id: true,
         paymentMethod: true,
         paymentStatus: true,
+        payLaterInvitation: { select: { revokedAt: true, declinedAt: true, completedAt: true } },
         photoUrls: true,
         payments: {
           orderBy: {
@@ -405,6 +405,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           },
         },
         status: true,
+        updatedAt: true,
         town: {
           select: {
             name: true,
@@ -661,16 +662,14 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       <>{termsNotice}<PartnerDashboard
         now={dashboardNow.toISOString()}
         balances={partnerBalances}
-        history={partnerHistory}
         locale={locale}
         payoutsPaused={!areRealPartnerDisbursementsAllowed()}
         recentCommissions={paidBusinessCommissions}
         commissionLedger={partnerRecentCommissions}
-        commissionRates={{ initial: getPartnerCommissionCents(), renewal: PARTNER_RENEWAL_COMMISSION_CENTS }}
         holdDays={INITIAL_COMMISSION_HOLD_DAYS}
         setup={partnerSetup}
         payableCommissionIds={partnerPayableCommissions.map((commission) => commission.id)}
-        submissions={paidBusinesses}
+        submissions={submissions}
         totals={totals}
         username={viewer.name?.trim() || viewer.username}
       /></>
