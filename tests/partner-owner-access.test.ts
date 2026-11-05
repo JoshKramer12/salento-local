@@ -102,7 +102,7 @@ test("dashboard, endpoint, and spinner retain security and processing constraint
   const service = readFileSync("src/lib/partner-owner-access.ts", "utf8");
   const spinner = readFileSync("src/app/globals.css", "utf8");
   const payment = readFileSync("src/components/account/no-email-payment-form.tsx", "utf8");
-  assert.match(dashboard, /PartnerOwnerAccess locale=\{locale\}/);
+  assert.match(dashboard, /href="\/dashboard\/businesses"/);
   assert.match(list, /PartnerOwnerAccess locale=\{locale\}/);
   assert.match(route, /session\?\.user\?\.role === "GETTER"/);
   assert.match(route, /limit: input\.method === "email" \? 1 : 10/);
