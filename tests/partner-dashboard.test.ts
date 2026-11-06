@@ -15,10 +15,12 @@ test("dashboard uses authoritative financial data and excludes unverified activi
   assert.match(dashboard, /balances\.testActivity/);
   assert.match(dashboard, /balances\.unverifiedActivity/);
   assert.match(dashboard, /balances\.debt/);
-  assert.match(dashboard, /payoutsPaused \|\| !setupReady \|\| balances\.debt > 0 \? t\.balance : t\.available/);
+  assert.match(dashboard, /formatCurrencyFromCents\(0, locale\)/);
+  assert.match(dashboard, /className=\{styles\.cashout\} disabled/);
+  assert.match(dashboard, /payoutsPaused \? t\.paused : t\.cashoutUnavailable/);
   assert.match(dashboard, /payableIds\.has\(entry\.id\) && payoutsPaused \? t\.pausedStatus/);
   assert.match(dashboard, /payableIds\.has\(entry\.id\) && balances\.debt > 0 \? t\.debtStatus/);
-  assert.doesNotMatch(dashboard, /Cash out|Cash Out|€685|stripe\.|prisma\./);
+  assert.doesNotMatch(dashboard, /€685|stripe\.|prisma\.|submitCashoutRequest/);
 });
 
 test("attention and portfolio reuse the My Submissions grouping and existing routes", () => {
