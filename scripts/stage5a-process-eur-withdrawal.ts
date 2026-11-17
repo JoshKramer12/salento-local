@@ -5,7 +5,7 @@ import { withVerifiedStage5aSandbox } from "@/lib/partner-withdrawal-sandbox-con
 
 const PARTNER_ID = "partner-stage5a-primary";
 const CONNECTED_ID = "acct_1UXlICGlpyfRSSMc";
-const WITHDRAWAL_ID = "cmw0zq4ap0003otw8kbwoian8";
+const REQUEST_KEY = "stage5a-eur-withdrawal-0001";
 const SETTLEMENT_TRANSACTION_ID = "txn_3UXlsVGlpy5eeaBP1vaBH5rK";
 
 async function main() {
@@ -15,7 +15,8 @@ async function main() {
       stripe.balance.retrieve(),
       stripe.balanceTransactions.retrieve(SETTLEMENT_TRANSACTION_ID),
       stripe.accounts.retrieve(CONNECTED_ID),
-      prisma.partnerWithdrawal.findUnique({ where: { id: WITHDRAWAL_ID } }),
+      prisma.partnerWithdrawal.findUnique({ where: { partnerUserId_requestKey: {
+        partnerUserId: PARTNER_ID, requestKey: REQUEST_KEY } } }),
     ]);
     const availableEurCents = balance.available
       .filter((entry) => entry.currency === "eur")
@@ -34,16 +35,17 @@ async function main() {
         !["REQUESTED", "PROCESSING", "OUTCOME_UNKNOWN", "ACTION_REQUIRED", "PAID"].includes(withdrawal.status)) {
       throw new Error("stage5a_eur_provider_preflight_mismatch");
     }
-    const result = await processPartnerWithdrawal(WITHDRAWAL_ID);
+    const withdrawalId = withdrawal.id;
+    const result = await processPartnerWithdrawal(withdrawalId);
     const [after, attempts] = await Promise.all([
-      prisma.partnerWithdrawal.findUnique({ where: { id: WITHDRAWAL_ID }, include: { payout: true } }),
-      prisma.partnerWithdrawalAttempt.findMany({ where: { withdrawalId: WITHDRAWAL_ID },
+      prisma.partnerWithdrawal.findUnique({ where: { id: withdrawalId }, include: { payout: true } }),
+      prisma.partnerWithdrawalAttempt.findMany({ where: { withdrawalId },
         orderBy: [{ operation: "asc" }, { sequence: "asc" }] }),
     ]);
     if (!after || after.requestedAmountCents !== 5000) {
       throw new Error("stage5a_eur_after_processing_mismatch");
     }
-    console.log(JSON.stringify({ withdrawalId: WITHDRAWAL_ID, availableEurCents,
+    console.log(JSON.stringify({ withdrawalId, availableEurCents,
       result, status: after.status, payoutId: after.payoutId,
       stripeTransferId: after.payout?.stripeTransferId,
       stripePayoutId: after.payout?.stripePayoutId,
