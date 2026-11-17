@@ -4,23 +4,19 @@ import { redirect } from "next/navigation";
 import { AdminPartnerPayoutButton } from "@/components/account/admin-partner-payout-button";
 import { DashboardNav } from "@/components/account/dashboard-nav";
 import { PartnerWorkspaceNav } from "@/components/account/partner-workspace-nav";
-import { PartnerOutstandingCommissionCard } from "@/components/account/partner-outstanding-commission-card";
-import { PartnerPayoutSummary } from "@/components/account/partner-payout-summary";
+import { PartnerCashoutPanel } from "@/components/account/partner-cashout-panel";
 import { formatCurrencyFromCents } from "@/lib/account";
+import { earningsAccessForRole } from "@/lib/earnings-access";
 import { requireCompletedViewer } from "@/lib/auth-guards";
 import { getCurrentLocale } from "@/lib/locale";
 import { getPartnerNextRoute } from "@/lib/partner-onboarding";
-import { getPartnerPayoutSetupSummary } from "@/lib/partner-connect";
 import { prisma } from "@/lib/prisma";
+import { getPartnerCashoutView } from "@/lib/partner-cashout-view";
 import { getSingleParam } from "@/lib/site";
-import { areRealPartnerDisbursementsAllowed } from "@/lib/stripe";
 import { buildDraftLikeSubmissionWhere } from "@/lib/submission-drafts";
 import type { PartnerPayoutRunSummaryItem } from "@/lib/partner-ledger";
 import {
-  getPartnerBalanceSummary,
-  getPartnerOutstandingCommissionItems,
   getPartnerPayoutAdminOverview,
-  getPartnerPayoutHistory,
 } from "@/lib/partner-ledger";
 
 type DashboardEarningsPageProps = {
@@ -227,11 +223,15 @@ export default async function DashboardEarningsPage({
 }: DashboardEarningsPageProps) {
   const [locale, viewer] = await Promise.all([getCurrentLocale(), requireCompletedViewer()]);
 
-  if (viewer.role === "BUSINESS_OWNER") {
+  const access = earningsAccessForRole(viewer.role);
+  if (access === "redirect") {
     redirect("/dashboard");
   }
 
-  if (viewer.role === "GETTER") {
+  if (access === "partner") {
+    const partnerParams = await searchParams;
+    const requestedPage = Number(getSingleParam(partnerParams.cashoutPage) ?? "1");
+    const cashoutView = await getPartnerCashoutView(requestedPage);
     const profile = await prisma.localPartnerProfile.findUnique({
       where: { userId: viewer.id },
       select: { completedAt: true, partnerOnboardingCompletedAt: true },
@@ -240,16 +240,9 @@ export default async function DashboardEarningsPage({
 
     if (nextRoute !== "/dashboard") redirect(nextRoute);
 
-    const [balances, history, outstandingCommissions, setup, draftCount] =
-      await Promise.all([
-        getPartnerBalanceSummary(viewer.id),
-        getPartnerPayoutHistory(viewer.id),
-        getPartnerOutstandingCommissionItems(viewer.id),
-        getPartnerPayoutSetupSummary(viewer.id),
-        prisma.businessSubmission.count({
-          where: buildDraftLikeSubmissionWhere(viewer.id),
-        }),
-      ]);
+    const draftCount = await prisma.businessSubmission.count({
+      where: buildDraftLikeSubmissionWhere(viewer.id),
+    });
 
     return (
       <>
@@ -274,44 +267,7 @@ export default async function DashboardEarningsPage({
           </h1>
         </div>
 
-        <p className="mb-6 max-w-5xl rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-          {locale === "it" ? "Solo le commissioni da pagamenti live verificati entrano nei saldi pagabili. Attività test e storico non verificato sono registrati, ma non pagabili." : "Only commissions from verified live payments enter payable balances. Test activity and unverified history are recorded, but are not payable."}
-        </p>
-        <p className="mb-6 text-sm text-[var(--muted)]">
-          {locale === "it" ? "Attività test" : "Test activity"}: {formatCurrencyFromCents(balances.testActivity, locale)} · {locale === "it" ? "Storico non verificato" : "Unverified history"}: {formatCurrencyFromCents(balances.unverifiedActivity, locale)}
-        </p>
-
-        <section className="mx-auto grid max-w-5xl gap-4 md:grid-cols-3">
-          <article className="card p-5">
-            <p className="text-sm text-[var(--muted)]">
-              {locale === "it" ? "Guadagni live verificati" : "Verified live earnings"}
-            </p>
-            <p className="mt-3 font-serif text-3xl text-[var(--foreground)]">
-              {formatCurrencyFromCents(balances.totalEarned, locale)}
-            </p>
-          </article>
-          <PartnerOutstandingCommissionCard
-            amountCents={balances.available}
-            items={outstandingCommissions}
-            locale={locale}
-          />
-          <article className="card p-5">
-            <p className="text-sm text-[var(--muted)]">
-              {locale === "it" ? "Pagamenti live verificati" : "Verified live payouts"}
-            </p>
-            <p className="mt-3 font-serif text-3xl text-[var(--foreground)]">
-              {formatCurrencyFromCents(balances.paid, locale)}
-            </p>
-          </article>
-        </section>
-
-        <PartnerPayoutSummary
-          balances={balances}
-          history={history}
-          locale={locale}
-          payoutsPaused={!areRealPartnerDisbursementsAllowed()}
-          setup={setup}
-        />
+        <PartnerCashoutPanel view={cashoutView} locale={locale} />
         </main>
       </>
     );

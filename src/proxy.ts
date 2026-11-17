@@ -3,6 +3,11 @@ import { NextResponse, type NextRequest } from "next/server";
 import { controlledTestAuthorized } from "@/lib/controlled-test";
 
 export function proxy(request: NextRequest) {
+  if ((request.nextUrl.pathname === "/dev/cashout-preview" ||
+       request.nextUrl.pathname.startsWith("/dev/cashout-preview/")) &&
+      (process.env.NODE_ENV === "production" || process.env.PARTNER_CASHOUT_PREVIEW_ENABLED !== "true")) {
+    return new NextResponse("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
+  }
   if (process.env.CONTROLLED_TEST_MODE !== "true") return NextResponse.next();
   // Stripe cannot attach browser credentials. Its signed webhook remains public;
   // every browser page and all other API routes require the test password.

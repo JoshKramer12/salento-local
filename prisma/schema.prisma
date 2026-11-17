@@ -202,6 +202,32 @@ enum PartnerPayoutStatus {
   CANCELED
 }
 
+enum PartnerWithdrawalStatus {
+  REQUESTED
+  READY_FOR_PROCESSING
+  PROCESSING
+  PAID
+  CANCELED
+  INVALIDATED
+  ACTION_REQUIRED
+  FAILED_CONFIRMED
+  OUTCOME_UNKNOWN
+}
+
+enum PartnerWithdrawalOperation {
+  TRANSFER
+  PAYOUT
+  TRANSFER_REVERSAL
+}
+
+enum PartnerWithdrawalAttemptStatus {
+  INTENT
+  SUCCEEDED
+  OUTCOME_UNKNOWN
+  FAILED_CONFIRMED
+  ACTION_REQUIRED
+}
+
 enum StripeWebhookEndpointType {
   PLATFORM
   CONNECT
@@ -305,6 +331,8 @@ model User {
   partnerCommissions PartnerCommission[]
   originatingBusinessMemberships BusinessMembership[] @relation("OriginatingPartner")
   partnerPayouts   PartnerPayout[]
+  partnerWithdrawals PartnerWithdrawal[]
+  partnerDebtRecoveries PartnerDebtRecovery[]
   payLaterInvitations BusinessSubmissionInvitation[] @relation("PayLaterPartner")
   localPartnerProfile LocalPartnerProfile?
   legalAcceptances LegalAcceptance[]
@@ -940,6 +968,9 @@ model PartnerCommission {
   payment               Payment?               @relation(fields: [paymentId], references: [id], onDelete: SetNull)
   payout                PartnerPayout?         @relation(fields: [payoutId], references: [id], onDelete: SetNull)
   confirmationDelivery  PartnerCommissionConfirmationDelivery?
+  withdrawalAllocations PartnerWithdrawalCommission[]
+  debtRecoveriesAsDebt PartnerDebtRecovery[] @relation("RecoveryDebt")
+  debtRecoveriesAsCredit PartnerDebtRecovery[] @relation("RecoveryCredit")
 
   @@index([partnerUserId, status, eligibleAt])
   @@index([businessSubmissionId, type])
@@ -1017,8 +1048,120 @@ model PartnerPayout {
   partnerUser           User                   @relation(fields: [partnerUserId], references: [id], onDelete: Cascade)
   payoutRun             PartnerPayoutRun       @relation(fields: [payoutRunId], references: [id], onDelete: Cascade)
   commissions           PartnerCommission[]
+  withdrawal            PartnerWithdrawal?
 
   @@index([partnerUserId, status, initiatedAt])
+}
+
+// An active request repeats partnerUserId in activePartnerUserId. SQLite's
+// UNIQUE nullable column permits any number of terminal historical requests
+// but only one active request per Partner, including concurrent writers.
+model PartnerWithdrawal {
+  id                     String                  @id @default(cuid())
+  partnerUserId          String
+  activePartnerUserId    String?                 @unique
+  requestKey             String
+  currency               String                  @default("eur")
+  grossEligibleCents     Int
+  debtRecoveredCents     Int                     @default(0)
+  requestedAmountCents   Int
+  status                 PartnerWithdrawalStatus @default(REQUESTED)
+  payoutMethod           PartnerPayoutMethod     @default(STRIPE)
+  stripeConnectedAccountId String
+  destinationLast4       String?
+  destinationExternalAccountId String?
+  destinationVerifiedAt  DateTime
+  payoutId               String?                 @unique
+  providerStartedAt      DateTime?
+  canceledAt             DateTime?
+  completedAt            DateTime?
+  failureCode            String?
+  leaseOwner             String?
+  leaseExpiresAt         DateTime?
+  lastReconciledAt       DateTime?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  partnerUser            User                    @relation(fields: [partnerUserId], references: [id], onDelete: Restrict)
+  payout                 PartnerPayout?          @relation(fields: [payoutId], references: [id], onDelete: Restrict)
+  commissions            PartnerWithdrawalCommission[]
+  events                 PartnerWithdrawalEvent[]
+  attempts               PartnerWithdrawalAttempt[]
+
+  @@unique([partnerUserId, requestKey])
+  @@index([partnerUserId, createdAt])
+  @@index([status, createdAt])
+  @@index([status, lastReconciledAt])
+}
+
+model PartnerWithdrawalAttempt {
+  id                 String                         @id @default(cuid())
+  withdrawalId       String
+  operation          PartnerWithdrawalOperation
+  sequence           Int
+  status             PartnerWithdrawalAttemptStatus @default(INTENT)
+  idempotencyKey     String                         @unique
+  connectedAccountId String
+  amountCents        Int
+  currency           String
+  providerObjectId   String?                        @unique
+  errorCode          String?
+  evidence           String?
+  requestedAt        DateTime                       @default(now())
+  lastReconciledAt   DateTime?
+  createdAt          DateTime                       @default(now())
+  updatedAt          DateTime                       @updatedAt
+  withdrawal         PartnerWithdrawal              @relation(fields: [withdrawalId], references: [id], onDelete: Restrict)
+
+  @@unique([withdrawalId, operation, sequence])
+  @@index([status, requestedAt])
+}
+
+model PartnerWithdrawalCommission {
+  id             String            @id @default(cuid())
+  withdrawalId   String
+  commissionId   String
+  amountCents    Int
+  releasedAt     DateTime?
+  createdAt      DateTime          @default(now())
+  withdrawal     PartnerWithdrawal @relation(fields: [withdrawalId], references: [id], onDelete: Restrict)
+  commission     PartnerCommission @relation(fields: [commissionId], references: [id], onDelete: Restrict)
+
+  @@unique([withdrawalId, commissionId])
+  @@index([commissionId, releasedAt])
+}
+
+model PartnerWithdrawalEvent {
+  id             String                  @id @default(cuid())
+  withdrawalId   String
+  fromStatus     PartnerWithdrawalStatus?
+  toStatus       PartnerWithdrawalStatus
+  actorUserId    String?
+  reason         String
+  createdAt      DateTime                @default(now())
+  withdrawal     PartnerWithdrawal       @relation(fields: [withdrawalId], references: [id], onDelete: Restrict)
+
+  @@index([withdrawalId, createdAt])
+}
+
+// A credit may be partially consumed by several debts and vice versa.
+// Voiding an allocation preserves its history if the credit is later refunded.
+model PartnerDebtRecovery {
+  id                 String            @id @default(cuid())
+  partnerUserId      String
+  debtCommissionId   String
+  creditCommissionId String
+  amountCents        Int
+  voidedAt           DateTime?
+  voidReason         String?
+  createdAt          DateTime          @default(now())
+  partnerUser        User              @relation(fields: [partnerUserId], references: [id], onDelete: Restrict)
+  debtCommission     PartnerCommission @relation("RecoveryDebt", fields: [debtCommissionId], references: [id], onDelete: Restrict)
+  creditCommission   PartnerCommission @relation("RecoveryCredit", fields: [creditCommissionId], references: [id], onDelete: Restrict)
+
+  @@unique([debtCommissionId, creditCommissionId])
+  @@index([partnerUserId, createdAt])
+  @@index([debtCommissionId, voidedAt])
+  @@index([creditCommissionId, voidedAt])
 }
 
 model StripeWebhookEvent {
