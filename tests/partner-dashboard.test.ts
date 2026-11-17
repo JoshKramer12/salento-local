@@ -10,14 +10,18 @@ const partnerWorkspaceNav = readFileSync("src/components/account/partner-workspa
 test("dashboard uses authoritative financial data and excludes unverified activity", () => {
   assert.match(dashboardPage, /payableCommissionWhere\(dashboardNow\)/);
   assert.match(dashboardPage, /getPartnerBalanceSummary\(viewer.id\)/);
+  assert.match(dashboardPage, /const cashoutView = await getPartnerCashoutView\(\)/);
+  assert.match(dashboardPage, /cashoutView=\{cashoutView\}/);
   assert.match(dashboard, /getPartnerCommissionDisplay\(entry, commissionLedger, payableIds, locale\)/);
   assert.match(dashboard, /getPartnerInitialHoldProgress\(entry, currentDate, holdDays\)/);
-  assert.match(dashboard, /balances\.testActivity/);
-  assert.match(dashboard, /balances\.unverifiedActivity/);
-  assert.match(dashboard, /balances\.debt/);
-  assert.match(dashboard, /formatCurrencyFromCents\(0, locale\)/);
+  assert.match(dashboard, /formatCurrencyFromCents\(cashoutView\.availableCents, locale\)/);
+  for (const field of ["grossEarnedCents", "pendingCents", "paidCents", "reservedCents", "testCents", "unverifiedCents", "debtCents"]) {
+    assert.match(dashboard, new RegExp(`cashoutView\\.${field}`));
+  }
+  assert.match(dashboard, /cashoutBlockReason\(cashoutView\)/);
   assert.match(dashboard, /className=\{styles\.cashout\} disabled/);
-  assert.match(dashboard, /payoutsPaused \? t\.paused : t\.cashoutUnavailable/);
+  assert.match(dashboard, /href="\/dashboard\/earnings#cashout-request"/);
+  assert.doesNotMatch(dashboard, /formatCurrencyFromCents\(0, locale\)/);
   assert.match(dashboard, /payableIds\.has\(entry\.id\) && payoutsPaused \? t\.pausedStatus/);
   assert.match(dashboard, /payableIds\.has\(entry\.id\) && balances\.debt > 0 \? t\.debtStatus/);
   assert.doesNotMatch(dashboard, /€685|stripe\.|prisma\.|submitCashoutRequest/);

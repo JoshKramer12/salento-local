@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { handleConnectedPayoutEvent } from "@/lib/partner-ledger";
+import { handleWithdrawalPayoutEvent } from "@/lib/partner-withdrawal-processing";
+import { payoutEvidence } from "@/lib/partner-withdrawal-provider";
 import {
   syncPartnerStripeAccountStatusByConnectedAccountId,
 } from "@/lib/partner-connect";
@@ -77,10 +79,15 @@ export async function POST(request: Request) {
       event.type === "payout.canceled"
     ) {
       const payout = event.data.object;
-      await handleConnectedPayoutEvent({
-        eventType: event.type,
-        payoutId: payout.id,
-      });
+      if (payout.metadata?.partnerWithdrawalId) {
+        if (!event.account) throw new Error("withdrawal_connected_account_missing");
+        await handleWithdrawalPayoutEvent(payoutEvidence(payout, event.account));
+      } else {
+        await handleConnectedPayoutEvent({
+          eventType: event.type,
+          payoutId: payout.id,
+        });
+      }
       await complete({
         id: webhookLog.id,
         status: "PROCESSED",

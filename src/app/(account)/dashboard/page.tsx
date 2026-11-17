@@ -5,6 +5,7 @@ import { AdminPartnerPayoutButton } from "@/components/account/admin-partner-pay
 import { PartnerOutstandingCommissionCard } from "@/components/account/partner-outstanding-commission-card";
 import { PartnerPayoutSummary } from "@/components/account/partner-payout-summary";
 import { PartnerDashboard } from "@/components/account/partner-dashboard";
+import { getPartnerCashoutView } from "@/lib/partner-cashout-view";
 import { PartnerTermsNotice } from "@/components/account/partner-terms-notice";
 import {
   BusinessOwnerDashboard,
@@ -644,6 +645,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       : 0;
 
   if (viewer.role === "GETTER" && partnerBalances) {
+    const cashoutView = await getPartnerCashoutView();
     const currentTermsAcceptance = await prisma.legalAcceptance.findFirst({
       where: { userId: viewer.id, documentType: "PARTNER_TERMS", documentVersion: LEGAL_DOCUMENTS.partnerTerms.version },
       select: { id: true },
@@ -656,6 +658,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       <>{termsNotice}<PartnerDashboard
         now={dashboardNow.toISOString()}
         balances={partnerBalances}
+        cashoutView={cashoutView}
         locale={locale}
         payoutsPaused={!areRealPartnerDisbursementsAllowed()}
         recentCommissions={paidBusinessCommissions}
