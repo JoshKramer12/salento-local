@@ -226,9 +226,20 @@ async function saveTransfer(withdrawalId: string, attemptId: string, evidence: T
       payoutId: withdrawal.payoutId, status: "RESERVED",
     }, data: { stripeTransferId: evidence.id, transferredAt: now } });
     if (evidence.amountReversedCents > 0) {
+      // A reversal can surface after a bank payout was marked paid. Keep the
+      // historical paid ledger, but block another withdrawal until an operator
+      // reconciles the platform transfer and connected-account balance.
+      await freezeNewerWithdrawal(tx, withdrawal, now, "older_transfer_reversed");
+      await tx.partnerPayout.update({ where: { id: withdrawal.payoutId }, data: {
+        status: "ACTION_REQUIRED", actionRequiredAt: now,
+      } });
+      await tx.partnerPayoutRun.update({ where: { id: payout.payoutRunId }, data: {
+        status: "FAILED", completedAt: now, lastError: "transfer_reversed",
+      } });
       await recordEvent(tx, withdrawal, "ACTION_REQUIRED", "transfer_partially_or_fully_reversed");
       await tx.partnerWithdrawal.update({ where: { id: withdrawal.id }, data: {
-        status: "ACTION_REQUIRED", failureCode: "transfer_reversed", leaseOwner: null, leaseExpiresAt: null,
+        status: "ACTION_REQUIRED", failureCode: "transfer_reversed", completedAt: null,
+        leaseOwner: null, leaseExpiresAt: null,
       } });
     }
     return withdrawal;
@@ -259,7 +270,7 @@ async function savePayout(withdrawalId: string, attemptId: string, evidence: Pay
     if (withdrawal.status === "PAID") return withdrawal;
     if (attempt.providerObjectId && attempt.providerObjectId !== evidence.id) throw new Error("withdrawal_payout_identity_conflict");
     const transfer = await tx.partnerWithdrawalAttempt.findFirst({ where: {
-      withdrawalId, operation: "TRANSFER", status: "SUCCEEDED",
+      withdrawalId, operation: "TRANSFER", status: { in: ["SUCCEEDED", "ACTION_REQUIRED"] },
     } });
     if (!transfer?.providerObjectId) throw new Error("withdrawal_transfer_unconfirmed");
     await tx.partnerWithdrawalAttempt.update({ where: { id: attemptId }, data: {
@@ -359,7 +370,7 @@ async function settlePayout(evidence: PayoutEvidence, now: Date) {
       return withdrawal;
     }
     const transfer = await tx.partnerWithdrawalAttempt.findFirst({ where: {
-      withdrawalId: withdrawal.id, operation: "TRANSFER", status: "SUCCEEDED",
+      withdrawalId: withdrawal.id, operation: "TRANSFER", status: { in: ["SUCCEEDED", "ACTION_REQUIRED"] },
     } });
     if (!attempt || !transfer?.providerObjectId) throw new Error("withdrawal_provider_evidence_incomplete");
     if (evidence.status === "paid") {
@@ -370,6 +381,10 @@ async function settlePayout(evidence: PayoutEvidence, now: Date) {
       if (!allocations.length ||
           allocations.reduce((total, item) => total + item.amountCents, 0) !== withdrawal.requestedAmountCents) {
         throw new Error("withdrawal_allocation_conflict");
+      }
+      const transferNeedsReview = transfer.status === "ACTION_REQUIRED";
+      if (transferNeedsReview && allocations.every((item) => item.commission.status === "PAID")) {
+        return withdrawal;
       }
       for (const allocation of allocations) {
         const credit = allocation.commission;
@@ -389,16 +404,26 @@ async function settlePayout(evidence: PayoutEvidence, now: Date) {
         } });
       }
       await tx.partnerPayout.update({ where: { id: withdrawal.payoutId }, data: {
-        status: "PAID", paidAt: now, stripePayoutId: evidence.id,
+        status: transferNeedsReview ? "ACTION_REQUIRED" : "PAID",
+        paidAt: now, stripePayoutId: evidence.id,
       } });
       const payout = await tx.partnerPayout.findUniqueOrThrow({ where: { id: withdrawal.payoutId } });
       await tx.partnerPayoutRun.update({ where: { id: payout.payoutRunId }, data: {
-        status: "COMPLETED", completedAt: now,
+        status: transferNeedsReview ? "FAILED" : "COMPLETED", completedAt: now,
       } });
-      await recordEvent(tx, withdrawal, "PAID", "stripe_payout_paid_verified");
+      if (transferNeedsReview) {
+        await tx.partnerWithdrawalEvent.create({ data: {
+          withdrawalId: withdrawal.id, fromStatus: withdrawal.status,
+          toStatus: "ACTION_REQUIRED", reason: "bank_payout_paid_with_transfer_reversed",
+        } });
+      } else {
+        await recordEvent(tx, withdrawal, "PAID", "stripe_payout_paid_verified");
+      }
       return tx.partnerWithdrawal.update({ where: { id: withdrawal.id }, data: {
-        status: "PAID", activePartnerUserId: null, completedAt: now,
-        leaseOwner: null, leaseExpiresAt: null, failureCode: null,
+        status: transferNeedsReview ? "ACTION_REQUIRED" : "PAID",
+        activePartnerUserId: transferNeedsReview ? withdrawal.activePartnerUserId : null,
+        completedAt: transferNeedsReview ? null : now, leaseOwner: null, leaseExpiresAt: null,
+        failureCode: transferNeedsReview ? "bank_payout_paid_with_transfer_reversed" : null,
       } });
     }
     if (evidence.status === "failed" || evidence.status === "canceled") {
@@ -608,6 +633,9 @@ export async function reconcilePartnerWithdrawal(withdrawalId: string, options: 
     return "reversal_requires_operator_reconciliation";
   }
   const payoutAttempt = attempts.find((item) => item.operation === "PAYOUT");
+  if (transferMatches[0].amountReversedCents > 0 && !payoutAttempt) {
+    return "transfer_requires_operator_reconciliation";
+  }
   if (!payoutAttempt) {
     await prisma.$transaction(async (tx) => {
       const fresh = await tx.partnerWithdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
@@ -638,7 +666,8 @@ export async function reconcilePartnerWithdrawal(withdrawalId: string, options: 
   }
   await savePayout(withdrawalId, payoutAttempt.id, payoutMatches[0], now);
   await settlePayout(payoutMatches[0], now);
-  return payoutMatches[0].status;
+  return transferMatches[0].amountReversedCents > 0
+    ? "transfer_requires_operator_reconciliation" : payoutMatches[0].status;
 }
 
 export async function requestPartnerTransferReversal(

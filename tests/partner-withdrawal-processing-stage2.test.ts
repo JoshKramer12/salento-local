@@ -383,6 +383,65 @@ test("externally reversed transfer is held for investigation without another tra
   assert.equal(provider.payoutCalls, 0);
 });
 
+test("transfer reversal after a paid payout freezes a newer withdrawal and blocks another", async () => {
+  const f = await fixture();
+  const provider = new MockProvider();
+  await processPartnerWithdrawal(f.withdrawal.id, { provider, now });
+  await handleWithdrawalPayoutEvent(provider.paid(f.withdrawal.id), { provider, now });
+  await extraCredit(f.partner.id);
+  const newer = await requestPartnerWithdrawal(key(), auth(f.partner.id));
+  const transferId = `tr_synthetic_${f.withdrawal.id}`;
+  const transfer = provider.transfers.get(transferId)!;
+  provider.transfers.set(transferId, { ...transfer, amountReversedCents: transfer.amountCents });
+
+  assert.equal(await reconcilePartnerWithdrawal(f.withdrawal.id, { provider, now }),
+    "transfer_requires_operator_reconciliation");
+  const older = await prisma.partnerWithdrawal.findUniqueOrThrow({ where: { id: f.withdrawal.id } });
+  const payout = await prisma.partnerPayout.findUniqueOrThrow({ where: { id: older.payoutId! } });
+  assert.equal(older.status, "ACTION_REQUIRED");
+  assert.equal(older.completedAt, null);
+  assert.equal(payout.status, "ACTION_REQUIRED");
+  assert.ok(payout.paidAt);
+  assert.equal((await prisma.partnerPayoutRun.findUniqueOrThrow({ where: { id: payout.payoutRunId } })).status, "FAILED");
+  assert.equal((await prisma.partnerCommission.findUniqueOrThrow({ where: { id: f.commission.id } })).status, "PAID");
+  assert.equal((await prisma.partnerWithdrawal.findUniqueOrThrow({ where: { id: newer.id } })).status, "INVALIDATED");
+  await assert.rejects(requestPartnerWithdrawal(key(), auth(f.partner.id)), /legacy_payout_requires_review/);
+  assert.equal(provider.transferCalls, 1);
+  assert.equal(provider.payoutCalls, 1);
+});
+
+test("bank payout paid after transfer reversal is recorded but remains on operator hold", async () => {
+  const f = await fixture();
+  const provider = new MockProvider();
+  await processPartnerWithdrawal(f.withdrawal.id, { provider, now });
+  const transferId = `tr_synthetic_${f.withdrawal.id}`;
+  const transfer = provider.transfers.get(transferId)!;
+  provider.transfers.set(transferId, { ...transfer, amountReversedCents: 1000 });
+  assert.equal(await reconcilePartnerWithdrawal(f.withdrawal.id, { provider, now }),
+    "transfer_requires_operator_reconciliation");
+
+  const paid = provider.paid(f.withdrawal.id);
+  await handleWithdrawalPayoutEvent(paid, { provider, now });
+  await handleWithdrawalPayoutEvent(paid, { provider, now });
+  const withdrawal = await prisma.partnerWithdrawal.findUniqueOrThrow({ where: { id: f.withdrawal.id } });
+  const payout = await prisma.partnerPayout.findUniqueOrThrow({ where: { id: withdrawal.payoutId! } });
+  const commission = await prisma.partnerCommission.findUniqueOrThrow({ where: { id: f.commission.id } });
+  assert.equal(withdrawal.status, "ACTION_REQUIRED");
+  assert.equal(withdrawal.completedAt, null);
+  assert.equal(payout.status, "ACTION_REQUIRED");
+  assert.equal(payout.stripePayoutId, paid.id);
+  assert.ok(payout.paidAt);
+  assert.equal((await prisma.partnerPayoutRun.findUniqueOrThrow({ where: { id: payout.payoutRunId } })).status, "FAILED");
+  assert.equal(commission.status, "PAID");
+  assert.equal(await prisma.partnerWithdrawalEvent.count({ where: {
+    withdrawalId: withdrawal.id, reason: "bank_payout_paid_with_transfer_reversed",
+  } }), 1);
+  await extraCredit(f.partner.id);
+  await assert.rejects(requestPartnerWithdrawal(key(), auth(f.partner.id)), /already_active|legacy_payout_requires_review/);
+  assert.equal(provider.transferCalls, 1);
+  assert.equal(provider.payoutCalls, 1);
+});
+
 test("admin-authorized full transfer reversal releases only after provider evidence", async () => {
   const f = await fixture();
   const provider = new MockProvider();

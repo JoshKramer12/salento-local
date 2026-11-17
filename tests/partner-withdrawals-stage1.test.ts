@@ -174,6 +174,35 @@ test("simultaneous different keys never double-reserve commissions", async () =>
   assert.equal(await prisma.partnerWithdrawalCommission.count({ where: { commissionId: f.commission.id, releasedAt: null } }), 1);
 });
 
+test("simultaneous Partners reserve only their own commissions even with the same key", async () => {
+  const first = await readyPartner();
+  const second = await readyPartner();
+  const sharedKey = key();
+  const requests = await Promise.allSettled([
+    requestPartnerWithdrawal(sharedKey, auth(first.partner.id)),
+    requestPartnerWithdrawal(sharedKey, auth(second.partner.id)),
+  ]);
+  for (const [index, result] of requests.entries()) {
+    if (result.status === "rejected") {
+      await requestPartnerWithdrawal(sharedKey, auth(index === 0 ? first.partner.id : second.partner.id));
+    }
+  }
+  const withdrawals = await prisma.partnerWithdrawal.findMany({
+    where: { requestKey: sharedKey }, include: { commissions: true },
+  });
+  assert.equal(withdrawals.length, 2);
+  for (const partner of [first.partner.id, second.partner.id]) {
+    const withdrawal = withdrawals.find((item) => item.partnerUserId === partner);
+    assert.ok(withdrawal);
+    assert.equal(withdrawal.commissions.length, 1);
+    const commission = await prisma.partnerCommission.findUniqueOrThrow({
+      where: { id: withdrawal.commissions[0].commissionId },
+    });
+    assert.equal(commission.partnerUserId, partner);
+    assert.equal(commission.status, "RESERVED");
+  }
+});
+
 test("legacy unresolved payout and stale destination block new withdrawals", async () => {
   const f = await readyPartner();
   const deps = auth(f.partner.id);
