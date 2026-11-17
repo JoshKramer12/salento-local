@@ -38,7 +38,7 @@ const wording = {
     available: "Disponibile per il pagamento", pending: "Guadagni in attesa", reserved: "In elaborazione / riservato", paid: "Già pagato",
     debt: "Rettifica per rimborso in sospeso", debtBody: "Un rimborso approvato ha annullato una commissione precedente. I prossimi guadagni idonei compenseranno questo importo. Non verrà addebitato il tuo conto bancario.",
     excluded: "Le attività test e lo storico non verificato non sono pagabili", test: "Attività test", unverified: "Storico non verificato",
-    cashout: "Richiedi pagamento", paused: "La richiesta di pagamento non è temporaneamente disponibile.", active: "Hai già una richiesta di pagamento in corso.",
+    cashout: "Richiedi pagamento", paused: "Le richieste di pagamento sono temporaneamente sospese.", active: "Hai già una richiesta di pagamento in corso.",
     review: "Un pagamento precedente richiede una verifica prima di una nuova richiesta.", debtBlock: "Prima è necessario risolvere una rettifica per rimborso in sospeso.",
     destinationBlock: "Collega un conto Stripe per ricevere i pagamenti.", destinationNotReady: "Il conto collegato richiede attenzione prima del prelievo.", pendingBlock: "Le tue commissioni sono ancora nel periodo di attesa o in verifica.",
     minimumBlock: "Servono almeno €50 per richiedere il pagamento.", noFunds: "Non ci sono ancora fondi idonei disponibili.", payoutAccount: "Conto pagamenti Stripe Connect", connected: "Conto bancario che termina con", notConnected: "Configurazione incompleta",
