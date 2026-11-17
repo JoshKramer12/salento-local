@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { cancelCashoutRequest, submitCashoutRequest } from "@/app/(account)/dashboard/earnings/cashout-actions";
 import { runWeeklyPartnerPayouts } from "@/lib/partner-ledger";
 import { cashoutRequestsEnabled, cashoutUiEnabled } from "@/lib/partner-cashout-view";
 import { runPartnerWithdrawalWorker, withdrawalExecutionAllowed } from "@/lib/partner-withdrawal-processing";
@@ -18,11 +19,14 @@ test("request, worker, and legacy send gates fail closed and production test key
     process.env.RAILWAY_ENVIRONMENT_NAME = "production";
     assert.equal(cashoutUiEnabled(), false);
     assert.equal(cashoutRequestsEnabled(), false);
+    assert.deepEqual(await submitCashoutRequest("stage7-disabled-request-key", 5000), { kind: "unavailable" });
+    assert.deepEqual(await cancelCashoutRequest("stage7-disabled-withdrawal"), { kind: "unavailable" });
     assert.equal(withdrawalExecutionAllowed(), false);
     assert.deepEqual(await runPartnerWithdrawalWorker(), { status: "paused", processed: 0 });
     assert.equal((await runWeeklyPartnerPayouts({ force: true })).status, "skipped-payouts-disabled");
 
     process.env.PARTNER_CASHOUT_UI_ENABLED = "true";
+    assert.deepEqual(await submitCashoutRequest("stage7-disabled-request-key", 5000), { kind: "unavailable" });
     process.env.PARTNER_CASHOUT_REQUESTS_ENABLED = "true";
     process.env.PARTNER_WITHDRAWAL_PROCESSING_ENABLED = "true";
     process.env.PARTNER_LEGACY_PAYOUT_EXECUTION_ENABLED = "true";
@@ -31,6 +35,7 @@ test("request, worker, and legacy send gates fail closed and production test key
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_synthetic_only";
     assert.equal(cashoutUiEnabled(), true);
     assert.equal(cashoutRequestsEnabled(), false);
+    assert.deepEqual(await submitCashoutRequest("stage7-disabled-request-key", 5000), { kind: "unavailable" });
     assert.equal(withdrawalExecutionAllowed(), false);
     assert.deepEqual(await runPartnerWithdrawalWorker(), { status: "paused", processed: 0 });
     assert.equal((await runWeeklyPartnerPayouts({ force: true })).status, "skipped-payouts-disabled");
