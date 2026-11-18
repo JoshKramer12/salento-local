@@ -45,6 +45,11 @@ test("request, worker, and legacy send gates fail closed and production test key
     assert.equal(cashoutRequestsEnabled(), true);
     assert.equal(withdrawalExecutionAllowed(), true);
     assert.equal((await runWeeklyPartnerPayouts({ force: true })).status, "skipped-payouts-disabled");
+    process.env.PARTNER_LEGACY_PAYOUT_EXECUTION_ENABLED = "true";
+    assert.equal(withdrawalExecutionAllowed(), false);
+    assert.equal(cashoutRequestsEnabled(), false);
+    assert.equal((await runWeeklyPartnerPayouts({ force: true })).status, "skipped-payouts-disabled");
+    delete process.env.PARTNER_LEGACY_PAYOUT_EXECUTION_ENABLED;
     delete process.env.PARTNER_CASHOUT_REQUESTS_ENABLED;
     assert.equal(cashoutRequestsEnabled(), false);
   } finally {

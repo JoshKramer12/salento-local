@@ -1692,6 +1692,8 @@ export async function runWeeklyPartnerPayouts(params?: {
   // Keep history and signed-webhook reconciliation available, but require a
   // separate, explicit execution release until that path is repaired.
   if (process.env.PARTNER_LEGACY_PAYOUT_EXECUTION_ENABLED !== "true" ||
+      process.env.PARTNER_WITHDRAWAL_PROCESSING_ENABLED === "true" ||
+      process.env.PARTNER_CASHOUT_REQUESTS_ENABLED === "true" ||
       !areRealPartnerDisbursementsAllowed()) {
     return {
       processedPartners: 0,
