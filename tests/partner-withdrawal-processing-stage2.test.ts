@@ -86,6 +86,8 @@ class MockProvider implements WithdrawalProvider {
     this.accountCalls++;
     return { id: connectedAccountId, payoutsEnabled: true, detailsSubmitted: true,
       livemode: true, externalAccountId: "ba_synthetic_4242", externalAccountLast4: "4242",
+      accountType: "express", country: "IT", transfersCapability: "active",
+      requirementsClear: true, manualPayoutSchedule: true, payoutStatusEnabled: true,
       ...this.accountOverride };
   }
   async createTransfer(input: Parameters<WithdrawalProvider["createTransfer"]>[0]) {
@@ -331,6 +333,13 @@ test("worker secret, admin role, and legacy execution gate remain separate", asy
   process.env.PARTNER_WITHDRAWAL_WORKER_SECRET = "expected-secret";
   process.env.PARTNER_WITHDRAWAL_PROCESSING_ENABLED = "false";
   try {
+    const healthRequest = new Request("https://example.test/api/internal/partner-withdrawals/run?health=1", {
+      method: "POST", headers: { authorization: "Bearer expected-secret" },
+    });
+    const health = await workerRoute(healthRequest);
+    assert.equal(health.status, 200);
+    assert.ok(Array.isArray((await health.json()).incidents));
+    assert.equal(provider.transferCalls, 0);
     const authorized = await workerRoute(request);
     assert.equal(authorized.status, 200);
     assert.deepEqual(await authorized.json(), { status: "paused", processed: 0 });
@@ -339,6 +348,22 @@ test("worker secret, admin role, and legacy execution gate remain separate", asy
   }
   process.env.PARTNER_LEGACY_PAYOUT_EXECUTION_ENABLED = "false";
   assert.equal((await runWeeklyPartnerPayouts({ force: true })).status, "skipped-payouts-disabled");
+});
+
+test("restricted Connect account evidence stops before any transfer", async () => {
+  for (const accountOverride of [
+    { accountType: "standard" }, { country: "US" },
+    { transfersCapability: "pending" }, { requirementsClear: false },
+    { manualPayoutSchedule: false }, { payoutStatusEnabled: false },
+  ]) {
+    const f = await fixture();
+    const provider = new MockProvider();
+    provider.accountOverride = accountOverride;
+    assert.equal(await processPartnerWithdrawal(f.withdrawal.id, { provider, now }), "outcome_unknown");
+    assert.equal(provider.transferCalls, 0);
+    assert.equal(provider.payoutCalls, 0);
+    assert.equal((await prisma.partnerCommission.findUniqueOrThrow({ where: { id: f.commission.id } })).status, "RESERVED");
+  }
 });
 
 test("webhook before API response and out-of-order event converge on retrieved provider state", async () => {

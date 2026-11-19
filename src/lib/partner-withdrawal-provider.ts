@@ -15,6 +15,8 @@ export type PayoutEvidence = {
 export type AccountEvidence = {
   id: string; payoutsEnabled: boolean; detailsSubmitted: boolean; livemode: boolean;
   externalAccountId: string | null; externalAccountLast4: string | null;
+  accountType: string | null; country: string | null; transfersCapability: string | null;
+  requirementsClear: boolean; manualPayoutSchedule: boolean; payoutStatusEnabled: boolean;
 };
 
 export interface WithdrawalProvider {
@@ -53,7 +55,11 @@ export function payoutEvidence(value: Stripe.Payout, connectedAccountId: string)
 
 export const stripeWithdrawalProvider: WithdrawalProvider = {
   async account(connectedAccountId) {
-    const account = await getStripe().accounts.retrieve(connectedAccountId, { expand: ["external_accounts"] });
+    const stripe = getStripe();
+    const [account, balanceSettings] = await Promise.all([
+      stripe.accounts.retrieve(connectedAccountId, { expand: ["external_accounts"] }),
+      stripe.balanceSettings.retrieve({}, { stripeAccount: connectedAccountId }),
+    ]);
     const externalAccounts = account.external_accounts;
     const defaultEuroBanks = externalAccounts?.data.filter((item) =>
       item.object === "bank_account" && item.currency === "eur" && item.default_for_currency) ?? [];
@@ -65,6 +71,16 @@ export const stripeWithdrawalProvider: WithdrawalProvider = {
       detailsSubmitted: account.details_submitted, livemode: configuredStripeMode() === "live",
       externalAccountId: external?.id ?? null,
       externalAccountLast4: external?.last4 ?? null,
+      // Accounts v2 can expose `type: none` through the v1 compatibility API.
+      accountType: account.controller?.stripe_dashboard?.type ?? account.type ?? null,
+      country: account.country ?? null,
+      transfersCapability: account.capabilities?.transfers ?? null,
+      requirementsClear: Boolean(account.requirements) && !account.requirements?.disabled_reason &&
+        !account.requirements?.currently_due?.length &&
+        !account.requirements?.past_due?.length &&
+        !account.requirements?.pending_verification?.length,
+      manualPayoutSchedule: balanceSettings.payments.payouts?.schedule?.interval === "manual",
+      payoutStatusEnabled: balanceSettings.payments.payouts?.status === "enabled",
     };
   },
   async createTransfer(input) {

@@ -18,6 +18,7 @@ const ACCOUNT_SYNC_MS = 24 * 60 * 60 * 1000;
 export function withdrawalExecutionAllowed() {
   return sandboxWithdrawalExecutionAllowed() ||
     (process.env.PARTNER_WITHDRAWAL_PROCESSING_ENABLED === "true" &&
+    process.env.PARTNER_LEGACY_PAYOUT_EXECUTION_ENABLED !== "true" &&
     areRealPartnerDisbursementsAllowed());
 }
 
@@ -155,6 +156,10 @@ async function freezeNewerWithdrawal(tx: Tx, older: PartnerWithdrawal, now: Date
 
 function checkAccount(account: AccountEvidence, withdrawal: PartnerWithdrawal) {
   if (account.id !== withdrawal.stripeConnectedAccountId ||
+      account.accountType !== "express" ||
+      !["IT", "DE", "FR", "IE", "NL", "ES"].includes(account.country ?? "") ||
+      account.transfersCapability !== "active" || !account.requirementsClear ||
+      !account.manualPayoutSchedule || !account.payoutStatusEnabled ||
       !account.payoutsEnabled || !account.detailsSubmitted ||
       account.livemode !== withdrawalPaymentLivemode(withdrawal.partnerUserId) ||
       !account.externalAccountId || account.externalAccountLast4 !== withdrawal.destinationLast4 ||
@@ -879,8 +884,13 @@ export async function runPartnerWithdrawalReconciliationWorker(options: Options 
     try {
       await reconcilePartnerWithdrawal(item.id, options);
       reconciled++;
-    } catch {
+    } catch (error) {
       requiresReview++;
+      console.error("[partner-withdrawal:reconciliation]", {
+        withdrawalId: item.id,
+        code: error instanceof Error && /^[a-z][a-z0-9_]{2,100}$/.test(error.message)
+          ? error.message : "provider_reconciliation_failed",
+      });
     } finally {
       await prisma.partnerWithdrawal.update({ where: { id: item.id }, data: {
         lastReconciledAt: new Date(),
