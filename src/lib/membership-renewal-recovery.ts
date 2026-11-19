@@ -2,7 +2,7 @@ import type Stripe from "stripe";
 
 import { LISTING_OFFER } from "@/lib/listing-offer";
 import { prisma } from "@/lib/prisma";
-import { getStripe, isStripeSandboxMode } from "@/lib/stripe";
+import { configuredStripeMode, getStripe, isStripeSandboxMode } from "@/lib/stripe";
 
 type Recovery = { state: "none" } | { state: "blocked" } | { state: "ready"; url: string };
 
@@ -20,6 +20,16 @@ export async function inspectMembershipRenewalRecovery(businessId: string, depen
   const membership = await db.businessMembership.findUnique({ where: { businessId } });
   if (!membership?.automaticRenewal || !membership.stripeSubscriptionId ||
     !membership.stripeCustomerId || membership.entitlementRevokedAt) return { state: "none" };
+
+  // A historical test subscription is invisible to live credentials. Require
+  // positive local live-mode provenance before retrieving a stored subscription.
+  if (configuredStripeMode() === "live") {
+    const livePayment = await db.payment.findFirst({ where: {
+      businessId, stripeSubscriptionId: membership.stripeSubscriptionId,
+      stripeLivemode: true,
+    }, select: { id: true } });
+    if (!livePayment) return { state: "blocked" };
+  }
 
   const stripe = dependencies.stripe ?? getStripe();
   const subscription = await stripe.subscriptions.retrieve(membership.stripeSubscriptionId);

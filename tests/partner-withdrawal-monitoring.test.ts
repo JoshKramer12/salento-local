@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assessWithdrawalHealth } from "@/lib/partner-withdrawal-monitoring";
+import { assessLegacyPayoutHealth, assessWithdrawalHealth } from "@/lib/partner-withdrawal-monitoring";
 
 const now = new Date("2026-11-18T12:00:00Z");
 const past = (minutes: number) => new Date(now.getTime() - minutes * 60_000);
@@ -35,4 +35,13 @@ test("reservation and paid evidence discrepancies are surfaced", () => {
   const paid = snapshot("PAID");
   paid.payout!.stripePayoutId = "";
   assert.ok(assessWithdrawalHealth(paid, now).some((item) => item.code === "paid_evidence_discrepancy"));
+});
+
+test("legacy failed payouts remain visible while historical no-send holds do not page operators", () => {
+  const base = { id: "legacy-1", status: "FAILED", attemptCount: 0,
+    stripeTransferId: "tr_test", stripePayoutId: null, providerBatchId: null };
+  assert.deepEqual(assessLegacyPayoutHealth(base).map((item) => item.code), ["legacy_payout_unresolved"]);
+  assert.deepEqual(assessLegacyPayoutHealth({ ...base, stripePayoutId: "po_test" }).map((item) => item.code),
+    ["legacy_payout_unresolved", "legacy_provider_payout_requires_reconciliation"]);
+  assert.deepEqual(assessLegacyPayoutHealth({ ...base, status: "ACTION_REQUIRED", stripeTransferId: null }), []);
 });

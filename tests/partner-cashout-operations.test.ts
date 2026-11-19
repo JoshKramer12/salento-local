@@ -5,7 +5,7 @@ import { emptyControlState, missingRunIncidents, reconcileAlerts } from "../src/
 
 const local = {
   id: "withdrawal-1", status: "PAID", requestedAmountCents: 5000, currency: "eur",
-  stripeConnectedAccountId: "acct_test", payout: {
+  stripeConnectedAccountId: "acct_test", destinationExternalAccountId: "ba_test", payout: {
     id: "payout-ledger-1", stripeTransferId: "tr_test", stripePayoutId: "po_test",
   },
   attempts: [
@@ -17,6 +17,7 @@ const local = {
 const transfer = { id: "tr_test", amount: 5000, amount_reversed: 0, currency: "eur",
   destination: "acct_test", livemode: false, withdrawalId: "withdrawal-1", payoutId: "payout-ledger-1" };
 const payout = { id: "po_test", amount: 5000, currency: "eur", connectedAccountId: "acct_test",
+  destinationExternalAccountId: "ba_test", failureBalanceTransactionId: null,
   livemode: false, withdrawalId: "withdrawal-1", payoutId: "payout-ledger-1", status: "paid" };
 
 test("provider inventory matches exact durable transfer, payout and reservation", () => {
@@ -31,7 +32,16 @@ test("provider-first inventory exposes unexpected objects, reversal and payout f
   });
   assert.deepEqual(new Set(incidents.map((item) => item.code)), new Set([
     "unexpected_transfer", "transfer_reversal_review", "unexpected_payout",
-    "payout_failure_review", "paid_evidence_mismatch",
+    "payout_failure_review", "payout_late_failure_review", "paid_evidence_mismatch",
+  ]));
+});
+
+test("provider destination and returned funds cannot silently match the local ledger", () => {
+  const incidents = compareCashoutInventory({ withdrawals: [local], transfers: [transfer],
+    payouts: [{ ...payout, destinationExternalAccountId: "ba_wrong",
+      failureBalanceTransactionId: "txn_return" }], livemode: false });
+  assert.deepEqual(new Set(incidents.map((item) => item.code)), new Set([
+    "payout_destination_mismatch", "payout_returned_funds_review",
   ]));
 });
 

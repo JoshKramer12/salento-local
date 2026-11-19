@@ -8,7 +8,7 @@ import { attemptMembershipPaymentOutcomeDelivery } from "@/lib/membership-paymen
 import { matchesManualElementPaymentIntent } from "@/lib/no-email-payment";
 import { ensurePartnerRefundRepurchaseCommissionForPayment, ensurePartnerRenewalCommissionForPayment } from "@/lib/partner-ledger";
 import { prisma } from "@/lib/prisma";
-import { assertFinancialPaymentAllowed, getStripe, isPublicFinancialHold } from "@/lib/stripe";
+import { assertFinancialPaymentAllowed, assertReusableStripeObjectMode, getStripe, isPublicFinancialHold } from "@/lib/stripe";
 import { inspectMembershipRenewalRecovery } from "@/lib/membership-renewal-recovery";
 
 export const MEMBERSHIP_ELEMENT_FLOW = "MEMBERSHIP_PAYMENT_ELEMENT";
@@ -54,8 +54,9 @@ export async function ensureMembershipElementPayment(params: {
   const historical = await db.payment.findMany({ where: {
     businessId: params.businessId, status: "PENDING_PAYMENT", stripeCheckoutSessionId: { not: null },
     purpose: { in: ["ANNUAL_RENEWAL", "REACTIVATION"] },
-  }, select: { stripeCheckoutSessionId: true } });
+  }, select: { stripeCheckoutSessionId: true, stripeLivemode: true } });
   for (const prior of historical) {
+    assertReusableStripeObjectMode(prior.stripeLivemode);
     const session = await stripe.checkout.sessions.retrieve(prior.stripeCheckoutSessionId!);
     if (session.payment_status === "paid" || session.status === "complete") return null;
     if (session.status === "open") await stripe.checkout.sessions.expire(session.id);
@@ -88,6 +89,7 @@ export async function ensureMembershipElementPayment(params: {
   }
   if (payment.stripeSubscriptionId || payment.stripeCustomerId || payment.stripeProductId || payment.stripeInvoiceId) return null;
   if (payment.stripePaymentIntentId) {
+    assertReusableStripeObjectMode(payment.stripeLivemode);
     const intent = await stripe.paymentIntents.retrieve(payment.stripePaymentIntentId);
     if (!matchesMembershipIntent(intent, payment)) throw new Error("membership_element_intent_mismatch");
     if (intent.status !== "canceled") return payment;

@@ -10,7 +10,9 @@ import {
   getStripeEuBankTransferCountry,
 } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
-import { assertFinancialPaymentAllowed, getStripe } from "@/lib/stripe";
+import { assertFinancialPaymentAllowed, assertReusableStripeObjectMode, assertStripeObjectMode, getStripe } from "@/lib/stripe";
+
+type Dependencies = { db?: typeof prisma; stripe?: Stripe };
 
 type CheckoutViewer = {
   email?: string | null;
@@ -103,9 +105,10 @@ export async function ensureStripeCheckoutSession(params: {
   appUrl?: string | null;
   submission: CheckoutSubmission;
   viewer: CheckoutViewer;
-}) {
+}, dependencies: Dependencies = {}) {
   assertFinancialPaymentAllowed();
-  const stripe = getStripe();
+  const stripe = dependencies.stripe ?? getStripe();
+  const db = dependencies.db ?? prisma;
   const appUrl = params.appUrl?.trim().replace(/\/+$/, "") || getAppUrl();
   const ownerCheckoutCopy = getOwnerStripeCheckoutCopy(params.submission.businessName);
   const customerEmail = getListingPayerEmail({
@@ -113,7 +116,7 @@ export async function ensureStripeCheckoutSession(params: {
     submissionUserId: params.submission.userId,
     viewer: params.viewer,
   });
-  const latestPendingPayment = await prisma.payment.findFirst({
+  const latestPendingPayment = await db.payment.findFirst({
     where: {
       businessSubmissionId: params.submission.id,
       method: "STRIPE_CHECKOUT",
@@ -125,14 +128,17 @@ export async function ensureStripeCheckoutSession(params: {
     select: {
       id: true,
       stripeCheckoutSessionId: true,
+      stripeLivemode: true,
     },
   });
 
   if (latestPendingPayment?.stripeCheckoutSessionId) {
+    assertReusableStripeObjectMode(latestPendingPayment.stripeLivemode);
     try {
       const existingSession = await stripe.checkout.sessions.retrieve(
         latestPendingPayment.stripeCheckoutSessionId,
       );
+      assertStripeObjectMode(existingSession.livemode);
 
       if (
         existingSession.url &&
@@ -149,7 +155,8 @@ export async function ensureStripeCheckoutSession(params: {
       if (existingSession.status === "open") {
         await stripe.checkout.sessions.expire(existingSession.id);
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && error.message === "stripe_payment_mode_mismatch") throw error;
       // Fall through and create a fresh session if Stripe no longer recognizes the old one.
     }
   }
@@ -198,9 +205,10 @@ export async function ensureStripeCheckoutSession(params: {
       submissionId: params.submission.id,
     }),
   });
+  assertStripeObjectMode(checkoutSession.livemode);
 
   if (latestPendingPayment) {
-    await prisma.payment.update({
+    await db.payment.update({
       where: {
         id: latestPendingPayment.id,
       },
@@ -209,10 +217,11 @@ export async function ensureStripeCheckoutSession(params: {
         businessId: params.submission.createdBusinessId,
         currency: checkoutSession.currency || "eur",
         stripeCheckoutSessionId: checkoutSession.id,
+        stripeLivemode: checkoutSession.livemode,
       },
     });
   } else {
-    await prisma.payment.create({
+    await db.payment.create({
       data: {
         amountCents: params.submission.amountOwedCents,
         businessId: params.submission.createdBusinessId,
@@ -222,6 +231,7 @@ export async function ensureStripeCheckoutSession(params: {
         partnerUserId: getPartnerUserIdForSubmission(params.viewer),
         status: "PENDING_PAYMENT",
         stripeCheckoutSessionId: checkoutSession.id,
+        stripeLivemode: checkoutSession.livemode,
         userId: params.submission.userId,
       },
     });
@@ -237,10 +247,11 @@ export async function ensureStripeBankTransferIntent(params: {
   submission: CheckoutSubmission;
   viewer: CheckoutViewer;
   idempotencyKey?: string;
-}) : Promise<StripeBankTransferSession> {
+}, dependencies: Dependencies = {}) : Promise<StripeBankTransferSession> {
   assertFinancialPaymentAllowed();
-  const stripe = getStripe();
-  const latestPendingPayment = await prisma.payment.findFirst({
+  const stripe = dependencies.stripe ?? getStripe();
+  const db = dependencies.db ?? prisma;
+  const latestPendingPayment = await db.payment.findFirst({
     where: {
       businessSubmissionId: params.submission.id,
       method: "BANK_TRANSFER",
@@ -252,16 +263,20 @@ export async function ensureStripeBankTransferIntent(params: {
     select: {
       id: true,
       stripePaymentIntentId: true,
+      stripeLivemode: true,
     },
   });
 
   if (latestPendingPayment?.stripePaymentIntentId) {
+    assertReusableStripeObjectMode(latestPendingPayment.stripeLivemode);
     let existingIntent: Stripe.PaymentIntent | null = null;
     try {
       existingIntent = await stripe.paymentIntents.retrieve(
         latestPendingPayment.stripePaymentIntentId,
       );
-    } catch {
+      assertStripeObjectMode(existingIntent.livemode);
+    } catch (error) {
+      if (error instanceof Error && error.message === "stripe_payment_mode_mismatch") throw error;
       // Fall through and create a fresh payment intent if Stripe no longer recognizes the old one.
     }
     if (existingIntent) {
@@ -271,8 +286,8 @@ export async function ensureStripeBankTransferIntent(params: {
       // request. Keep the persisted reference in step with Stripe so returning
       // to the payment page never has to invent a placeholder reference.
       if (instructions?.reference) {
-        await prisma.$transaction([
-          prisma.payment.update({
+        await db.$transaction([
+          db.payment.update({
             where: {
               id: latestPendingPayment.id,
             },
@@ -280,7 +295,7 @@ export async function ensureStripeBankTransferIntent(params: {
               bankTransferReference: instructions.reference,
             },
           }),
-          prisma.businessSubmission.update({
+          db.businessSubmission.update({
             where: {
               id: params.submission.id,
             },
@@ -343,11 +358,12 @@ export async function ensureStripeBankTransferIntent(params: {
     },
     payment_method_types: ["customer_balance"],
   }, params.idempotencyKey ? { idempotencyKey: `${params.idempotencyKey}:intent` } : undefined);
+  assertStripeObjectMode(paymentIntent.livemode);
 
   const instructions = extractStripeBankTransferInstructions(paymentIntent);
 
   if (latestPendingPayment) {
-    await prisma.payment.update({
+    await db.payment.update({
       where: {
         id: latestPendingPayment.id,
       },
@@ -357,10 +373,11 @@ export async function ensureStripeBankTransferIntent(params: {
         businessId: params.submission.createdBusinessId,
         currency: paymentIntent.currency || "eur",
         stripePaymentIntentId: paymentIntent.id,
+        stripeLivemode: paymentIntent.livemode,
       },
     });
   } else {
-    await prisma.payment.create({
+    await db.payment.create({
       data: {
         ...(params.idempotencyKey ? { id: `initial-bank:${params.submission.id}` } : {}),
         amountCents: params.submission.amountOwedCents,
@@ -372,13 +389,14 @@ export async function ensureStripeBankTransferIntent(params: {
         partnerUserId: getPartnerUserIdForSubmission(params.viewer),
         status: "AWAITING_BANK_TRANSFER",
         stripePaymentIntentId: paymentIntent.id,
+        stripeLivemode: paymentIntent.livemode,
         userId: params.submission.userId,
       },
     });
   }
 
   if (instructions?.reference) {
-    await prisma.businessSubmission.update({
+    await db.businessSubmission.update({
       where: {
         id: params.submission.id,
       },

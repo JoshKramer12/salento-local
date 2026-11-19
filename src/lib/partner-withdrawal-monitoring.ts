@@ -74,6 +74,26 @@ export function assessWithdrawalHealth(item: WithdrawalSnapshot, now = new Date(
   return results;
 }
 
+type LegacyPayoutSnapshot = {
+  id: string; status: string; attemptCount: number;
+  stripeTransferId: string | null; stripePayoutId: string | null;
+  providerBatchId: string | null;
+};
+
+export function assessLegacyPayoutHealth(item: LegacyPayoutSnapshot): CashoutIncident[] {
+  const providerEvidence = item.attemptCount > 0 || Boolean(item.stripeTransferId ||
+    item.stripePayoutId || item.providerBatchId);
+  if (item.status === "ACTION_REQUIRED" && !providerEvidence) return [];
+  if (!["FAILED", "CANCELED", "PROCESSING", "SCHEDULED", "ACTION_REQUIRED"].includes(item.status)) return [];
+  const incidents: CashoutIncident[] = [{ key: `cashout:legacy:${item.id}:unresolved`,
+    code: "legacy_payout_unresolved", severity: "critical" }];
+  if (item.stripePayoutId && item.status === "FAILED") incidents.push({
+    key: `cashout:legacy:${item.id}:provider_payout`,
+    code: "legacy_provider_payout_requires_reconciliation", severity: "critical",
+  });
+  return incidents;
+}
+
 /** Read-only local evidence scan. It never calls Stripe or sends an alert. */
 export async function scanPartnerCashoutHealth(now = new Date()) {
   const withdrawals = await prisma.partnerWithdrawal.findMany({
@@ -89,14 +109,21 @@ export async function scanPartnerCashoutHealth(now = new Date()) {
     where: { endpointType: "CONNECT", status: { in: ["FAILED", "PROCESSING"] } },
     select: { stripeEventId: true, status: true, updatedAt: true }, take: 501,
   });
+  const legacyPayouts = await prisma.partnerPayout.findMany({
+    where: { withdrawal: null, status: { in: ["FAILED", "CANCELED", "PROCESSING", "SCHEDULED", "ACTION_REQUIRED"] } },
+    select: { id: true, status: true, attemptCount: true, stripeTransferId: true,
+      stripePayoutId: true, providerBatchId: true }, take: 501,
+  });
   const incidents = withdrawals.slice(0, 500).flatMap((item) => assessWithdrawalHealth(item, now));
+  incidents.push(...legacyPayouts.slice(0, 500).flatMap(assessLegacyPayoutHealth));
   for (const item of webhooks.slice(0, 500)) {
     if (item.status === "FAILED" || now.getTime() - item.updatedAt.getTime() >= 10 * minute) {
       incidents.push({ key: `cashout:webhook:${item.stripeEventId}`, code: "connect_webhook_failed_or_stuck", severity: "critical" });
     }
   }
-  if (withdrawals.length > 500 || webhooks.length > 500) {
+  if (withdrawals.length > 500 || webhooks.length > 500 || legacyPayouts.length > 500) {
     incidents.push({ key: "cashout:scan:truncated", code: "health_scan_truncated", severity: "critical" });
   }
-  return { scannedWithdrawals: Math.min(withdrawals.length, 500), scannedWebhooks: Math.min(webhooks.length, 500), incidents };
+  return { scannedWithdrawals: Math.min(withdrawals.length, 500),
+    scannedWebhooks: Math.min(webhooks.length, 500), scannedLegacyPayouts: Math.min(legacyPayouts.length, 500), incidents };
 }
