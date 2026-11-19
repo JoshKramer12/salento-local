@@ -59,3 +59,25 @@ test("a paid invoice or canceled subscription does not trigger another recovery 
   assert.deepEqual(await inspectMembershipRenewalRecovery("business_synthetic", dependencies({ subscription: { status: "canceled" } })),
     { state: "none" });
 });
+
+test("live credentials block a historical subscription without verified live payment provenance", async () => {
+  const priorSecret = process.env.STRIPE_SECRET_KEY;
+  const priorPublishable = process.env.STRIPE_PUBLISHABLE_KEY;
+  process.env.STRIPE_SECRET_KEY = "sk_live_synthetic_only";
+  process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_synthetic_only";
+  let providerReads = 0;
+  try {
+    const db = {
+      businessMembership: { findUnique: async () => membership },
+      payment: { findFirst: async () => null },
+    } as unknown as typeof prisma;
+    const stripe = { subscriptions: { retrieve: async () => { providerReads++; return subscription; } } } as unknown as Stripe;
+    assert.deepEqual(await inspectMembershipRenewalRecovery("business_synthetic", { db, stripe }), { state: "blocked" });
+    assert.equal(providerReads, 0);
+  } finally {
+    if (priorSecret === undefined) delete process.env.STRIPE_SECRET_KEY;
+    else process.env.STRIPE_SECRET_KEY = priorSecret;
+    if (priorPublishable === undefined) delete process.env.STRIPE_PUBLISHABLE_KEY;
+    else process.env.STRIPE_PUBLISHABLE_KEY = priorPublishable;
+  }
+});

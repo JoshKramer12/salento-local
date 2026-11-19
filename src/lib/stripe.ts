@@ -60,6 +60,15 @@ export function assertStripeObjectMode(livemode: boolean | undefined | null) {
   }
 }
 
+/** Legacy pending rows did not record mode. They can be inspected with the
+ * existing test key, but a live key must never replace their provider object. */
+export function assertReusableStripeObjectMode(storedLivemode: boolean | null | undefined) {
+  const mode = configuredStripeMode();
+  if (!mode || (storedLivemode == null ? mode !== "test" : storedLivemode !== (mode === "live"))) {
+    throw new Error("stripe_payment_mode_mismatch");
+  }
+}
+
 /** Public production shares a real customer ledger. It remains financially
  * closed until a separate live-payment release explicitly enables it. */
 export function isPublicFinancialHold() {

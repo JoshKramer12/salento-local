@@ -9,6 +9,7 @@ type LocalWithdrawal = {
   requestedAmountCents: number;
   currency: string;
   stripeConnectedAccountId: string;
+  destinationExternalAccountId: string | null;
   payout: { id: string; stripeTransferId: string | null; stripePayoutId: string | null } | null;
   attempts: { operation: string; providerObjectId: string | null }[];
   commissions: { amountCents: number; releasedAt: Date | null; commission: { status: string } }[];
@@ -19,6 +20,7 @@ type ProviderTransfer = {
 };
 type ProviderPayout = {
   id: string; amount: number; currency: string; connectedAccountId: string;
+  destinationExternalAccountId: string; failureBalanceTransactionId: string | null;
   livemode: boolean; withdrawalId: string; payoutId: string; status: string;
 };
 
@@ -68,6 +70,16 @@ export function compareCashoutInventory(input: {
     if (payout.status === "failed" || payout.status === "canceled") {
       results.push(incident(payout.id, "payout_failure_review"));
     }
+    if (local && (!local.destinationExternalAccountId ||
+        local.destinationExternalAccountId !== payout.destinationExternalAccountId)) {
+      results.push(incident(payout.id, "payout_destination_mismatch"));
+    }
+    if (payout.failureBalanceTransactionId) {
+      results.push(incident(payout.id, "payout_returned_funds_review"));
+    }
+    if (local?.status === "PAID" && ["failed", "canceled"].includes(payout.status)) {
+      results.push(incident(payout.id, "payout_late_failure_review"));
+    }
     if (payout.status === "paid" && local &&
         local.status !== "PAID" && local.status !== "ACTION_REQUIRED") {
       results.push(incident(payout.id, "provider_paid_local_unsettled"));
@@ -116,7 +128,7 @@ export async function scanCashoutProviderInventory(since: Date) {
   const sinceUnix = Math.floor(since.getTime() / 1000);
   const withdrawals = await prisma.partnerWithdrawal.findMany({ select: {
       id: true, status: true, createdAt: true, requestedAmountCents: true, currency: true,
-      stripeConnectedAccountId: true,
+      stripeConnectedAccountId: true, destinationExternalAccountId: true,
       payout: { select: { id: true, stripeTransferId: true, stripePayoutId: true } },
       attempts: { select: { operation: true, providerObjectId: true } },
       commissions: { select: { amountCents: true, releasedAt: true, commission: { select: { status: true } } } },
@@ -124,9 +136,16 @@ export async function scanCashoutProviderInventory(since: Date) {
   if (withdrawals.length > 2000) throw new Error("cashout_inventory_local_limit");
   if (withdrawals.some((item) => item.createdAt < since)) throw new Error("cashout_inventory_window_excludes_local_withdrawal");
   const providerAccounts = new Set<string>();
+  const accountIncidents: CashoutIncident[] = [];
   for await (const account of stripe.accounts.list({ limit: 100 })) {
     providerAccounts.add(account.id);
     if (providerAccounts.size > 2000) throw new Error("cashout_inventory_account_limit");
+    if (withdrawals.some((item) => item.stripeConnectedAccountId === account.id) &&
+        (!account.payouts_enabled || account.capabilities?.transfers !== "active" ||
+          Boolean(account.requirements?.disabled_reason) ||
+          Boolean(account.requirements?.currently_due?.length))) {
+      accountIncidents.push(incident(account.id, "connected_account_verification_failure"));
+    }
   }
   const transfers: ProviderTransfer[] = [];
   let scannedTransfers = 0;
@@ -144,6 +163,10 @@ export async function scanCashoutProviderInventory(since: Date) {
       if (payouts.length >= 2000) throw new Error("cashout_inventory_payout_limit");
       payouts.push({ id: item.id, amount: item.amount, currency: item.currency,
         connectedAccountId: accountId, livemode: item.livemode,
+        destinationExternalAccountId: typeof item.destination === "string"
+          ? item.destination : item.destination?.id ?? "",
+        failureBalanceTransactionId: typeof item.failure_balance_transaction === "string"
+          ? item.failure_balance_transaction : item.failure_balance_transaction?.id ?? null,
         withdrawalId: item.metadata?.partnerWithdrawalId ?? "", payoutId: item.metadata?.partnerPayoutId ?? "",
         status: item.status });
       if (payouts.length > 2000) throw new Error("cashout_inventory_payout_limit");
@@ -167,7 +190,7 @@ export async function scanCashoutProviderInventory(since: Date) {
       platformAvailableEurCents: platformBalance.available.filter((item) => item.currency === "eur").reduce((sum, item) => sum + item.amount, 0),
       platformPendingEurCents: platformBalance.pending.filter((item) => item.currency === "eur").reduce((sum, item) => sum + item.amount, 0) },
     connectedBalances: balances,
-    incidents: compareCashoutInventory({ withdrawals, transfers, payouts,
-      livemode: mode === "live", providerAccountIds: [...providerAccounts] }),
+    incidents: [...accountIncidents, ...compareCashoutInventory({ withdrawals, transfers, payouts,
+      livemode: mode === "live", providerAccountIds: [...providerAccounts] })],
   };
 }

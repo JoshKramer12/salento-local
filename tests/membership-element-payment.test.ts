@@ -15,11 +15,21 @@ import { retryPendingMembershipPaymentOutcomes } from "@/lib/membership-payment-
 import { createRefundFixture } from "./helpers/refund-fixture";
 import { membershipStripeHarness } from "./helpers/membership-stripe-harness";
 
+const priorStripeSecret = process.env.STRIPE_SECRET_KEY;
+const priorStripePublishable = process.env.STRIPE_PUBLISHABLE_KEY;
+process.env.STRIPE_SECRET_KEY = "sk_test_synthetic_membership_only";
+process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_synthetic_membership_only";
 const directory = mkdtempSync(join(tmpdir(), "salento-membership-element-"));
 writeFileSync(join(directory, "isolated.db"), "");
 process.env.DATABASE_URL = `file:${join(directory, "isolated.db")}`;
 execFileSync(process.execPath, ["node_modules/prisma/build/index.js", "db", "push", "--skip-generate"], { env: process.env, stdio: "pipe" });
-after(async () => { await prisma.$disconnect(); rmSync(directory, { recursive: true, force: true }); });
+after(async () => {
+  await prisma.$disconnect(); rmSync(directory, { recursive: true, force: true });
+  if (priorStripeSecret === undefined) delete process.env.STRIPE_SECRET_KEY;
+  else process.env.STRIPE_SECRET_KEY = priorStripeSecret;
+  if (priorStripePublishable === undefined) delete process.env.STRIPE_PUBLISHABLE_KEY;
+  else process.env.STRIPE_PUBLISHABLE_KEY = priorStripePublishable;
+});
 let sequence = 0;
 async function fixture() {
   const f = await createRefundFixture(prisma, `element-${++sequence}`);
