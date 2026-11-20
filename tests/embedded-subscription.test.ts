@@ -3,6 +3,17 @@ import test from "node:test";
 
 import { EMBEDDED_SUBSCRIPTION_FLOW, ensureEmbeddedSubscription, getVerifiedInitialSubscriptionInvoice, reconcileEmbeddedSubscriptionOperation } from "@/lib/embedded-subscription";
 
+const previousSecret = process.env.STRIPE_SECRET_KEY;
+const previousPublishable = process.env.STRIPE_PUBLISHABLE_KEY;
+process.env.STRIPE_SECRET_KEY = "sk_test_synthetic_embedded_only";
+process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_synthetic_embedded_only";
+test.after(() => {
+  if (previousSecret === undefined) delete process.env.STRIPE_SECRET_KEY;
+  else process.env.STRIPE_SECRET_KEY = previousSecret;
+  if (previousPublishable === undefined) delete process.env.STRIPE_PUBLISHABLE_KEY;
+  else process.env.STRIPE_PUBLISHABLE_KEY = previousPublishable;
+});
+
 function fixture(failOnceOn?: "stripeProductId" | "stripeCustomerId" | "stripeSubscriptionId") {
   const submission = {
     id: "submission-1", userId: "partner-1", user: { role: "GETTER" },

@@ -4,7 +4,7 @@ import type Stripe from "stripe";
 import { DEFAULT_CURRENCY } from "@/lib/payment";
 import { isInitialElementEligible } from "@/lib/no-email-payment";
 import { prisma } from "@/lib/prisma";
-import { assertFinancialPaymentAllowed, getStripe } from "@/lib/stripe";
+import { assertFinancialPaymentAllowed, assertReusableStripeObjectMode, configuredStripeMode, getStripe } from "@/lib/stripe";
 
 export const EMBEDDED_SUBSCRIPTION_FLOW = "INITIAL_SUBSCRIPTION_ELEMENT";
 export const MEMBERSHIP_SUBSCRIPTION_FLOW = "MEMBERSHIP_SUBSCRIPTION_ELEMENT";
@@ -12,12 +12,24 @@ const RETRY_WINDOW_MS = 23 * 60 * 60 * 1000;
 type Operation = "product" | "customer" | "subscription" | "intent";
 export type SetupDb = Pick<PrismaClient, "businessSubmission" | "payment">;
 
+function assertEmbeddedPaymentMode(payment: Payment) {
+  const mode = configuredStripeMode();
+  if (!mode) throw new Error("stripe_payment_mode_mismatch");
+  const hasProviderHistory = Boolean(payment.stripeProductId || payment.stripeCustomerId ||
+    payment.stripeSubscriptionId || payment.stripeInvoiceId || payment.stripePaymentIntentId ||
+    payment.stripeSetupOperation || payment.stripeSetupStartedAt || payment.stripeSetupGeneration);
+  if (payment.stripeLivemode != null || hasProviderHistory) {
+    assertReusableStripeObjectMode(payment.stripeLivemode);
+  }
+}
+
 /**
  * Stripe and SQLite cannot commit together. An operation is recorded before
  * the Stripe call. Retries inside Stripe's idempotency window replay that call;
  * an unresolved older operation fails closed for manual reconciliation.
  */
 export async function beginEmbeddedPaymentOperation(db: SetupDb, payment: Payment, operation: Operation, now: Date) {
+  assertEmbeddedPaymentMode(payment);
   if (payment.stripeSetupOperation) {
     if (payment.stripeSetupOperation !== operation || !payment.stripeSetupStartedAt ||
       now.getTime() - payment.stripeSetupStartedAt.getTime() >= RETRY_WINDOW_MS) {
@@ -27,10 +39,12 @@ export async function beginEmbeddedPaymentOperation(db: SetupDb, payment: Paymen
   }
   const claimed = await db.payment.updateMany({
     where: { id: payment.id, stripeSetupOperation: null, status: "PENDING_PAYMENT" },
-    data: { stripeSetupOperation: operation, stripeSetupStartedAt: now },
+    data: { stripeSetupOperation: operation, stripeSetupStartedAt: now,
+      stripeLivemode: configuredStripeMode() === "live" },
   });
   if (claimed.count !== 1) throw new Error("embedded_subscription_concurrent_change");
-  return { ...payment, stripeSetupOperation: operation, stripeSetupStartedAt: now };
+  return { ...payment, stripeSetupOperation: operation, stripeSetupStartedAt: now,
+    stripeLivemode: configuredStripeMode() === "live" };
 }
 
 export async function finishEmbeddedPaymentOperation(db: SetupDb, payment: Payment, operation: Operation, data: {
@@ -84,6 +98,7 @@ export async function reconcileEmbeddedSubscriptionOperation(params: {
     !payment.stripeSetupStartedAt ||
     (!payment.id.startsWith("initial-element:") && !payment.id.startsWith("membership-element:")) ||
     !payment.businessSubmission.ownerEmail.trim()) throw new Error("embedded_subscription_reconciliation_state_mismatch");
+  assertEmbeddedPaymentMode(payment);
 
   const flow = payment.id.startsWith("membership-element:") ? MEMBERSHIP_SUBSCRIPTION_FLOW : EMBEDDED_SUBSCRIPTION_FLOW;
   if (params.operation === "product") {
@@ -173,9 +188,10 @@ export async function ensureEmbeddedSubscription(submissionId: string, dependenc
   if (paid) return null;
   const priorCheckout = await db.payment.findMany({
     where: { businessSubmissionId: submissionId, status: "PENDING_PAYMENT", stripeCheckoutSessionId: { not: null } },
-    select: { stripeCheckoutSessionId: true },
+    select: { stripeCheckoutSessionId: true, stripeLivemode: true },
   });
   for (const prior of priorCheckout) {
+    assertReusableStripeObjectMode(prior.stripeLivemode);
     const session = await stripe.checkout.sessions.retrieve(prior.stripeCheckoutSessionId!);
     if (session.payment_status === "paid" || session.status === "complete") return null;
     if (session.status === "open") await stripe.checkout.sessions.expire(session.id);
@@ -219,6 +235,7 @@ export async function ensureEmbeddedPaymentSubscription(payment: Payment, contex
   const stripe = dependencies.stripe ?? getStripe();
   const now = dependencies.now ?? new Date();
   const id = payment.id;
+  assertEmbeddedPaymentMode(payment);
   // Preserve the original initial-setup request payloads so an interrupted
   // pre-deployment operation can replay its existing Stripe idempotency key.
   const resourceMetadata = context.flow === EMBEDDED_SUBSCRIPTION_FLOW

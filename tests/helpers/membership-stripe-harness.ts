@@ -56,7 +56,7 @@ export function membershipStripeHarness() {
           confirmation_secret: { client_secret: `${intentId}_secret_test` }, status_transitions: { paid_at: null },
           payments: { data: [{ status: "open", payment: { type: "payment_intent", payment_intent: intentId } }] },
         } as unknown as Stripe.Invoice;
-        const subscription = { id, customer: args.customer, metadata: args.metadata, status: "incomplete", cancel_at_period_end: false,
+        const subscription = { id, customer: args.customer, metadata: args.metadata, status: "incomplete", cancel_at_period_end: false, livemode: false,
           items: { data: [{ quantity: 1, price: { ...price, recurring: { interval: "year", interval_count: 1 } } }] }, latest_invoice: invoice,
         } as unknown as Stripe.Subscription;
         subscriptions.set(id, subscription); return subscription;

@@ -8,7 +8,7 @@ import { attemptMembershipPaymentOutcomeDelivery } from "@/lib/membership-paymen
 import { matchesManualElementPaymentIntent } from "@/lib/no-email-payment";
 import { ensurePartnerRefundRepurchaseCommissionForPayment, ensurePartnerRenewalCommissionForPayment } from "@/lib/partner-ledger";
 import { prisma } from "@/lib/prisma";
-import { assertFinancialPaymentAllowed, assertReusableStripeObjectMode, getStripe, isPublicFinancialHold } from "@/lib/stripe";
+import { assertFinancialPaymentAllowed, assertReusableStripeObjectMode, assertStripeObjectMode, configuredStripeMode, getStripe, isPublicFinancialHold } from "@/lib/stripe";
 import { inspectMembershipRenewalRecovery } from "@/lib/membership-renewal-recovery";
 
 export const MEMBERSHIP_ELEMENT_FLOW = "MEMBERSHIP_PAYMENT_ELEMENT";
@@ -33,7 +33,15 @@ export async function ensureMembershipElementPayment(params: {
   if ((await inspectMembershipRenewalRecovery(params.businessId, { db, stripe })).state !== "none") return null;
   // Do not start another subscription alongside an existing live recurring term.
   if (params.automaticRenewal && membership.stripeSubscriptionId) {
+    if (configuredStripeMode() === "live") {
+      const livePayment = await db.payment.findFirst({ where: {
+        businessId: params.businessId, stripeSubscriptionId: membership.stripeSubscriptionId,
+        stripeLivemode: true,
+      }, select: { id: true } });
+      if (!livePayment) return null;
+    }
     const prior = await stripe.subscriptions.retrieve(membership.stripeSubscriptionId);
+    assertStripeObjectMode(prior.livemode);
     if (!["canceled", "incomplete_expired"].includes(prior.status)) return null;
   }
   if (await db.payment.findFirst({ where: {
