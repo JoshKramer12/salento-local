@@ -91,6 +91,23 @@ test("minimum, whole-balance reservation, idempotency, cancellation, and authori
   assert.equal(again.requestedAmountCents, 5000);
 });
 
+test("refund and unresolved payment never release an initial commission at the hold boundary", async () => {
+  for (const deltaMs of [-1000, 0, 1000]) {
+    const f = await readyPartner();
+    const boundary = new Date(f.payment.paidAt!.getTime() + 14 * 86_400_000 + deltaMs);
+    const deps = { ...auth(f.partner.id), now: boundary };
+    assert.equal((await getPartnerWithdrawableBalance(deps)).netEligibleCents,
+      deltaMs < 0 ? 0 : 5000);
+    await reverse(f.payment.id);
+    assert.equal((await getPartnerWithdrawableBalance(deps)).netEligibleCents, 0);
+    assert.equal((await prisma.partnerCommission.findUniqueOrThrow({ where: { id: f.commission.id } })).status, "REVERSED");
+  }
+  const unresolved = await readyPartner();
+  await prisma.payment.update({ where: { id: unresolved.payment.id }, data: { status: "PENDING_PAYMENT" } });
+  const pastBoundary = new Date(unresolved.payment.paidAt!.getTime() + 15 * 86_400_000);
+  assert.equal((await getPartnerWithdrawableBalance({ ...auth(unresolved.partner.id), now: pastBoundary })).netEligibleCents, 0);
+});
+
 test("reviewed amount must match the transactional full balance; a lost response reuses its request key", async () => {
   const f = await readyPartner();
   const deps = auth(f.partner.id);

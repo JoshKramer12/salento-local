@@ -15,6 +15,9 @@ import { isValidOwnerSignature, chooseVerifiedPayLaterPayment, getVerifiedPayLat
 import { reminderSequenceDue, retryPendingPayLaterBankInstructionsEmails, runPayLaterReminderJob } from "@/lib/pay-later-reminders";
 import { assertPartnerPayoutHasOnlyLivePayments, ensurePendingPartnerCommissionForSubmission, getPartnerBalanceSummary, payableCommissionWhere } from "@/lib/partner-ledger";
 import { syncStripePaymentFromWebhook } from "@/lib/stripe-payment-sync";
+import { getPartnerWithdrawableBalance, requestPartnerWithdrawal } from "@/lib/partner-withdrawals";
+import { processPartnerWithdrawal, reconcilePartnerWithdrawal } from "@/lib/partner-withdrawal-processing";
+import type { PayoutEvidence, TransferEvidence, WithdrawalProvider } from "@/lib/partner-withdrawal-provider";
 import { EMAIL_MANUAL_PAYMENT_FLOW } from "@/lib/no-email-payment";
 import { assertFinancialPaymentAllowed, assertStripeObjectMode, getStripe, isPublicFinancialHold } from "@/lib/stripe";
 
@@ -282,14 +285,46 @@ test("six reminders follow original acceptance clock, retry one failure, and sto
   assert.equal((await runPayLaterReminderJob(new Date(anchor.getTime() + 41 * day), reminders as never)).sent, 0);
 });
 
-test("paid webhook creates one published membership and original Partner commission from payment date", async () => {
+test("Partner payment through held commission settles exactly one withdrawal after 14 days", async () => {
   const { partner, submission } = await fixture();
   const invitation = await createOrRotateInvitation({ partnerUserId: partner.id, submissionId: submission.id, locale: "it" });
   await attemptInvitationEmail(invitation.id, new Date(), sendEmail as never);
+  const token = deriveInvitationToken(invitation);
+  assert.equal(await startInvitationOtp(token, new Date(), sendEmail as never), "sent");
+  const otp = sent.at(-1)?.text.match(/\b\d{6}\b/)?.[0];
+  assert.ok(otp);
+  assert.ok(await verifyInvitationOtp(token, otp));
+  const verifiedInvitation = await getInvitationByToken(token);
+  assert.ok(verifiedInvitation);
+  const previousEnvironment = process.env.RAILWAY_ENVIRONMENT_NAME;
+  const priorSecret = process.env.STRIPE_SECRET_KEY;
+  const priorPublishable = process.env.STRIPE_PUBLISHABLE_KEY;
+  const priorTestFlag = process.env.PRODUCTION_STRIPE_TEST_PAYMENTS_ENABLED;
+  process.env.RAILWAY_ENVIRONMENT_NAME = "production";
+  process.env.STRIPE_SECRET_KEY = "sk_test_synthetic_confirmation_only";
+  process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_synthetic_confirmation_only";
+  delete process.env.PRODUCTION_STRIPE_TEST_PAYMENTS_ENABLED;
+  try {
+    assert.deepEqual(await chooseVerifiedPayLaterPayment(verifiedInvitation, {
+      method: "ONLINE", renewal: "MANUAL", ownerConfirmed: true, termsAccepted: true,
+      signerFullName: "Test Owner", signerRole: "OWNER", signerRoleOther: "",
+      signature: JSON.stringify({ version: 1, strokes: [[{ x: 1, y: 2 }, { x: 2, y: 3 }]] }),
+    }), { status: "paused" });
+  } finally {
+    if (previousEnvironment === undefined) delete process.env.RAILWAY_ENVIRONMENT_NAME;
+    else process.env.RAILWAY_ENVIRONMENT_NAME = previousEnvironment;
+    if (priorSecret === undefined) delete process.env.STRIPE_SECRET_KEY;
+    else process.env.STRIPE_SECRET_KEY = priorSecret;
+    if (priorPublishable === undefined) delete process.env.STRIPE_PUBLISHABLE_KEY;
+    else process.env.STRIPE_PUBLISHABLE_KEY = priorPublishable;
+    if (priorTestFlag === undefined) delete process.env.PRODUCTION_STRIPE_TEST_PAYMENTS_ENABLED;
+    else process.env.PRODUCTION_STRIPE_TEST_PAYMENTS_ENABLED = priorTestFlag;
+  }
+  assert.ok((await prisma.businessSubmission.findUniqueOrThrow({ where: { id: submission.id } })).payLaterConfirmedAt);
+  // The held confirmation intentionally never creates a Stripe resource; the
+  // pending row below stands in for the provider payment in this isolated test.
   await prisma.businessSubmission.update({ where: { id: submission.id }, data: {
     paymentMethod: "ONLINE", paymentStatus: "PENDING_PAYMENT", status: "AWAITING_PAYMENT",
-    agreementSignature: JSON.stringify({ version: 1, strokes: [[{ x: 1, y: 2 }]] }),
-    signedAt: new Date(), businessTermsAcceptedAt: new Date(),
   } });
   await prisma.payment.create({ data: { id: `initial-element:${submission.id}`,
     businessSubmissionId: submission.id, userId: partner.id, partnerUserId: partner.id,
@@ -297,10 +332,24 @@ test("paid webhook creates one published membership and original Partner commiss
     stripePaymentIntentId: `pi_pay_later_${submission.id}` } });
   await ensurePendingPartnerCommissionForSubmission({ businessSubmissionId: submission.id, revalidatePaths: false });
   assert.equal(await prisma.partnerCommission.count({ where: { businessSubmissionId: submission.id } }), 0);
+  // A synthetic LIVE-shaped signed-event result exercises the same production
+  // ledger and withdrawal code. No Stripe resource is created by this test.
+  const previousSecret = process.env.STRIPE_SECRET_KEY;
+  const previousPublishable = process.env.STRIPE_PUBLISHABLE_KEY;
+  process.env.STRIPE_SECRET_KEY = "sk_live_synthetic_acceptance_only";
+  process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_synthetic_acceptance_only";
   const event = { amountPaidCents: 10000, businessSubmissionId: submission.id, revalidatePaths: false,
-    paymentIntentId: `pi_pay_later_${submission.id}`, stripeEventId: `evt_pay_later_${submission.id}` };
-  await syncStripePaymentFromWebhook(event);
-  await syncStripePaymentFromWebhook(event);
+    paymentIntentId: `pi_pay_later_${submission.id}`, stripeEventId: `evt_pay_later_${submission.id}`,
+    stripeLivemode: true };
+  try {
+    await syncStripePaymentFromWebhook(event);
+    await syncStripePaymentFromWebhook(event);
+  } finally {
+    if (previousSecret === undefined) delete process.env.STRIPE_SECRET_KEY;
+    else process.env.STRIPE_SECRET_KEY = previousSecret;
+    if (previousPublishable === undefined) delete process.env.STRIPE_PUBLISHABLE_KEY;
+    else process.env.STRIPE_PUBLISHABLE_KEY = previousPublishable;
+  }
   const paidSubmission = await prisma.businessSubmission.findUniqueOrThrow({ where: { id: submission.id } });
   assert.equal(paidSubmission.status, "PUBLISHED");
   assert.equal(paidSubmission.paymentStatus, "PAID");
@@ -319,6 +368,92 @@ test("paid webhook creates one published membership and original Partner commiss
   assert.equal(commission.earnedAt?.getTime(), payment.paidAt!.getTime());
   assert.equal(await prisma.partnerCommission.count({ where: { businessSubmissionId: submission.id } }), 1);
   assert.ok((await prisma.businessSubmissionInvitation.findUniqueOrThrow({ where: { id: invitation.id } })).completedAt);
+
+  // Move only the isolated payment clock back so the real worker's internal
+  // current-time safety checks can execute after the 14-day boundary.
+  const simulatedPaidAt = new Date(Date.now() - 14 * day - 60_000);
+  const boundary = new Date(simulatedPaidAt.getTime() + 14 * day);
+  await prisma.payment.update({ where: { id: payment.id }, data: { paidAt: simulatedPaidAt } });
+  await prisma.partnerCommission.update({ where: { id: commission.id }, data: {
+    earnedAt: simulatedPaidAt, eligibleAt: boundary,
+  } });
+  await prisma.user.update({ where: { id: partner.id }, data: { profileCompleted: true } });
+  await prisma.localPartnerProfile.create({ data: {
+    userId: partner.id, fullName: "Test Partner", legalFullName: "Test Partner",
+    phone: "+393200000001", baseTownOrArea: "Lecce", preferredLanguage: "en",
+    billingAddress: "Test address", taxIdOrVatNumber: "TEST",
+    completedAt: simulatedPaidAt, partnerOnboardingCompletedAt: simulatedPaidAt,
+    preferredPayoutMethod: "STRIPE", stripeConnectedAccountId: `acct_synthetic_${partner.id}`,
+    stripeAccountStatus: "READY", stripePayoutsEnabled: true, stripeDetailsSubmitted: true,
+    stripeOnboardingComplete: true, stripePayoutAccountLast4: "4242",
+    stripeLastSyncedAt: simulatedPaidAt,
+  } });
+  const asPartner = (now: Date) => ({
+    now, authenticate: async () => ({ id: partner.id, role: "GETTER", profileCompleted: true }),
+  });
+  for (const offset of [0, day, 13 * day, 14 * day - 1000]) {
+    const balance = await getPartnerWithdrawableBalance(asPartner(new Date(simulatedPaidAt.getTime() + offset)));
+    assert.equal(balance.netEligibleCents, 0, `held at offset ${offset}`);
+  }
+  await prisma.localPartnerProfile.update({ where: { userId: partner.id }, data: {
+    stripeLastSyncedAt: new Date(boundary.getTime() - 1000),
+  } });
+  await assert.rejects(requestPartnerWithdrawal(`cashout-before-${submission.id}`, asPartner(new Date(boundary.getTime() - 1000))),
+    /partner_withdrawal_below_minimum/);
+  await prisma.localPartnerProfile.update({ where: { userId: partner.id }, data: { stripeLastSyncedAt: boundary } });
+  for (const offset of [0, 1000]) {
+    const balance = await getPartnerWithdrawableBalance(asPartner(new Date(boundary.getTime() + offset)));
+    assert.equal(balance.withdrawableCents, 5000, `available at boundary + ${offset}`);
+  }
+  const requestKey = `cashout-ready-${submission.id}`;
+  const withdrawal = await requestPartnerWithdrawal(requestKey, { ...asPartner(boundary), expectedAmountCents: 5000 });
+  assert.equal((await requestPartnerWithdrawal(requestKey, asPartner(boundary))).id, withdrawal.id);
+  assert.equal((await prisma.partnerCommission.findUniqueOrThrow({ where: { id: commission.id } })).status, "RESERVED");
+  assert.equal((await getPartnerWithdrawableBalance(asPartner(boundary))).withdrawableCents, 0);
+
+  let transfer: TransferEvidence | null = null;
+  let payout: PayoutEvidence | null = null;
+  let transferCreates = 0;
+  let payoutCreates = 0;
+  const provider: WithdrawalProvider = {
+    account: async (id) => ({ id, payoutsEnabled: true, detailsSubmitted: true, livemode: true,
+      externalAccountId: "ba_synthetic_4242", externalAccountLast4: "4242", accountType: "express",
+      country: "IT", transfersCapability: "active", requirementsClear: true,
+      manualPayoutSchedule: true, payoutStatusEnabled: true }),
+    createTransfer: async (input) => { transferCreates++; transfer = { id: `tr_synthetic_${withdrawal.id}`,
+      amountCents: input.amountCents, currency: input.currency, destination: input.connectedAccountId,
+      livemode: true, withdrawalId: input.withdrawalId, payoutId: input.payoutId, amountReversedCents: 0 }; return transfer; },
+    createPayout: async (input) => { payoutCreates++; payout = { id: `po_synthetic_${withdrawal.id}`,
+      amountCents: input.amountCents, currency: input.currency, connectedAccountId: input.connectedAccountId,
+      livemode: true, withdrawalId: input.withdrawalId, payoutId: input.payoutId, attemptId: input.attemptId,
+      status: "pending", destinationExternalAccountId: input.externalAccountId,
+      failureBalanceTransactionId: null }; return payout; },
+    findTransfers: async () => transfer ? [transfer] : [],
+    findPayouts: async () => payout ? [payout] : [],
+    retrieveTransfer: async () => { assert.ok(transfer); return transfer; },
+    retrievePayout: async () => { assert.ok(payout); return payout; },
+    reverseTransfer: async () => { throw new Error("unexpected_reversal"); },
+  };
+  const previousProcessing = process.env.PARTNER_WITHDRAWAL_PROCESSING_ENABLED;
+  process.env.PARTNER_WITHDRAWAL_PROCESSING_ENABLED = "true";
+  try {
+    assert.equal(await processPartnerWithdrawal(withdrawal.id, { provider, now: boundary }), "processing");
+    assert.equal(transferCreates, 1);
+    assert.equal(payoutCreates, 1);
+    assert.ok(payout);
+    payout = { ...payout, status: "paid" };
+    assert.equal(await reconcilePartnerWithdrawal(withdrawal.id, { provider, now: boundary }), "paid");
+    assert.equal(await reconcilePartnerWithdrawal(withdrawal.id, { provider, now: boundary }), "paid");
+  } finally {
+    if (previousProcessing === undefined) delete process.env.PARTNER_WITHDRAWAL_PROCESSING_ENABLED;
+    else process.env.PARTNER_WITHDRAWAL_PROCESSING_ENABLED = previousProcessing;
+  }
+  assert.equal((await prisma.partnerWithdrawal.findUniqueOrThrow({ where: { id: withdrawal.id } })).status, "PAID");
+  assert.equal((await prisma.partnerCommission.findUniqueOrThrow({ where: { id: commission.id } })).status, "PAID");
+  assert.equal((await getPartnerWithdrawableBalance(asPartner(boundary))).netEligibleCents, 0);
+  await assert.rejects(requestPartnerWithdrawal(`cashout-again-${submission.id}`, asPartner(boundary)), /partner_withdrawal_below_minimum/);
+  assert.equal(transferCreates, 1);
+  assert.equal(payoutCreates, 1);
 });
 
 test("Pay Later bank instructions survive continuation, email once, and stay pending until confirmed", async () => {

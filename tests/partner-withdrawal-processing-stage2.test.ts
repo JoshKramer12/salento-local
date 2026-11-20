@@ -19,6 +19,7 @@ import {
   retryAdminWithdrawalPayout,
 } from "@/lib/partner-withdrawal-admin";
 import { POST as workerRoute } from "@/app/api/internal/partner-withdrawals/run/route";
+import { GET as monitorHealthRoute } from "@/app/api/internal/partner-withdrawals/health/route";
 import { workerSecretAuthorized } from "@/lib/partner-withdrawal-worker-auth";
 import { createRefundFixture } from "./helpers/refund-fixture";
 
@@ -348,6 +349,38 @@ test("worker secret, admin role, and legacy execution gate remain separate", asy
   }
   process.env.PARTNER_LEGACY_PAYOUT_EXECUTION_ENABLED = "false";
   assert.equal((await runWeeklyPartnerPayouts({ force: true })).status, "skipped-payouts-disabled");
+});
+
+test("read-only monitor identity cannot authorize the payout worker", async () => {
+  const priorMonitor = process.env.PARTNER_CASHOUT_MONITOR_SECRET;
+  const priorWorker = process.env.PARTNER_WITHDRAWAL_WORKER_SECRET;
+  const url = "https://example.test/api/internal/partner-withdrawals/health";
+  const request = (token: string) => new Request(url, { headers: { authorization: `Bearer ${token}` } });
+  try {
+    process.env.PARTNER_WITHDRAWAL_WORKER_SECRET = "worker-only-secret";
+    delete process.env.PARTNER_CASHOUT_MONITOR_SECRET;
+    assert.equal((await monitorHealthRoute(request("monitor-only-secret"))).status, 503);
+    process.env.PARTNER_CASHOUT_MONITOR_SECRET = "monitor-only-secret";
+    assert.equal((await monitorHealthRoute(request("worker-only-secret"))).status, 401);
+    const health = await monitorHealthRoute(request("monitor-only-secret"));
+    assert.equal(health.status, 200);
+    assert.equal(health.headers.get("cache-control"), "no-store");
+    assert.ok(Array.isArray((await health.json()).incidents));
+    assert.equal((await monitorHealthRoute(new Request(`${url}?inventorySince=invalid`, {
+      headers: { authorization: "Bearer monitor-only-secret" },
+    }))).status, 400);
+    const worker = await workerRoute(new Request("https://example.test/api/internal/partner-withdrawals/run", {
+      method: "POST", headers: { authorization: "Bearer monitor-only-secret" },
+    }));
+    assert.equal(worker.status, 401);
+    process.env.PARTNER_CASHOUT_MONITOR_SECRET = "worker-only-secret";
+    assert.equal((await monitorHealthRoute(request("worker-only-secret"))).status, 503);
+  } finally {
+    if (priorMonitor === undefined) delete process.env.PARTNER_CASHOUT_MONITOR_SECRET;
+    else process.env.PARTNER_CASHOUT_MONITOR_SECRET = priorMonitor;
+    if (priorWorker === undefined) delete process.env.PARTNER_WITHDRAWAL_WORKER_SECRET;
+    else process.env.PARTNER_WITHDRAWAL_WORKER_SECRET = priorWorker;
+  }
 });
 
 test("restricted Connect account evidence stops before any transfer", async () => {

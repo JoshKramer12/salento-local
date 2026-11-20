@@ -1,6 +1,4 @@
 import { isAbsolute } from "node:path";
-import { prisma } from "@/lib/prisma";
-import { scanCashoutProviderInventory } from "@/lib/partner-cashout-independent-reconciliation";
 import { loadControlState, missingRunIncidents, reconcileAlerts, saveControlState, withControlLock } from "@/lib/partner-cashout-operations";
 import { assertStage5aSandboxIsolation } from "@/lib/stage5a-sandbox-isolation";
 import type { CashoutIncident } from "@/lib/partner-withdrawal-monitoring";
@@ -24,6 +22,14 @@ function workerUrl() {
   const url = checkedUrl(process.env.PARTNER_CASHOUT_WORKER_URL, true);
   if (url.pathname !== "/api/internal/partner-withdrawals/run" || url.search || url.hash) {
     throw new Error("cashout_worker_url_invalid");
+  }
+  return url;
+}
+
+function monitorUrl() {
+  const url = checkedUrl(process.env.PARTNER_CASHOUT_HEALTH_URL, true);
+  if (url.pathname !== "/api/internal/partner-withdrawals/health" || url.search || url.hash) {
+    throw new Error("cashout_monitor_url_invalid");
   }
   return url;
 }
@@ -71,11 +77,12 @@ async function controlRun() {
   }));
   let healthScanFailed = false;
   try {
-    const secret = process.env.PARTNER_WITHDRAWAL_WORKER_SECRET;
-    if (!secret) throw new Error("cashout_worker_secret_missing");
-    const url = workerUrl();
-    url.searchParams.set("health", "1");
-    const response = await fetch(url, { method: "POST", headers: { authorization: `Bearer ${secret}` }, signal: AbortSignal.timeout(45_000) });
+    const secret = process.env.PARTNER_CASHOUT_MONITOR_SECRET;
+    if (!secret || secret === process.env.PARTNER_WITHDRAWAL_WORKER_SECRET) {
+      throw new Error("cashout_monitor_secret_missing_or_shared");
+    }
+    const url = monitorUrl();
+    const response = await fetch(url, { method: "GET", headers: { authorization: `Bearer ${secret}` }, signal: AbortSignal.timeout(45_000) });
     if (!response.ok) throw new Error(`cashout_health_http_${response.status}`);
     const health = await response.json() as { incidents?: CashoutIncident[] };
     if (!Array.isArray(health.incidents)) throw new Error("cashout_health_payload_invalid");
@@ -89,7 +96,18 @@ async function controlRun() {
   try {
     const since = process.env.PARTNER_CASHOUT_PROVIDER_SCAN_SINCE;
     if (!since) throw new Error("cashout_inventory_since_missing");
-    const result = await scanCashoutProviderInventory(new Date(since));
+    const secret = process.env.PARTNER_CASHOUT_MONITOR_SECRET;
+    if (!secret || secret === process.env.PARTNER_WITHDRAWAL_WORKER_SECRET) {
+      throw new Error("cashout_monitor_secret_missing_or_shared");
+    }
+    const url = monitorUrl();
+    url.searchParams.set("inventorySince", since);
+    const response = await fetch(url, { method: "GET", headers: { authorization: `Bearer ${secret}` }, signal: AbortSignal.timeout(90_000) });
+    if (!response.ok) throw new Error(`cashout_inventory_http_${response.status}`);
+    const result = await response.json() as Awaited<ReturnType<typeof import("@/lib/partner-cashout-independent-reconciliation")["scanCashoutProviderInventory"]>>;
+    if (!Array.isArray(result.incidents) || !result.asOf || !result.since || !result.mode || !result.counts || !result.totals || !Array.isArray(result.connectedBalances)) {
+      throw new Error("cashout_inventory_payload_invalid");
+    }
     providerSummary = { asOf: result.asOf, since: result.since, mode: result.mode, counts: result.counts,
       totals: result.totals, connectedBalances: result.connectedBalances };
     incidents.push(...result.incidents);
@@ -158,4 +176,4 @@ main().catch((error: unknown) => {
   const message = error instanceof Error && /^cashout_[a-z0-9_]+$/.test(error.message) ? error.message : "cashout_control_failed";
   console.error(JSON.stringify({ error: message }));
   process.exitCode = 1;
-}).finally(async () => { await prisma.$disconnect(); });
+});
