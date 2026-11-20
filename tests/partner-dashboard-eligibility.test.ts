@@ -35,7 +35,7 @@ test("dashboard route applies the tested selector before passing cards, and uses
   const route = readFileSync("src/app/(account)/dashboard/page.tsx", "utf8");
   assert.match(route, /const paidBusinesses = selectPartnerPaidBusinesses\(submissions\)/);
   assert.match(route, /submissions=\{submissions\}/);
-  assert.match(route, /selectPartnerPaidBusinessCommissions\(partnerRecentCommissions, paidBusinesses\)\.slice\(0, 5\)/);
+  assert.match(route, /selectPartnerPaidBusinessCommissions\(partnerRecentCommissions, paidBusinesses\)[\s\S]*?\.filter\(\(entry\) => entry\.payment\?\.stripeLivemode === true\)\.slice\(0, 5\)/);
   assert.match(route, /payableCommissionWhere\(dashboardNow\)/);
 });
 

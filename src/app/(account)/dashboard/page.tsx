@@ -652,7 +652,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     });
     const termsNotice = currentTermsAcceptance ? null : <PartnerTermsNotice locale={locale} />;
     const paidBusinesses = selectPartnerPaidBusinesses(submissions);
-    const paidBusinessCommissions = selectPartnerPaidBusinessCommissions(partnerRecentCommissions, paidBusinesses).slice(0, 5);
+    const paidBusinessCommissions = selectPartnerPaidBusinessCommissions(partnerRecentCommissions, paidBusinesses)
+      .filter((entry) => entry.payment?.stripeLivemode === true).slice(0, 5);
 
     return (
       <>{termsNotice}<PartnerDashboard
@@ -665,6 +666,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         commissionLedger={partnerRecentCommissions}
         holdDays={INITIAL_COMMISSION_HOLD_DAYS}
         setup={partnerSetup}
+        showDiagnostics={process.env.NODE_ENV !== "production"}
         payableCommissionIds={partnerPayableCommissions.map((commission) => commission.id)}
         submissions={submissions}
         totals={totals}

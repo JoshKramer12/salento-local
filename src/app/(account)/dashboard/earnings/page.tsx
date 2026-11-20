@@ -12,6 +12,9 @@ import { getCurrentLocale } from "@/lib/locale";
 import { getPartnerNextRoute } from "@/lib/partner-onboarding";
 import { prisma } from "@/lib/prisma";
 import { getPartnerCashoutView } from "@/lib/partner-cashout-view";
+import { commissionDisplayStatus, expectedEligibilityAt } from "@/lib/partner-earnings-presentation";
+import { getPartnerPayoutSetupSummary } from "@/lib/partner-connect";
+import { INITIAL_COMMISSION_HOLD_DAYS, payableCommissionWhere } from "@/lib/partner-ledger";
 import { getSingleParam } from "@/lib/site";
 import { buildDraftLikeSubmissionWhere } from "@/lib/submission-drafts";
 import type { PartnerPayoutRunSummaryItem } from "@/lib/partner-ledger";
@@ -231,6 +234,8 @@ export default async function DashboardEarningsPage({
   if (access === "partner") {
     const partnerParams = await searchParams;
     const requestedPage = Number(getSingleParam(partnerParams.cashoutPage) ?? "1");
+    const requestedCommissionPage = Number(getSingleParam(partnerParams.commissionPage) ?? "1");
+    const commissionPage = Number.isSafeInteger(requestedCommissionPage) ? Math.min(Math.max(requestedCommissionPage, 1), 1000) : 1;
     const cashoutView = await getPartnerCashoutView(requestedPage);
     const profile = await prisma.localPartnerProfile.findUnique({
       where: { userId: viewer.id },
@@ -240,9 +245,40 @@ export default async function DashboardEarningsPage({
 
     if (nextRoute !== "/dashboard") redirect(nextRoute);
 
-    const draftCount = await prisma.businessSubmission.count({
-      where: buildDraftLikeSubmissionWhere(viewer.id),
-    });
+    const now = new Date();
+    const [draftCount, commissions, payable, setup] = await Promise.all([
+      prisma.businessSubmission.count({ where: buildDraftLikeSubmissionWhere(viewer.id) }),
+      prisma.partnerCommission.findMany({
+        where: { partnerUserId: viewer.id, type: "COMMISSION", amountCents: { gt: 0 }, payment: { is: { stripeLivemode: true } } },
+        orderBy: [{ earnedAt: "desc" }, { createdAt: "desc" }], skip: (commissionPage - 1) * 20, take: 21,
+        select: { id: true, amountCents: true, status: true, eligibleAt: true, earnedAt: true, createdAt: true,
+          business: { select: { name: true } }, businessSubmission: { select: { businessName: true } },
+          payout: { select: { paidAt: true } },
+          payment: { select: { paidAt: true, purpose: true, status: true, refundRequestedAt: true, refundStatus: true, stripeLivemode: true } } },
+      }),
+      prisma.partnerCommission.findMany({ where: { ...payableCommissionWhere(now), partnerUserId: viewer.id }, select: { id: true } }),
+      getPartnerPayoutSetupSummary(viewer.id),
+    ]);
+    const visibleCommissions = commissions.slice(0, 20);
+    const reversals = visibleCommissions.length ? await prisma.partnerCommission.findMany({
+      where: { partnerUserId: viewer.id, type: "REVERSAL", status: { in: ["REVERSED", "DEBT"] },
+        sourceKey: { in: visibleCommissions.map((entry) => `commission:reversal:${entry.id}`) } },
+      select: { sourceKey: true },
+    }) : [];
+    const reversedIds = new Set(reversals.map((entry) => entry.sourceKey.slice("commission:reversal:".length)));
+    const payableIds = new Set(payable.map((entry) => entry.id));
+    const commissionCopy = locale === "it" ? {
+      heading: "Storico delle commissioni", empty: "Non hai ancora commissioni da pagamenti reali verificati.",
+      earned: "Maturata il", eligible: "Disponibilità prevista dal", initial: "Iscrizione iniziale", renewal: "Rinnovo", reactivation: "Riattivazione",
+      pending: "In attesa", available: "Disponibile", paid: "Liquidata", reversed: "Annullata", action: "Richiede attenzione", processing: "Pagamento in corso",
+      previous: "Precedente", next: "Successiva", unknownBusiness: "Attività",
+    } : {
+      heading: "Commission history", empty: "No commissions from verified live payments yet.",
+      earned: "Earned", eligible: "Expected to be available", initial: "Initial membership", renewal: "Renewal", reactivation: "Reactivation",
+      pending: "Pending", available: "Available", paid: "Paid out", reversed: "Reversed", action: "Action required", processing: "Payout processing",
+      previous: "Previous", next: "Next", unknownBusiness: "Business",
+    };
+    const formatCommissionDate = (value: Date) => new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-GB", { dateStyle: "medium", timeZone: "UTC" }).format(value);
 
     return (
       <>
@@ -267,7 +303,20 @@ export default async function DashboardEarningsPage({
           </h1>
         </div>
 
-        <PartnerCashoutPanel view={cashoutView} locale={locale} />
+        <PartnerCashoutPanel view={cashoutView} locale={locale} setupState={setup?.setupState ?? "setup-not-started"} showDiagnostics={process.env.NODE_ENV !== "production"} />
+        <section className="card mt-6 p-5 sm:p-7" aria-labelledby="commission-history-heading">
+          <h2 id="commission-history-heading" className="font-serif text-2xl text-[var(--foreground)]">{commissionCopy.heading}</h2>
+          {visibleCommissions.length ? <div className="mt-5 space-y-3">{visibleCommissions.map((entry) => {
+            const status = commissionDisplayStatus(entry, payableIds, reversedIds);
+            const date = expectedEligibilityAt(entry, now, INITIAL_COMMISSION_HOLD_DAYS);
+            const type = entry.payment?.purpose === "INITIAL_MEMBERSHIP" ? commissionCopy.initial : entry.payment?.purpose === "ANNUAL_RENEWAL" ? commissionCopy.renewal : commissionCopy.reactivation;
+            return <article key={entry.id} className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-[var(--border)] p-4 text-sm">
+              <div><h3 className="font-semibold text-[var(--foreground)]">{entry.business?.name || entry.businessSubmission?.businessName || commissionCopy.unknownBusiness}</h3><p className="mt-1 text-[var(--muted)]">{type} · {commissionCopy.earned}: {formatCommissionDate(entry.payment?.paidAt || entry.earnedAt || entry.createdAt)}</p>{date ? <p className="mt-1 text-[var(--muted)]">{commissionCopy.eligible}: {formatCommissionDate(date)}</p> : null}</div>
+              <div className="text-right"><strong className="text-base text-[var(--foreground)]">{formatCurrencyFromCents(entry.amountCents, locale)}</strong><p className="mt-1 text-[var(--muted)]">{commissionCopy[status]}</p></div>
+            </article>;
+          })}</div> : <p className="mt-4 text-sm text-[var(--muted)]">{commissionCopy.empty}</p>}
+          {(commissionPage > 1 || commissions.length > 20) ? <nav className="mt-5 flex gap-3" aria-label={commissionCopy.heading}>{commissionPage > 1 ? <Link className="btn-secondary min-h-11" href={`/dashboard/earnings?commissionPage=${commissionPage - 1}#commission-history-heading`}>{commissionCopy.previous}</Link> : null}{commissions.length > 20 ? <Link className="btn-secondary min-h-11" href={`/dashboard/earnings?commissionPage=${commissionPage + 1}#commission-history-heading`}>{commissionCopy.next}</Link> : null}</nav> : null}
+        </section>
         </main>
       </>
     );

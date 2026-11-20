@@ -20,7 +20,8 @@ test("dashboard uses authoritative financial data and excludes unverified activi
   }
   assert.match(dashboard, /cashoutBlockReason\(cashoutView\)/);
   assert.match(dashboard, /className=\{styles\.cashout\} disabled/);
-  assert.match(dashboard, /href="\/dashboard\/earnings#cashout-request"/);
+  assert.match(dashboard, /<PartnerCashoutPanel view=\{cashoutView\} locale=\{locale\} preview=\{preview\} triggerOnly/);
+  assert.match(dashboardPage, /\.filter\(\(entry\) => entry\.payment\?\.stripeLivemode === true\)/);
   assert.doesNotMatch(dashboard, /formatCurrencyFromCents\(0, locale\)/);
   assert.match(dashboard, /payableIds\.has\(entry\.id\) && payoutsPaused \? t\.pausedStatus/);
   assert.match(dashboard, /payableIds\.has\(entry\.id\) && balances\.debt > 0 \? t\.debtStatus/);
