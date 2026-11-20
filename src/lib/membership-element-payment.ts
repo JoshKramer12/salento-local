@@ -8,7 +8,7 @@ import { attemptMembershipPaymentOutcomeDelivery } from "@/lib/membership-paymen
 import { matchesManualElementPaymentIntent } from "@/lib/no-email-payment";
 import { ensurePartnerRefundRepurchaseCommissionForPayment, ensurePartnerRenewalCommissionForPayment } from "@/lib/partner-ledger";
 import { prisma } from "@/lib/prisma";
-import { assertFinancialPaymentAllowed, assertReusableStripeObjectMode, assertStripeObjectMode, configuredStripeMode, getStripe, isPublicFinancialHold } from "@/lib/stripe";
+import { assertFinancialPaymentAllowed, assertLivePaymentCreationScope, assertReusableStripeObjectMode, assertStripeObjectMode, configuredStripeMode, getStripe, isPublicFinancialHold } from "@/lib/stripe";
 import { inspectMembershipRenewalRecovery } from "@/lib/membership-renewal-recovery";
 
 export const MEMBERSHIP_ELEMENT_FLOW = "MEMBERSHIP_PAYMENT_ELEMENT";
@@ -18,6 +18,7 @@ export async function ensureMembershipElementPayment(params: {
   businessId: string; userId: string; automaticRenewal?: boolean;
 }, dependencies: Dependencies = {}) {
   assertFinancialPaymentAllowed();
+  assertLivePaymentCreationScope(null, "renewal");
   const db = dependencies.db ?? prisma;
   const stripe = dependencies.stripe ?? getStripe();
   const now = dependencies.now ?? new Date();

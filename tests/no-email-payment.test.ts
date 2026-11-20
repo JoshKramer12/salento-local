@@ -23,6 +23,16 @@ import {
 import { buildNoEmailPaymentQrPayload, buildStripePaymentQrPayload, generateStripePaymentQrDataUrl } from "@/lib/stripe-payment-qr";
 import { processPaidSubmissionWebhook } from "@/lib/stripe-payment-webhook";
 
+const priorStripeKeys = { secret: process.env.STRIPE_SECRET_KEY, publishable: process.env.STRIPE_PUBLISHABLE_KEY };
+process.env.STRIPE_SECRET_KEY = "sk_test_synthetic_only";
+process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_synthetic_only";
+test.after(() => {
+  if (priorStripeKeys.secret === undefined) delete process.env.STRIPE_SECRET_KEY;
+  else process.env.STRIPE_SECRET_KEY = priorStripeKeys.secret;
+  if (priorStripeKeys.publishable === undefined) delete process.env.STRIPE_PUBLISHABLE_KEY;
+  else process.env.STRIPE_PUBLISHABLE_KEY = priorStripeKeys.publishable;
+});
+
 const signed = new Date("2026-09-24T12:00:00Z");
 const submission = {
   agreementSignature: "signed-drawing",
@@ -138,7 +148,7 @@ test("refresh reuses one server-priced PaymentIntent and its exact Payment recor
     paymentIntents: {
       create: async (params: { amount: number; currency: string; metadata: Record<string, string>; payment_method_types: string[] }, opts: { idempotencyKey: string }) => {
         createCalls.push({ amount: params.amount, currency: params.currency, metadata: params.metadata, idempotencyKey: opts.idempotencyKey, paymentMethodTypes: params.payment_method_types });
-        intent = { id: "pi_test_exact", amount: params.amount, amount_received: 0, currency: params.currency, metadata: params.metadata, status: "requires_payment_method", client_secret: "pi_test_exact_secret_test" } as Stripe.PaymentIntent;
+        intent = { id: "pi_test_exact", livemode: false, amount: params.amount, amount_received: 0, currency: params.currency, metadata: params.metadata, status: "requires_payment_method", client_secret: "pi_test_exact_secret_test" } as Stripe.PaymentIntent;
         return intent;
       },
       retrieve: async () => intent,
@@ -217,7 +227,7 @@ test("email manual reuses the embedded PaymentIntent with the real owner email a
         creates++;
         assert.equal(params.receipt_email, "owner@example.com");
         assert.equal(params.metadata.paymentFlow, EMAIL_MANUAL_PAYMENT_FLOW);
-        intent = { id: "pi_email", amount: params.amount, amount_received: 0, currency: params.currency,
+        intent = { id: "pi_email", livemode: false, amount: params.amount, amount_received: 0, currency: params.currency,
           metadata: params.metadata, status: "requires_payment_method", client_secret: "pi_email_secret_test" } as Stripe.PaymentIntent;
         return intent;
       },
@@ -273,12 +283,12 @@ test("an older paid Checkout Session blocks a second PaymentIntent", async () =>
     businessSubmission: { findUnique: async () => submission },
     payment: {
       findFirst: async () => null,
-      findMany: async () => [{ stripeCheckoutSessionId: "cs_test_previous" }],
+      findMany: async () => [{ stripeCheckoutSessionId: "cs_test_previous", stripeLivemode: false }],
       upsert: async () => { created = true; throw new Error("must not create a second Payment"); },
     },
   };
   const stripe = {
-    checkout: { sessions: { retrieve: async () => ({ id: "cs_test_previous", payment_status: "paid", status: "complete" }) } },
+    checkout: { sessions: { retrieve: async () => ({ id: "cs_test_previous", livemode: false, payment_status: "paid", status: "complete" }) } },
   };
   assert.equal(await ensureNoEmailPaymentIntent(submission.id, { db: db as never, stripe: stripe as never }), null);
   assert.equal(created, false);

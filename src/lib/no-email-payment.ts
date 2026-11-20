@@ -3,7 +3,7 @@ import type Stripe from "stripe";
 
 import { DEFAULT_CURRENCY } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
-import { assertFinancialPaymentAllowed, getStripe } from "@/lib/stripe";
+import { assertFinancialPaymentAllowed, assertLivePaymentCreationScope, assertReusableStripeObjectMode, assertStripeObjectMode, configuredStripeMode, getStripe } from "@/lib/stripe";
 import { normalizePhoneNumber } from "@/lib/validation";
 
 export const NO_EMAIL_PAYMENT_FLOW = "NO_EMAIL_PAYMENT_ELEMENT";
@@ -186,6 +186,7 @@ export async function ensureNoEmailPaymentIntent(submissionId: string, dependenc
 
 export async function ensureManualElementPaymentIntent(submissionId: string, dependencies: { db?: typeof prisma; stripe?: Stripe } = {}) {
   assertFinancialPaymentAllowed();
+  assertLivePaymentCreationScope(submissionId, "initial_card");
   const db = dependencies.db ?? prisma;
   const submission = await db.businessSubmission.findUnique({
     where: { id: submissionId },
@@ -212,10 +213,12 @@ export async function ensureManualElementPaymentIntent(submissionId: string, dep
       status: "PENDING_PAYMENT",
       stripeCheckoutSessionId: { not: null },
     },
-    select: { stripeCheckoutSessionId: true },
+    select: { stripeCheckoutSessionId: true, stripeLivemode: true },
   });
   for (const prior of priorCheckoutPayments) {
+    assertReusableStripeObjectMode(prior.stripeLivemode);
     const session = await stripe.checkout.sessions.retrieve(prior.stripeCheckoutSessionId!);
+    assertStripeObjectMode(session.livemode);
     if (session.payment_status === "paid" || session.status === "complete") return null;
     if (session.status === "open") await stripe.checkout.sessions.expire(session.id);
   }
@@ -236,15 +239,25 @@ export async function ensureManualElementPaymentIntent(submissionId: string, dep
   }
   if (payment.amountCents !== submission.amountOwedCents || payment.currency !== DEFAULT_CURRENCY ||
     payment.partnerUserId !== partnerUserId || payment.userId !== submission.userId) throw new Error("no_email_payment_record_mismatch");
+  if (payment.stripeLivemode != null || payment.stripePaymentIntentId) {
+    assertReusableStripeObjectMode(payment.stripeLivemode);
+  }
   let existingIntent: Stripe.PaymentIntent | null = null;
   if (payment.stripePaymentIntentId) {
     existingIntent = await stripe.paymentIntents.retrieve(payment.stripePaymentIntentId);
+    assertStripeObjectMode(existingIntent.livemode);
     if (existingIntent.status !== "canceled") {
       if (!matchesManualElementPaymentIntent(existingIntent, payment,
         submission.ownerEmail.trim() ? EMAIL_MANUAL_PAYMENT_FLOW : NO_EMAIL_PAYMENT_FLOW)) throw new Error("manual_payment_intent_mismatch");
       return payment;
     }
   }
+  const claimed = await db.payment.updateMany({
+    where: { id: payment.id, stripePaymentIntentId: existingIntent?.id || null,
+      stripeLivemode: payment.stripeLivemode, status: "PENDING_PAYMENT" },
+    data: { stripeLivemode: configuredStripeMode() === "live" },
+  });
+  if (claimed.count !== 1) throw new Error("manual_payment_concurrent_mode_change");
   const intent = await stripe.paymentIntents.create({
     amount: payment.amountCents,
     currency: DEFAULT_CURRENCY,
@@ -259,8 +272,10 @@ export async function ensureManualElementPaymentIntent(submissionId: string, dep
     },
     payment_method_types: ["card"],
   }, { idempotencyKey: `initial-element:${payment.id}:${existingIntent?.id || "first"}` });
+  assertStripeObjectMode(intent.livemode);
   const updated = await db.payment.updateMany({
-    where: { id: payment.id, stripePaymentIntentId: existingIntent?.id || null, status: "PENDING_PAYMENT" },
+    where: { id: payment.id, stripePaymentIntentId: existingIntent?.id || null,
+      stripeLivemode: intent.livemode, status: "PENDING_PAYMENT" },
     data: { stripePaymentIntentId: intent.id },
   });
   if (updated.count !== 1) {
@@ -268,5 +283,5 @@ export async function ensureManualElementPaymentIntent(submissionId: string, dep
     if (concurrent?.stripePaymentIntentId === intent.id) return concurrent;
     throw new Error("no_email_payment_concurrent_change");
   }
-  return { ...payment, stripePaymentIntentId: intent.id };
+  return { ...payment, stripeLivemode: intent.livemode, stripePaymentIntentId: intent.id };
 }

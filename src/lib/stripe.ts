@@ -60,6 +60,19 @@ export function assertStripeObjectMode(livemode: boolean | undefined | null) {
   }
 }
 
+/** Settlement of a provider-confirmed payment remains possible after the
+ * public creation gate closes. LIVE settlement requires explicit provenance. */
+export function assertStripeSettlementMode(livemode: boolean | undefined | null) {
+  const mode = configuredStripeMode();
+  if (isPublicFinancialHold() && mode !== "live") {
+    throw new Error("public_financial_payment_paused");
+  }
+  if (mode === "live" && livemode !== true) {
+    throw new Error("stripe_payment_mode_mismatch");
+  }
+  if (livemode != null) assertStripeObjectMode(livemode);
+}
+
 /** Legacy pending rows did not record mode. They can be inspected with the
  * existing test key, but a live key must never replace their provider object. */
 export function assertReusableStripeObjectMode(storedLivemode: boolean | null | undefined) {
@@ -75,18 +88,41 @@ export function isPublicFinancialHold() {
   if (process.env.RAILWAY_ENVIRONMENT_NAME !== "production") return false;
   const mode = configuredStripeMode();
   return !((mode === "test" && process.env.PRODUCTION_STRIPE_TEST_PAYMENTS_ENABLED === "true") ||
-    (mode === "live" && process.env.PUBLIC_LIVE_PAYMENTS_ENABLED === "true"));
+    (mode === "live" && process.env.PUBLIC_LIVE_PAYMENTS_ENABLED === "true" &&
+      (process.env.LIVE_PAYMENT_SCOPE === "public" ||
+        (process.env.LIVE_PAYMENT_SCOPE === "canary" && Boolean(normalizeEnvValue(process.env.LIVE_PAYMENT_CANARY_SUBMISSION_ID))))));
 }
 
 export function assertFinancialPaymentAllowed() {
   if (isPublicFinancialHold()) throw new Error("public_financial_payment_paused");
 }
 
+export function isLivePaymentCanary() {
+  return process.env.RAILWAY_ENVIRONMENT_NAME === "production" &&
+    configuredStripeMode() === "live" && process.env.LIVE_PAYMENT_SCOPE === "canary";
+}
+
+/** A production LIVE canary can start only one named, manual card submission.
+ * This guard belongs at provider creation, not webhook/ledger finalization. */
+export function assertLivePaymentCreationScope(
+  submissionId: string | null,
+  kind: "initial_card" | "initial_recurring" | "initial_bank" | "renewal",
+) {
+  if (process.env.RAILWAY_ENVIRONMENT_NAME !== "production" || configuredStripeMode() !== "live") return;
+  assertFinancialPaymentAllowed();
+  if (!isLivePaymentCanary()) return;
+  const permitted = normalizeEnvValue(process.env.LIVE_PAYMENT_CANARY_SUBMISSION_ID);
+  if (kind !== "initial_card" || !permitted || submissionId !== permitted) {
+    throw new Error("live_payment_canary_scope_mismatch");
+  }
+}
+
 /** Test payments may run on the public site, but Partner disbursements require
  * a separate live financial release. This also protects PayPal payouts. */
 export function areRealPartnerDisbursementsAllowed() {
   return process.env.RAILWAY_ENVIRONMENT_NAME !== "production" ||
-    (configuredStripeMode() === "live" && process.env.PUBLIC_LIVE_PAYMENTS_ENABLED === "true");
+    (configuredStripeMode() === "live" && process.env.PUBLIC_LIVE_PAYMENTS_ENABLED === "true" &&
+      process.env.LIVE_PAYMENT_SCOPE === "public");
 }
 
 export function assertRealPartnerDisbursementsAllowed() {

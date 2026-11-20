@@ -12,7 +12,7 @@ import {
   ensurePartnerCommissionConfirmationDeliveryForSubmission,
   retryPendingPartnerCommissionConfirmations,
 } from "@/lib/partner-commission-confirmations";
-import { payableCommissionWhere } from "@/lib/partner-ledger";
+import { ensurePartnerCommissionForSubmission, payableCommissionWhere } from "@/lib/partner-ledger";
 import { buildOwnerListingEmailCopy } from "@/lib/business-owner-access";
 import { createRefundFixture } from "./helpers/refund-fixture";
 
@@ -67,6 +67,23 @@ test("Pay Later bank transfer remains pending until Stripe-confirmed payment and
   assert.equal(await prisma.partnerCommission.count({ where: { businessSubmissionId: f.submission.id, amountCents: 5000 } }), 1);
   assert.equal(await prisma.partnerCommission.count({ where: { ...payableCommissionWhere(new Date(Date.now() + 30 * 86_400_000)), businessSubmissionId: f.submission.id } }), 0);
   assert.ok((await prisma.partnerCommissionConfirmationDelivery.findUniqueOrThrow({ where: { id } })).acceptedAt);
+});
+
+test("a synthetic LIVE €100 Partner membership earns one held €50 commission", async () => {
+  const paidAt = new Date("2026-11-20T12:00:00.000Z");
+  const f = await createRefundFixture(prisma, `live-canary-${++sequence}`, paidAt);
+  await prisma.partnerCommission.delete({ where: { id: f.commission.id } });
+  const params = { businessSubmissionId: f.submission.id, sourceEventId: "evt_live_synthetic", sourceEventType: "payment_intent.succeeded" };
+  await ensurePartnerCommissionForSubmission(params, { revalidatePaths: () => {} });
+  await ensurePartnerCommissionForSubmission(params, { revalidatePaths: () => {} });
+  const commissions = await prisma.partnerCommission.findMany({ where: { businessSubmissionId: f.submission.id, type: "COMMISSION" } });
+  assert.equal(commissions.length, 1);
+  assert.equal(commissions[0].paymentId, f.payment.id);
+  assert.equal(commissions[0].amountCents, 5000);
+  assert.equal(commissions[0].status, "PENDING");
+  assert.equal(commissions[0].eligibleAt?.toISOString(), "2026-12-04T12:00:00.000Z");
+  assert.equal(await prisma.partnerCommission.count({ where: { ...payableCommissionWhere(new Date("2026-12-04T11:59:59.000Z")), id: commissions[0].id } }), 0);
+  assert.equal(await prisma.partnerCommission.count({ where: { ...payableCommissionWhere(new Date("2026-12-04T12:00:00.000Z")), id: commissions[0].id } }), 1);
 });
 
 test("Pay Now and Pay Later use one payment-linked delivery; failed sends retry with the same key", async () => {

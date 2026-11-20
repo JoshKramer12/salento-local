@@ -7,7 +7,7 @@ import { ensurePartnerCommissionConfirmationDeliveryForSubmission } from "@/lib/
 import { getStatusAfterPayment, resolvePaymentMethodRecord } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
 import { runThrottledServerTask } from "@/lib/server-throttle";
-import { assertFinancialPaymentAllowed, assertStripeObjectMode, getStripe, isPublicFinancialHold } from "@/lib/stripe";
+import { assertStripeSettlementMode, getStripe, isPublicFinancialHold } from "@/lib/stripe";
 import { publishSubmissionAfterPayment } from "@/lib/submission-publication";
 import { ensureOwnerAccessForPublishedSubmission } from "@/lib/business-owner-access";
 import { ensureInitialBusinessMembership } from "@/lib/business-membership";
@@ -98,8 +98,9 @@ async function finalizeStripeManagedPayment(params: {
   stripeSubscriptionId?: string | null;
   stripeSubscriptionStatus?: string | null;
 }): Promise<SyncResult> {
-  assertFinancialPaymentAllowed();
-  if (params.stripeLivemode != null) assertStripeObjectMode(params.stripeLivemode);
+  // A signed provider payment may settle after new payment creation is paused.
+  // Keep settlement open, but never accept unproven mode under LIVE credentials.
+  assertStripeSettlementMode(params.stripeLivemode);
   let publishedBusinessSlug = "";
   let publishedTownSlug = "";
   let finalizedPaymentId: string | null = null;
@@ -168,6 +169,7 @@ async function finalizeStripeManagedPayment(params: {
           paidAt: existingPayment.paidAt ?? finalizedAt,
           status: "PAID",
           stripeCheckoutSessionId: params.sessionId ?? undefined,
+          stripeCustomerId: existingPayment.status === "PAID" ? undefined : params.stripeCustomerId ?? undefined,
           stripeLastEventId: params.stripeEventId ?? undefined,
           stripePaymentIntentId: params.paymentIntentId ?? undefined,
           stripeSubscriptionId: params.stripeSubscriptionId ?? undefined,
@@ -197,6 +199,7 @@ async function finalizeStripeManagedPayment(params: {
             paidAt: finalizedAt,
             status: "PAID",
             stripeCheckoutSessionId: params.sessionId ?? null,
+            stripeCustomerId: params.stripeCustomerId ?? null,
             stripeLastEventId: params.stripeEventId ?? null,
             stripePaymentIntentId: params.paymentIntentId ?? null,
             stripeSubscriptionId: params.stripeSubscriptionId ?? null,

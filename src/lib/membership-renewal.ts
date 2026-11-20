@@ -3,7 +3,7 @@ import type Stripe from "stripe";
 
 import { getBusinessMembershipPeriod, getBusinessMembershipStatus } from "@/lib/business-membership";
 import { LISTING_OFFER } from "@/lib/listing-offer";
-import { assertFinancialPaymentAllowed, assertStripeObjectMode } from "@/lib/stripe";
+import { assertStripeSettlementMode } from "@/lib/stripe";
 
 type RenewalDb = PrismaClient | Prisma.TransactionClient;
 
@@ -65,8 +65,8 @@ export async function finalizeMembershipRenewalPayment(params: {
   stripeCancelAtPeriodEnd?: boolean | null;
   stripeLivemode?: boolean | null;
 }) {
-  assertFinancialPaymentAllowed();
-  if (params.stripeLivemode != null) assertStripeObjectMode(params.stripeLivemode);
+  // Provider-confirmed renewal settlement must survive a payment gate pause.
+  assertStripeSettlementMode(params.stripeLivemode);
   const membership = await params.db.businessMembership.findFirst({
     where: params.businessId
       ? { businessId: params.businessId }
@@ -167,6 +167,7 @@ export async function finalizeMembershipRenewalPayment(params: {
         purpose,
         status: "PAID",
         stripeInvoiceId: params.invoiceId ?? undefined,
+        stripeCustomerId: params.stripeCustomerId ?? undefined,
         stripeLastEventId: params.eventId ?? undefined,
         stripePaymentIntentId: params.paymentIntentId ?? undefined,
         stripeLivemode: params.stripeLivemode ?? undefined,
@@ -188,6 +189,7 @@ export async function finalizeMembershipRenewalPayment(params: {
       purpose,
       status: "PAID",
       stripeCheckoutSessionId: params.sessionId ?? null,
+      stripeCustomerId: params.stripeCustomerId ?? null,
       stripeInvoiceId: params.invoiceId ?? null,
       stripeLastEventId: params.eventId ?? null,
       stripePaymentIntentId: params.paymentIntentId ?? null,

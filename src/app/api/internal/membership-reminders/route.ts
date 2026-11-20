@@ -6,10 +6,14 @@ import { retryPendingPartnerCommissionConfirmations } from "@/lib/partner-commis
 import { retryPendingPurchaseConfirmations } from "@/lib/purchase-confirmation-delivery";
 import { normalizeEnvValue } from "@/lib/env";
 import { retryPendingPayLaterBankInstructionsEmails, runPayLaterReminderJob } from "@/lib/pay-later-reminders";
+import { isLivePaymentCanary } from "@/lib/stripe";
 
 export async function POST(request: Request) {
   const secret = normalizeEnvValue(process.env.MEMBERSHIP_REMINDER_CRON_SECRET);
   if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // Historical TEST/unknown deliveries cannot be retried with LIVE credentials.
+  // The one-payment canary requires immediate delivery and manual review.
+  if (isLivePaymentCanary()) return NextResponse.json({ pausedForLiveCanary: true });
   const outcomes = await retryPendingMembershipPaymentOutcomes();
   const failedPayments = await retryPendingMembershipFailedPayments();
   const partnerCommissions = await retryPendingPartnerCommissionConfirmations();

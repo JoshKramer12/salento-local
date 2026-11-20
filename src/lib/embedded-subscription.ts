@@ -4,7 +4,7 @@ import type Stripe from "stripe";
 import { DEFAULT_CURRENCY } from "@/lib/payment";
 import { isInitialElementEligible } from "@/lib/no-email-payment";
 import { prisma } from "@/lib/prisma";
-import { assertFinancialPaymentAllowed, assertReusableStripeObjectMode, configuredStripeMode, getStripe } from "@/lib/stripe";
+import { assertFinancialPaymentAllowed, assertLivePaymentCreationScope, assertReusableStripeObjectMode, configuredStripeMode, getStripe } from "@/lib/stripe";
 
 export const EMBEDDED_SUBSCRIPTION_FLOW = "INITIAL_SUBSCRIPTION_ELEMENT";
 export const MEMBERSHIP_SUBSCRIPTION_FLOW = "MEMBERSHIP_SUBSCRIPTION_ELEMENT";
@@ -173,6 +173,7 @@ export async function ensureEmbeddedSubscription(submissionId: string, dependenc
   db?: SetupDb; stripe?: Stripe; now?: Date;
 } = {}) {
   assertFinancialPaymentAllowed();
+  assertLivePaymentCreationScope(submissionId, "initial_recurring");
   const db = dependencies.db ?? prisma;
   const stripe = dependencies.stripe ?? getStripe();
   const submission = await db.businessSubmission.findUnique({
@@ -231,6 +232,8 @@ export async function ensureEmbeddedPaymentSubscription(payment: Payment, contex
   flow: string; metadata: Record<string, string>;
 }, dependencies: { db?: SetupDb; stripe?: Stripe; now?: Date } = {}): Promise<Payment> {
   assertFinancialPaymentAllowed();
+  assertLivePaymentCreationScope(payment.businessSubmissionId,
+    context.flow === EMBEDDED_SUBSCRIPTION_FLOW ? "initial_recurring" : "renewal");
   const db = dependencies.db ?? prisma;
   const stripe = dependencies.stripe ?? getStripe();
   const now = dependencies.now ?? new Date();

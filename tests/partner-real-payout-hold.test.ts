@@ -6,7 +6,7 @@ import { createPaypalPayout } from "@/lib/partner-payout-methods";
 import { areRealPartnerDisbursementsAllowed, isPublicFinancialHold } from "@/lib/stripe";
 
 test("production test payments never open real Partner payout paths", async () => {
-  const names = ["RAILWAY_ENVIRONMENT_NAME", "STRIPE_SECRET_KEY", "STRIPE_PUBLISHABLE_KEY", "PRODUCTION_STRIPE_TEST_PAYMENTS_ENABLED", "PUBLIC_LIVE_PAYMENTS_ENABLED", "PAYPAL_MODE"] as const;
+  const names = ["RAILWAY_ENVIRONMENT_NAME", "STRIPE_SECRET_KEY", "STRIPE_PUBLISHABLE_KEY", "PRODUCTION_STRIPE_TEST_PAYMENTS_ENABLED", "PUBLIC_LIVE_PAYMENTS_ENABLED", "LIVE_PAYMENT_SCOPE", "PAYPAL_MODE"] as const;
   const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
   try {
     process.env.RAILWAY_ENVIRONMENT_NAME = "production";
@@ -31,6 +31,9 @@ test("production test payments never open real Partner payout paths", async () =
     process.env.PUBLIC_LIVE_PAYMENTS_ENABLED = "false";
     assert.equal(areRealPartnerDisbursementsAllowed(), false);
     process.env.PUBLIC_LIVE_PAYMENTS_ENABLED = "true";
+    process.env.LIVE_PAYMENT_SCOPE = "canary";
+    assert.equal(areRealPartnerDisbursementsAllowed(), false);
+    process.env.LIVE_PAYMENT_SCOPE = "public";
     assert.equal(areRealPartnerDisbursementsAllowed(), true);
   } finally {
     for (const name of names) {

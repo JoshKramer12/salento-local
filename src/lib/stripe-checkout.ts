@@ -10,7 +10,7 @@ import {
   getStripeEuBankTransferCountry,
 } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
-import { assertFinancialPaymentAllowed, assertReusableStripeObjectMode, assertStripeObjectMode, getStripe } from "@/lib/stripe";
+import { assertFinancialPaymentAllowed, assertLivePaymentCreationScope, assertReusableStripeObjectMode, assertStripeObjectMode, getStripe } from "@/lib/stripe";
 
 type Dependencies = { db?: typeof prisma; stripe?: Stripe };
 
@@ -107,6 +107,8 @@ export async function ensureStripeCheckoutSession(params: {
   viewer: CheckoutViewer;
 }, dependencies: Dependencies = {}) {
   assertFinancialPaymentAllowed();
+  assertLivePaymentCreationScope(params.submission.id,
+    params.submission.automaticRenewalAtAcceptance ? "initial_recurring" : "initial_card");
   const stripe = dependencies.stripe ?? getStripe();
   const db = dependencies.db ?? prisma;
   const appUrl = params.appUrl?.trim().replace(/\/+$/, "") || getAppUrl();
@@ -249,6 +251,7 @@ export async function ensureStripeBankTransferIntent(params: {
   idempotencyKey?: string;
 }, dependencies: Dependencies = {}) : Promise<StripeBankTransferSession> {
   assertFinancialPaymentAllowed();
+  assertLivePaymentCreationScope(params.submission.id, "initial_bank");
   const stripe = dependencies.stripe ?? getStripe();
   const db = dependencies.db ?? prisma;
   const latestPendingPayment = await db.payment.findFirst({
