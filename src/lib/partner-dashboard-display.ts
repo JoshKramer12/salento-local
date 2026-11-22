@@ -82,8 +82,12 @@ export function getPartnerCommissionDisplay(
 ): { tone: "green" | "yellow" | "red"; label: string } {
   const it = locale === "it";
   const amount = formatCurrencyFromCents(entry.amountCents, locale);
-  const modeLabel = entry.payment?.stripeLivemode === false ? "TEST · " :
-    entry.payment?.stripeLivemode == null ? (it ? "Storico/non verificato · " : "Historical/unverified · ") : "";
+  const excludedLabel = entry.payment?.stripeLivemode === false
+    ? (it ? "TEST · Non pagabile" : "TEST · Not payable")
+    : entry.payment?.stripeLivemode == null
+      ? (it ? "Storico/non verificato · Non pagabile" : "Historical/unverified · Not payable")
+      : null;
+  const modeLabel = excludedLabel ? `${excludedLabel} · ` : "";
   const reversal = ledger.some((row) => row.type === "REVERSAL" &&
     row.sourceKey === `commission:reversal:${entry.id}` && ["REVERSED", "DEBT"].includes(row.status));
   if (entry.status === "REVERSED" || entry.status === "DEBT" || reversal) {
@@ -96,8 +100,7 @@ export function getPartnerCommissionDisplay(
   if (entry.payment?.status === "REFUNDED") {
     return { tone: "yellow", label: `${amount} · ${modeLabel}${it ? "In sospeso" : "On hold"}` };
   }
-  if (entry.payment?.stripeLivemode === false) return { tone: "yellow", label: `${amount} · ${it ? "TEST · Non pagabile" : "TEST · Not payable"}` };
-  if (entry.payment?.stripeLivemode == null) return { tone: "yellow", label: `${amount} · ${it ? "Storico/non verificato · Non pagabile" : "Historical/unverified · Not payable"}` };
+  if (excludedLabel) return { tone: "yellow", label: `${amount} · ${excludedLabel}` };
   if (entry.status === "PAID") return { tone: "green", label: `${amount} · ${it ? "Pagata" : "Paid"}` };
   if (payableIds.has(entry.id)) return { tone: "green", label: `${amount} · ${it ? "Disponibile" : "Available"}` };
   if (entry.status === "RESERVED") return { tone: "yellow", label: `${amount} · ${it ? "Pagamento in corso" : "Payout processing"}` };
