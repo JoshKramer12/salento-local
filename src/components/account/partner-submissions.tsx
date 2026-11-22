@@ -23,18 +23,12 @@ import { HardNavigationLink } from "@/components/hard-navigation-link";
 import { formatCurrencyFromCents, getPaymentStatusLabel, getSubmissionStatusLabel } from "@/lib/account";
 import { getBusinessPhotoUrls } from "@/lib/business-photos";
 import type { Locale } from "@/lib/i18n";
+import { getPartnerCommissionDisplay, type DashboardCommission } from "@/lib/partner-dashboard-display";
 import { isAwaitingPartnerPayment } from "@/lib/partner-submission-groups";
 
 import styles from "./partner-submissions.module.css";
 
-type Commission = {
-  amountCents: number;
-  eligibleAt: Date | null;
-  payment: { status: string; refundRequestedAt: Date | null; refundStatus?: string | null } | null;
-  sourceKey: string;
-  status: "PENDING" | "AVAILABLE" | "RESERVED" | "PAID" | "REVERSED" | "DEBT";
-  type: "COMMISSION" | "REVERSAL" | "ADJUSTMENT";
-};
+type Commission = DashboardCommission & { eligibleAt: Date | null };
 
 type Submission = {
   addressPlaceId: string | null;
@@ -68,7 +62,7 @@ type Submission = {
   partnerCommissions: Commission[];
 };
 
-type Props = { drafts: Submission[]; locale: Locale; now: string; payLaterEnabled?: boolean; submissions: Submission[] };
+type Props = { drafts: Submission[]; locale: Locale; now: string; payLaterEnabled?: boolean; payableCommissionIds: string[]; submissions: Submission[] };
 
 const copy = {
   en: {
@@ -96,14 +90,12 @@ const copy = {
     noDrafts: "No unfinished drafts yet.",
     potentialCommission: "Potential commission: €50 · not earned",
     lastInvitation: "Last invitation/reminder",
-    earnings: "Your earnings",
-    earned: "earned",
+    earnings: "Commission status",
     empty: "No submitted listings match these filters.",
     headerBody: "Manage your business listings, drafts and track their progress.",
     initialCommission: "Initial commission",
     lastUpdated: "Last updated",
     ownerPayment: "Owner payment",
-    pending: "pending",
     paymentPaid: "Paid",
     progress: "Progress",
     renewalCommission: "Renewal / reactivation",
@@ -140,14 +132,12 @@ const copy = {
     noDrafts: "Non ci sono bozze incomplete.",
     potentialCommission: "Commissione potenziale: €50 · non maturata",
     lastInvitation: "Ultimo invio/promemoria",
-    earnings: "I tuoi guadagni",
-    earned: "guadagnati",
+    earnings: "Stato commissione",
     empty: "Nessuna scheda inviata corrisponde a questi filtri.",
     headerBody: "Gestisci le tue schede attività, le bozze e segui i loro progressi.",
     initialCommission: "Commissione iniziale",
     lastUpdated: "Ultimo aggiornamento",
     ownerPayment: "Pagamento titolare",
-    pending: "in attesa",
     paymentPaid: "Pagato",
     progress: "Progresso",
     renewalCommission: "Rinnovo / riattivazione",
@@ -204,24 +194,18 @@ function paymentDisplay(submission: Submission, locale: Locale) {
   return { label: paid ? copy[locale].paymentPaid : getPaymentStatusLabel(submission.paymentStatus, locale), paid };
 }
 
-function commissionDisplay(submission: Submission, locale: Locale, now: string) {
+function commissionDisplay(submission: Submission, locale: Locale, payableIds: ReadonlySet<string>) {
   const initial = submission.partnerCommissions.filter((entry) => (entry.sourceKey === `commission:submission:${submission.id}` || entry.sourceKey.startsWith("commission:refund-repurchase:")) && entry.type === "COMMISSION");
-  const commission = initial.find((entry) => entry.status !== "REVERSED" && entry.status !== "DEBT");
-  if (!commission) return { label: initial.some((entry) => entry.status === "REVERSED") ? `${formatCurrencyFromCents(5000, locale)} ${locale === "it" ? "annullata" : "canceled"}` : submission.payLaterInvitation && !submission.payLaterInvitation.revokedAt && !submission.payLaterInvitation.declinedAt && !submission.payLaterInvitation.completedAt ? `${formatCurrencyFromCents(5000, locale)} ${locale === "it" ? "potenziale" : "potential"}` : "—", tone: styles.mutedEarning };
-  const unresolvedRefund = Boolean(commission.payment?.refundRequestedAt && commission.payment?.refundStatus !== "support_closed");
-  const settled = commission.status === "RESERVED" || commission.status === "PAID" || Boolean(!unresolvedRefund && commission.payment?.status === "PAID" && commission.eligibleAt && new Date(commission.eligibleAt).getTime() <= new Date(now).getTime());
-  return {
-    label: unresolvedRefund ? `${formatCurrencyFromCents(commission.amountCents, locale)} · ${locale === "it" ? "Richiesta di rimborso in sospeso" : "Refund request pending"}` : `${formatCurrencyFromCents(commission.amountCents, locale)} ${settled ? copy[locale].earned : copy[locale].pending}`,
-    tone: settled ? styles.earned : styles.pendingEarning,
-  };
+  const commission = initial.find((entry) => entry.status !== "REVERSED" && entry.status !== "DEBT") ?? initial[0];
+  if (!commission) return { label: submission.payLaterInvitation && !submission.payLaterInvitation.revokedAt && !submission.payLaterInvitation.declinedAt && !submission.payLaterInvitation.completedAt ? `${formatCurrencyFromCents(5000, locale)} ${locale === "it" ? "potenziale" : "potential"}` : "—", tone: styles.mutedEarning };
+  const display = getPartnerCommissionDisplay(commission, submission.partnerCommissions, payableIds, locale);
+  return { label: display.label, tone: display.tone === "green" ? styles.earned : display.tone === "red" ? styles.mutedEarning : styles.pendingEarning };
 }
 
-function renewalCommissionDisplay(submission: Submission, locale: Locale) {
+function renewalCommissionDisplay(submission: Submission, locale: Locale, payableIds: ReadonlySet<string>) {
   const commissions = submission.partnerCommissions.filter((entry) => entry.sourceKey.startsWith("commission:renewal:") && entry.type === "COMMISSION" && entry.status !== "REVERSED" && entry.status !== "DEBT");
   if (!commissions.length) return "—";
-  const total = commissions.reduce((sum, entry) => sum + entry.amountCents, 0);
-  const settled = commissions.every((entry) => entry.status === "AVAILABLE" || entry.status === "RESERVED" || entry.status === "PAID");
-  return `${formatCurrencyFromCents(total, locale)} ${settled ? copy[locale].earned : copy[locale].pending}`;
+  return commissions.map((entry) => getPartnerCommissionDisplay(entry, submission.partnerCommissions, payableIds, locale).label).join("; ");
 }
 
 function SubmissionThumbnail({ locale, submission }: { locale: Locale; submission: Submission }) {
@@ -299,8 +283,9 @@ function isPublishedListing(submission: Submission, now: string) {
   return submission.status === "PUBLISHED" && submission.paymentStatus === "PAID" && Boolean(submission.createdBusiness?.slug) && !refunded && !expired;
 }
 
-export function PartnerSubmissions({ drafts, locale, now, payLaterEnabled = false, submissions }: Props) {
+export function PartnerSubmissions({ drafts, locale, now, payLaterEnabled = false, payableCommissionIds, submissions }: Props) {
   const text = copy[locale];
+  const payableIds = useMemo(() => new Set(payableCommissionIds), [payableCommissionIds]);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("ALL");
   const [openDetails, setOpenDetails] = useState<string | null>(null);
@@ -357,7 +342,7 @@ export function PartnerSubmissions({ drafts, locale, now, payLaterEnabled = fals
           <label className={styles.filter}><span>{locale === "it" ? "Stato" : "Status"}:</span><select aria-label={locale === "it" ? "Filtra per stato" : "Filter by status"} value={status} onChange={(event) => setStatus(event.target.value)}><option value="ALL">{text.all}</option>{statusOptions.map((entry) => <option key={entry} value={entry}>{getSubmissionStatusLabel(entry, locale)}</option>)}</select><IconChevronDown aria-hidden="true" size={17} /></label>
         </div>
       </div>
-      <div className={styles.cards}>{filtered.length ? filtered.map((submission) => <SubmittedCard expanded={openDetails === submission.id} key={submission.id} locale={locale} now={now} onToggleDetails={() => setOpenDetails(openDetails === submission.id ? null : submission.id)} submission={submission} />) : <p className={styles.empty}>{text.empty}</p>}</div>
+      <div className={styles.cards}>{filtered.length ? filtered.map((submission) => <SubmittedCard expanded={openDetails === submission.id} key={submission.id} locale={locale} now={now} onToggleDetails={() => setOpenDetails(openDetails === submission.id ? null : submission.id)} payableIds={payableIds} submission={submission} />) : <p className={styles.empty}>{text.empty}</p>}</div>
       <aside className={styles.addCard}><span><IconBulb aria-hidden="true" size={25} /></span><div><h3>{text.addTitle}</h3><p>{text.addBody}</p></div><HardNavigationLink href="/publish" className={styles.addButton}>+ {text.add}</HardNavigationLink></aside>
     </section>
   </main>;
@@ -390,8 +375,8 @@ function DraftCard({ kind, locale, payLaterEnabled, submission }: { kind: "await
   </article>;
 }
 
-function SubmittedCard({ expanded, locale, now, onToggleDetails, submission }: { expanded: boolean; locale: Locale; now: string; onToggleDetails: () => void; submission: Submission }) {
-  const text = copy[locale]; const payment = paymentDisplay(submission, locale); const earnings = commissionDisplay(submission, locale, now);
+function SubmittedCard({ expanded, locale, now, onToggleDetails, payableIds, submission }: { expanded: boolean; locale: Locale; now: string; onToggleDetails: () => void; payableIds: ReadonlySet<string>; submission: Submission }) {
+  const text = copy[locale]; const payment = paymentDisplay(submission, locale); const earnings = commissionDisplay(submission, locale, payableIds);
   const membership = submission.createdBusiness?.membership;
   const refunded = submission.paymentStatus === "REFUNDED" && Boolean(membership?.entitlementRevokedAt);
   const expired = Boolean(membership && !membership.entitlementRevokedAt && new Date(membership.graceEndsAt).getTime() <= new Date(now).getTime());
@@ -402,7 +387,7 @@ function SubmittedCard({ expanded, locale, now, onToggleDetails, submission }: {
     <div className={styles.listingInfo}><h3>{submission.businessName}</h3><p><IconMapPin aria-hidden="true" size={15} />{submission.category.name} <span>·</span> {submission.town.name}</p></div>
     <div className={styles.infoGroups}><InfoGroup label={text.submitted}>{formatDate(submission.createdAt, locale)}</InfoGroup><InfoGroup label={text.ownerPayment}><span className={payment.paid ? styles.paid : styles.paymentPending}><i />{payment.label}</span></InfoGroup><InfoGroup label={text.earnings}><span className={earnings.tone}>{earnings.label}</span></InfoGroup></div>
     <div className={styles.listingActions}><span className={`${styles.badge} ${refunded || expired ? styles.neutral : statusTone(submission.status)}`}>{listingStatus}</span>{published ? <HardNavigationLink href={`/businesses/${submission.createdBusiness?.slug}`} className={styles.primary}>{text.viewListing}<IconArrowRight aria-hidden="true" size={18} /></HardNavigationLink> : <button type="button" className={styles.primary} onClick={onToggleDetails}>{text.viewDetails}<IconArrowRight aria-hidden="true" size={18} /></button>}<button type="button" aria-expanded={expanded} className={styles.secondary} onClick={onToggleDetails}><IconFileDescription aria-hidden="true" size={17} />{text.details}</button>{published ? <div className={styles.ownerAccess}><PartnerOwnerAccess locale={locale} submissionId={submission.id} /></div> : null}</div>
-    {expanded ? <div className={styles.details}><InfoGroup label={text.submitted}>{formatDate(submission.createdAt, locale)}</InfoGroup><InfoGroup label={text.ownerPayment}>{payment.label}</InfoGroup><InfoGroup label={text.initialCommission}>{earnings.label}</InfoGroup><InfoGroup label={text.renewalCommission}>{renewalCommissionDisplay(submission, locale)}</InfoGroup><InfoGroup label={locale === "it" ? "Pubblicazione" : "Publication"}>{getSubmissionStatusLabel(submission.status, locale)}</InfoGroup></div> : null}
+    {expanded ? <div className={styles.details}><InfoGroup label={text.submitted}>{formatDate(submission.createdAt, locale)}</InfoGroup><InfoGroup label={text.ownerPayment}>{payment.label}</InfoGroup><InfoGroup label={text.initialCommission}>{earnings.label}</InfoGroup><InfoGroup label={text.renewalCommission}>{renewalCommissionDisplay(submission, locale, payableIds)}</InfoGroup><InfoGroup label={locale === "it" ? "Pubblicazione" : "Publication"}>{getSubmissionStatusLabel(submission.status, locale)}</InfoGroup></div> : null}
   </article>;
 }
 

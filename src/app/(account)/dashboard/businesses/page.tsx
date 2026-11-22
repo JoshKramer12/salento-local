@@ -12,6 +12,7 @@ import { SubmissionList } from "@/components/account/submission-list";
 import { requireCompletedViewer } from "@/lib/auth-guards";
 import { getCurrentLocale } from "@/lib/locale";
 import { getPartnerNextRoute } from "@/lib/partner-onboarding";
+import { payableCommissionWhere } from "@/lib/partner-ledger";
 import { prisma } from "@/lib/prisma";
 import { isPayLaterEnabled } from "@/lib/pay-later-invitations";
 import { getSingleParam } from "@/lib/site";
@@ -49,8 +50,9 @@ export default async function DashboardBusinessesPage({
   const resolvedSearchParams = await searchParams;
   const showAll = viewer.role === "ADMIN" && getSingleParam(resolvedSearchParams.scope) === "all";
   const warning = getSingleParam(resolvedSearchParams.warning);
+  const now = new Date();
 
-  const [ownedBusinesses, submissions, ownDraftCount, persistedDrafts] = await Promise.all([
+  const [ownedBusinesses, submissions, ownDraftCount, persistedDrafts, payableCommissions] = await Promise.all([
     prisma.business.findMany({
       where: showAll
         ? undefined
@@ -129,10 +131,12 @@ export default async function DashboardBusinessesPage({
           },
         },
         partnerCommissions: {
+          where: { partnerUserId: viewer.id },
           select: {
+            id: true,
             amountCents: true,
             eligibleAt: true,
-            payment: { select: { status: true, refundRequestedAt: true, refundStatus: true } },
+            payment: { select: { purpose: true, status: true, refundRequestedAt: true, refundStatus: true, stripeLivemode: true } },
             sourceKey: true,
             status: true,
             type: true,
@@ -190,10 +194,12 @@ export default async function DashboardBusinessesPage({
           },
         },
         partnerCommissions: {
+          where: { partnerUserId: viewer.id },
           select: {
+            id: true,
             amountCents: true,
             eligibleAt: true,
-            payment: { select: { status: true, refundRequestedAt: true, refundStatus: true } },
+            payment: { select: { purpose: true, status: true, refundRequestedAt: true, refundStatus: true, stripeLivemode: true } },
             sourceKey: true,
             status: true,
             type: true,
@@ -204,6 +210,12 @@ export default async function DashboardBusinessesPage({
         updatedAt: "desc",
       },
     }),
+    viewer.role === "GETTER" && !showAll
+      ? prisma.partnerCommission.findMany({
+          where: { ...payableCommissionWhere(now), partnerUserId: viewer.id },
+          select: { id: true },
+        })
+      : Promise.resolve([]),
   ]);
   const personalView = !showAll;
   const draftSubmissions = personalView
@@ -228,10 +240,11 @@ export default async function DashboardBusinessesPage({
         </div>
         <PartnerSubmissions
           payLaterEnabled={isPayLaterEnabled()}
-          now={new Date().toISOString()}
+          now={now.toISOString()}
           locale={locale}
           drafts={draftSubmissions}
           submissions={activeSubmissions}
+          payableCommissionIds={payableCommissions.map((commission) => commission.id)}
         />
       </>
     );
