@@ -2190,7 +2190,7 @@ export async function startPartnerPayoutSetupAction(formData: FormData) {
   const searchParams = new URLSearchParams({
     returnTo: returnTo ?? "/dashboard",
   });
-  redirect(`/onboarding/partner?${searchParams.toString()}`);
+  redirect(`/partner/payout/stripe?${searchParams.toString()}`);
 }
 
 export async function savePartnerPayoutMethodAction(

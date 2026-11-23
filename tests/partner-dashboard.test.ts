@@ -8,23 +8,24 @@ const dashboardStyles = readFileSync("src/components/account/partner-dashboard.m
 const partnerWorkspaceNav = readFileSync("src/components/account/partner-workspace-nav.tsx", "utf8");
 
 test("dashboard uses authoritative financial data and excludes unverified activity", () => {
-  assert.match(dashboardPage, /payableCommissionWhere\(dashboardNow\)/);
+  assert.match(dashboardPage, /payableCommissionWhere\(dashboardNow, paymentLivemode\)/);
   assert.match(dashboardPage, /getPartnerBalanceSummary\(viewer.id\)/);
   assert.match(dashboardPage, /const cashoutView = await getPartnerCashoutView\(\)/);
   assert.match(dashboardPage, /cashoutView=\{cashoutView\}/);
-  assert.match(dashboard, /getPartnerCommissionDisplay\(entry, commissionLedger, payableIds, locale\)/);
+  assert.match(dashboardPage, /getPartnerRecentTransactions\(\{/);
+  assert.match(dashboard, /recentTransactions\.map/);
   assert.match(dashboard, /getPartnerInitialHoldProgress\(entry, currentDate, holdDays\)/);
   assert.match(dashboard, /formatCurrencyFromCents\(cashoutView\.availableCents, locale\)/);
   for (const field of ["grossEarnedCents", "pendingCents", "paidCents", "reservedCents", "testCents", "unverifiedCents", "debtCents"]) {
     assert.match(dashboard, new RegExp(`cashoutView\\.${field}`));
   }
   assert.match(dashboard, /cashoutBlockReason\(cashoutView\)/);
-  assert.match(dashboard, /className=\{styles\.cashout\} disabled/);
   assert.match(dashboard, /<PartnerCashoutPanel view=\{cashoutView\} locale=\{locale\} preview=\{preview\} triggerOnly/);
-  assert.match(dashboardPage, /\.filter\(\(entry\) => entry\.payment\?\.stripeLivemode === true\)/);
+  assert.doesNotMatch(dashboard, /blocker \? <button[^>]+disabled[^>]+: <PartnerCashoutPanel/);
+  assert.match(dashboardPage, /paymentLivemode, locale/);
   assert.doesNotMatch(dashboard, /formatCurrencyFromCents\(0, locale\)/);
-  assert.match(dashboard, /payableIds\.has\(entry\.id\) && payoutsPaused \? t\.pausedStatus/);
-  assert.match(dashboard, /payableIds\.has\(entry\.id\) && balances\.debt > 0 \? t\.debtStatus/);
+  assert.match(dashboard, /Recent Transactions/);
+  assert.match(dashboard, /Transazioni recenti/);
   assert.doesNotMatch(dashboard, /€685|stripe\.|prisma\.|submitCashoutRequest/);
 });
 

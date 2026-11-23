@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { cashoutRequestsEnabled, cashoutUiEnabled } from "@/lib/partner-cashout-view";
 import { cancelPartnerWithdrawal, getPartnerWithdrawableBalance, requestPartnerWithdrawal } from "@/lib/partner-withdrawals";
+import { withdrawalConfirmationKind } from "@/lib/partner-cashout-confirmation";
 
 export async function submitCashoutRequest(requestKey: string, reviewedAmountCents: number) {
   if (!cashoutRequestsEnabled()) return { kind: "unavailable" as const };
@@ -10,13 +11,14 @@ export async function submitCashoutRequest(requestKey: string, reviewedAmountCen
       !/^[A-Za-z0-9_-]{16,128}$/.test(requestKey)) return { kind: "invalid" as const };
   try {
     const withdrawal = await requestPartnerWithdrawal(requestKey, { expectedAmountCents: reviewedAmountCents });
-    if (["CANCELED", "INVALIDATED", "FAILED_CONFIRMED"].includes(withdrawal.status)) {
+    const outcome = withdrawalConfirmationKind(withdrawal.status);
+    if (outcome === "changed") {
       const balance = await getPartnerWithdrawableBalance();
       return { kind: "changed" as const, availableCents: balance.netEligibleCents, newKey: true };
     }
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/earnings");
-    return { kind: "submitted" as const, id: withdrawal.id,
+    return { kind: outcome, id: withdrawal.id,
       amountCents: withdrawal.requestedAmountCents, status: withdrawal.status,
       destinationLast4: withdrawal.destinationLast4 };
   } catch (error) {
