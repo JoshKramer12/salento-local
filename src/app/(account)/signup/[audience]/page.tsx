@@ -75,7 +75,7 @@ export default async function SignupAudiencePage({
             eyebrow: "Partner locale",
             highlights: [
               "Segui nuove attivita raccolte sul territorio e accompagnale nella directory.",
-              "Completa il tuo profilo partner con dati payout e area di riferimento.",
+              "Completa il tuo profilo partner e indica la tua area di riferimento.",
               "Controlla invii, verifiche e commissioni da un unico spazio dedicato.",
             ],
             title: "Registrati come Partner locale",
@@ -113,7 +113,7 @@ export default async function SignupAudiencePage({
             eyebrow: "Local Partner",
             highlights: [
               "Track new businesses you bring in and guide them into the directory.",
-              "Complete your partner profile with payout details and your local coverage area.",
+              "Complete your partner profile and choose your local coverage area.",
               "Keep submissions, verification, and commission follow-up in one dedicated space.",
             ],
             title: "Sign up as a Local Partner",

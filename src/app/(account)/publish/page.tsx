@@ -8,11 +8,7 @@ import { PublishForm } from "@/components/account/publish-form";
 import { isAdminViewer } from "@/lib/admin";
 import { requireCompletedViewer } from "@/lib/auth-guards";
 import { getCurrentLocale } from "@/lib/locale";
-import {
-  getPartnerNextRoute,
-  getPartnerPayoutSetupSkipDestination,
-} from "@/lib/partner-onboarding";
-import { getPartnerPayoutSetupSummary } from "@/lib/partner-connect";
+import { getPartnerNextRoute } from "@/lib/partner-onboarding";
 import { buildPhoneCountryOptions } from "@/lib/phone-country-options";
 import { getPublishOwnerContactDefaults } from "@/lib/publish-owner-contact";
 import { resolvePublishNewIntent } from "@/lib/publish-new-intent";
@@ -61,21 +57,6 @@ export default async function PublishPage({ searchParams }: PublishPageProps) {
 
     if (nextRoute !== "/dashboard") {
       redirect(nextRoute);
-    }
-
-    if (!skipPayoutSetup) {
-      const payoutSetup = await getPartnerPayoutSetupSummary(viewer.id);
-
-      if (payoutSetup?.setupState !== "ready") {
-        const publishParams = new URLSearchParams();
-
-        if (submissionId) publishParams.set("submission", submissionId);
-        else if (newIntentId) publishParams.set("new", newIntentId);
-        const publishHref = `/publish${publishParams.size ? `?${publishParams.toString()}` : ""}`;
-        const returnTo = getPartnerPayoutSetupSkipDestination(publishHref);
-
-        redirect(`/partner/payout?returnTo=${encodeURIComponent(returnTo)}`);
-      }
     }
 
   }

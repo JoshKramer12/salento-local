@@ -6,6 +6,8 @@ import { PartnerOutstandingCommissionCard } from "@/components/account/partner-o
 import { PartnerPayoutSummary } from "@/components/account/partner-payout-summary";
 import { PartnerDashboard } from "@/components/account/partner-dashboard";
 import { getPartnerCashoutView } from "@/lib/partner-cashout-view";
+import { getPartnerRecentTransactions } from "@/lib/partner-recent-transactions";
+import { withdrawalPaymentLivemode } from "@/lib/partner-withdrawal-sandbox-context";
 import { PartnerTermsNotice } from "@/components/account/partner-terms-notice";
 import {
   BusinessOwnerDashboard,
@@ -39,7 +41,6 @@ import {
   INITIAL_COMMISSION_HOLD_DAYS,
   payableCommissionWhere,
 } from "@/lib/partner-ledger";
-import { selectPartnerPaidBusinesses, selectPartnerPaidBusinessCommissions } from "@/lib/partner-dashboard-display";
 import { prisma } from "@/lib/prisma";
 import { getSingleParam } from "@/lib/site";
 import { areRealPartnerDisbursementsAllowed } from "@/lib/stripe";
@@ -345,6 +346,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const payoutStatus = getSingleParam(resolvedSearchParams.payoutStatus);
 
   const dashboardNow = new Date();
+  const paymentLivemode = withdrawalPaymentLivemode(viewer.id);
   const [
     submissions,
     partnerBalances,
@@ -438,7 +440,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             businessSubmission: { select: { businessName: true } },
             createdAt: true,
             earnedAt: true,
+            reversedAt: true,
             eligibleAt: true,
+            currency: true,
             id: true,
             payment: { select: { paidAt: true, purpose: true, status: true, refundRequestedAt: true, refundStatus: true, stripeLivemode: true } },
             status: true,
@@ -449,7 +453,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       : Promise.resolve([]),
     viewer.role === "GETTER"
       ? prisma.partnerCommission.findMany({
-          where: { ...payableCommissionWhere(dashboardNow), partnerUserId: viewer.id },
+          where: { ...payableCommissionWhere(dashboardNow, paymentLivemode), partnerUserId: viewer.id },
           select: { id: true },
         })
       : Promise.resolve([]),
@@ -646,28 +650,26 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
   if (viewer.role === "GETTER" && partnerBalances) {
     const cashoutView = await getPartnerCashoutView();
+    const recentTransactions = await getPartnerRecentTransactions({
+      partnerUserId: viewer.id, commissions: partnerRecentCommissions,
+      payableIds: new Set(partnerPayableCommissions.map((entry) => entry.id)),
+      paymentLivemode, locale,
+    });
     const currentTermsAcceptance = await prisma.legalAcceptance.findFirst({
       where: { userId: viewer.id, documentType: "PARTNER_TERMS", documentVersion: LEGAL_DOCUMENTS.partnerTerms.version },
       select: { id: true },
     });
     const termsNotice = currentTermsAcceptance ? null : <PartnerTermsNotice locale={locale} />;
-    const paidBusinesses = selectPartnerPaidBusinesses(submissions);
-    const paidBusinessCommissions = selectPartnerPaidBusinessCommissions(partnerRecentCommissions, paidBusinesses)
-      .filter((entry) => entry.payment?.stripeLivemode === true).slice(0, 5);
-
     return (
       <>{termsNotice}<PartnerDashboard
         now={dashboardNow.toISOString()}
-        balances={partnerBalances}
         cashoutView={cashoutView}
         locale={locale}
-        payoutsPaused={!areRealPartnerDisbursementsAllowed()}
-        recentCommissions={paidBusinessCommissions}
+        recentTransactions={recentTransactions}
         commissionLedger={partnerRecentCommissions}
         holdDays={INITIAL_COMMISSION_HOLD_DAYS}
         setup={partnerSetup}
         showDiagnostics={process.env.NODE_ENV !== "production"}
-        payableCommissionIds={partnerPayableCommissions.map((commission) => commission.id)}
         submissions={submissions}
         totals={totals}
         username={viewer.name?.trim() || viewer.username}

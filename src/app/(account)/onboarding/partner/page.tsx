@@ -25,9 +25,8 @@ export default async function PartnerOnboardingPage({ searchParams }: PartnerOnb
   const editDetails = getSingleParam(resolvedSearchParams.editDetails) === "1";
   const returnTo = getSafeInternalRedirect(getSingleParam(resolvedSearchParams.returnTo)) ?? "/dashboard";
 
-  // A payout destination is required to receive money, not to submit a business.
   if (!needsDetails && !editDetails) {
-    redirect(`/partner/payout?returnTo=${encodeURIComponent(returnTo)}`);
+    redirect(returnTo);
   }
 
   const towns = await prisma.town.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } });
@@ -37,6 +36,6 @@ export default async function PartnerOnboardingPage({ searchParams }: PartnerOnb
       <h1 className="font-serif text-4xl text-[var(--foreground)]">{locale === "it" ? "Raccontaci qualcosa di te" : "Tell us a little about yourself"}</h1>
       <p className="mt-4 text-[var(--muted)]">{locale === "it" ? "Ci servono solo alcuni dettagli per il tuo account Partner." : "We only need a few details for your Local Partner account."}</p>
     </section>
-    <section className="card p-8"><LocalPartnerOnboardingForm locale={locale} needsDetails phoneCountryOptions={buildPhoneCountryOptions(locale)} profile={profile} returnTo={returnTo} towns={towns} /></section>
+    <section className="card p-8"><LocalPartnerOnboardingForm locale={locale} needsDetails={needsDetails || editDetails} phoneCountryOptions={buildPhoneCountryOptions(locale)} profile={profile} returnTo={returnTo} towns={towns} /></section>
   </div></main>;
 }

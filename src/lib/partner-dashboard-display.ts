@@ -79,30 +79,32 @@ export function getPartnerCommissionDisplay(
   ledger: DashboardCommission[],
   payableIds: ReadonlySet<string>,
   locale: Locale,
-): { tone: "green" | "yellow" | "red"; label: string } {
+  paymentLivemode = true,
+): { tone: "green" | "yellow" | "red"; state: "reversed" | "refund-pending" | "hold" | "excluded" | "paid" | "eligible" | "reserved" | "pending"; label: string } {
   const it = locale === "it";
   const amount = formatCurrencyFromCents(entry.amountCents, locale);
-  const excludedLabel = entry.payment?.stripeLivemode === false
+  const excludedLabel = entry.payment?.stripeLivemode === false && paymentLivemode
     ? (it ? "TEST · Non pagabile" : "TEST · Not payable")
     : entry.payment?.stripeLivemode == null
       ? (it ? "Storico/non verificato · Non pagabile" : "Historical/unverified · Not payable")
-      : null;
+      : entry.payment?.stripeLivemode !== paymentLivemode
+        ? (it ? "Modalità non valida · Non pagabile" : "Other payment mode · Not payable") : null;
   const modeLabel = excludedLabel ? `${excludedLabel} · ` : "";
   const reversal = ledger.some((row) => row.type === "REVERSAL" &&
     row.sourceKey === `commission:reversal:${entry.id}` && ["REVERSED", "DEBT"].includes(row.status));
   if (entry.status === "REVERSED" || entry.status === "DEBT" || reversal) {
-    return { tone: "red", label: `${amount} · ${modeLabel}${entry.payment?.status === "REFUNDED" ? (it ? "Rimborsata · commissione annullata" : "Refunded · commission cancelled") : (it ? "Commissione annullata" : "Commission cancelled")}` };
+    return { tone: "red", state: "reversed", label: `${amount} · ${modeLabel}${entry.payment?.status === "REFUNDED" ? (it ? "Rimborsata · commissione annullata" : "Refunded · commission cancelled") : (it ? "Commissione annullata" : "Commission cancelled")}` };
   }
   if (entry.payment?.refundRequestedAt && entry.payment.refundStatus !== "support_closed") {
-    return { tone: "yellow", label: `${amount} · ${modeLabel}${it ? "Richiesta di rimborso in sospeso" : "Refund request pending"}` };
+    return { tone: "yellow", state: "refund-pending", label: `${amount} · ${modeLabel}${it ? "Richiesta di rimborso in sospeso" : "Refund request pending"}` };
   }
   // A refunded payment alone cannot establish that its commission was reversed.
   if (entry.payment?.status === "REFUNDED") {
-    return { tone: "yellow", label: `${amount} · ${modeLabel}${it ? "In sospeso" : "On hold"}` };
+    return { tone: "yellow", state: "hold", label: `${amount} · ${modeLabel}${it ? "In sospeso" : "On hold"}` };
   }
-  if (excludedLabel) return { tone: "yellow", label: `${amount} · ${excludedLabel}` };
-  if (entry.status === "PAID") return { tone: "green", label: `${amount} · ${it ? "Pagata" : "Paid"}` };
-  if (payableIds.has(entry.id)) return { tone: "green", label: `${amount} · ${it ? "Disponibile" : "Available"}` };
-  if (entry.status === "RESERVED") return { tone: "yellow", label: `${amount} · ${it ? "Pagamento in corso" : "Payout processing"}` };
-  return { tone: "yellow", label: `${amount} · ${it ? "In attesa" : "Pending"}` };
+  if (excludedLabel) return { tone: "yellow", state: "excluded", label: `${amount} · ${excludedLabel}` };
+  if (entry.status === "PAID") return { tone: "green", state: "paid", label: `${amount} · ${it ? "Pagata" : "Paid"}` };
+  if (payableIds.has(entry.id)) return { tone: "green", state: "eligible", label: `${amount} · ${it ? "Disponibile" : "Available"}` };
+  if (entry.status === "RESERVED") return { tone: "yellow", state: "reserved", label: `${amount} · ${it ? "Pagamento in corso" : "Payout processing"}` };
+  return { tone: "yellow", state: "pending", label: `${amount} · ${it ? "In attesa" : "Pending"}` };
 }

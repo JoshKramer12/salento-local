@@ -31,12 +31,12 @@ async function dashboard(partnerId: string) {
   return { paid, display: (id: string, locale: "en" | "it" = "en") => getPartnerCommissionDisplay(ledger.find((row) => row.id === id)!, ledger, new Set(payable.map((row) => row.id)), locale) };
 }
 
-test("dashboard route applies the tested selector before passing cards, and uses existing payout eligibility", () => {
+test("dashboard route passes verified financial events and existing payout eligibility", () => {
   const route = readFileSync("src/app/(account)/dashboard/page.tsx", "utf8");
-  assert.match(route, /const paidBusinesses = selectPartnerPaidBusinesses\(submissions\)/);
   assert.match(route, /submissions=\{submissions\}/);
-  assert.match(route, /selectPartnerPaidBusinessCommissions\(partnerRecentCommissions, paidBusinesses\)[\s\S]*?\.filter\(\(entry\) => entry\.payment\?\.stripeLivemode === true\)\.slice\(0, 5\)/);
-  assert.match(route, /payableCommissionWhere\(dashboardNow\)/);
+  assert.match(route, /getPartnerRecentTransactions\(\{[\s\S]*?paymentLivemode, locale/);
+  assert.match(route, /recentTransactions=\{recentTransactions\}/);
+  assert.match(route, /payableCommissionWhere\(dashboardNow, paymentLivemode\)/);
 });
 
 test("pure draft, incomplete and unpaid submissions are excluded and still queryable as drafts", async () => {

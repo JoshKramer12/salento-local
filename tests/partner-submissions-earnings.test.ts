@@ -122,12 +122,12 @@ test("empty live activity explains historical test commissions without adding th
     const view = { ...cashoutPreviewFixture("zero"), testCents: 10000, unverifiedCents: 0,
       destinationReady: false, requestEnabled: false, disbursementsAllowed: false };
     const markup = renderToStaticMarkup(createElement(AppRouterContext.Provider, { value: router as never },
-      createElement(PartnerDashboard, { now, balances: { available: 0, debt: 0, paid: 0, pending: 0, testActivity: 10000, totalEarned: 0, unverifiedActivity: 0 },
-        cashoutView: view, commissionLedger: [], holdDays: 14, locale, payoutsPaused: true, recentCommissions: [],
-        payableCommissionIds: [], setup: null, submissions: [], totals: { drafts: 0 }, username: "Partner" })));
+      createElement(PartnerDashboard, { now, cashoutView: view, commissionLedger: [], holdDays: 14, locale,
+        recentTransactions: [], setup: null, submissions: [], totals: { drafts: 0 }, username: "Partner" })));
     const document = new JSDOM(markup).window.document;
     const text = document.body.textContent ?? "";
     assert.match(text, locale === "en" ? /No verified live commission activity yet/ : /Non ci sono ancora commissioni da pagamenti reali verificati/);
+    assert.match(text, locale === "en" ? /No transactions yet/ : /Nessuna transazione per ora/);
     assert.match(text, locale === "en" ? /Available to cash outView earnings€0\.00/ : /Disponibile per il prelievoVedi guadagni[^\n]*0,00/);
   }
 });

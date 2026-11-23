@@ -19,7 +19,7 @@ import {
 import { SearchAutocomplete } from "@/components/search-autocomplete";
 import { getDesktopPartnerAddBusinessAction } from "@/lib/account-navigation";
 import type { Locale } from "@/lib/i18n";
-import { usesRedesignedSiteHeader } from "@/lib/public-site-path";
+import { isPublicSitePath, usesRedesignedSiteHeader } from "@/lib/public-site-path";
 
 type HeaderViewer = {
   name?: string | null;
@@ -133,7 +133,7 @@ export function SiteHeader({ locale, notificationCount = 0, viewer }: SiteHeader
           {mobileOpen ? <IconX size={24} /> : <IconMenu2 size={24} />}
         </button>
       </header>
-      {pathname !== "/" ? <div className="home-header-search"><SearchAutocomplete locale={locale} placeholder={copy.searchPlaceholder} searchPath="/directory" variant="header" className="home-header-search-field" /></div> : null}
+      {pathname !== "/" && isPublicSitePath(pathname) ? <div className="home-header-search"><SearchAutocomplete locale={locale} placeholder={copy.searchPlaceholder} searchPath="/directory" variant="header" className="home-header-search-field" /></div> : null}
       <MobileNavigationDrawer locale={locale} notificationCount={notificationCount} onClose={closeMobileMenu} open={mobileOpen} viewer={viewer} />
     </>;
   }
@@ -221,14 +221,14 @@ export function SiteHeader({ locale, notificationCount = 0, viewer }: SiteHeader
             ) : viewer?.role !== "BUSINESS_OWNER" ? (
               <LanguageToggle locale={locale} />
             ) : null}
-            <SearchAutocomplete
+            {isPublicSitePath(pathname) ? <SearchAutocomplete
               locale={locale}
               placeholder={copy.searchPlaceholder}
               searchPath="/directory"
               variant="header"
               className={desktopSearchWidthClass}
               inputClassName="text-[var(--color-charcoal)] placeholder:text-[var(--color-muted)]"
-            />
+            /> : null}
             {viewer ? (
               <AccountMenu locale={locale} user={viewer} />
             ) : (

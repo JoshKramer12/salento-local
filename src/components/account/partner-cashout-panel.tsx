@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { IconWallet } from "@tabler/icons-react";
-import { useRouter } from "next/navigation";
+import { IconCheck, IconWallet, IconX } from "@tabler/icons-react";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { cancelCashoutRequest, submitCashoutRequest } from "@/app/(account)/dashboard/earnings/cashout-actions";
 import { formatCurrencyFromCents } from "@/lib/account";
 import type { Locale } from "@/lib/i18n";
 import { cashoutBlockReason } from "@/lib/partner-cashout-presenter";
+import { cashoutSuccessCopy } from "@/lib/partner-cashout-confirmation";
 import type { CashoutHistoryItem, CashoutView } from "@/lib/partner-cashout-view";
 
 const wording = {
@@ -20,11 +21,12 @@ const wording = {
     review: "A previous payout needs review before another request.", debtBlock: "An outstanding refund adjustment must be resolved first.",
     destinationBlock: "Connect your payout account to cash out.", destinationNotReady: "Your payout account needs attention before Cash Out.", pendingBlock: "Your earnings are still pending.",
     minimumBlock: "You need at least €50 to cash out.", noFunds: "No eligible funds are available yet.", payoutAccount: "Stripe Connect payout account", connected: "Bank account ending in", notConnected: "Setup incomplete",
-    manage: "Manage payout account", reviewTitle: "Cash out earnings", reviewIntro: "Review your withdrawal details before submitting your request.",
+    manage: "Manage payout account", setupTitle: "Set up your payout account", setupIntro: "Before you can Cash Out your earnings, you'll need to connect a payout account so we know where to send your money.", setupAction: "Set up payout account", setupLater: "Set up later", setupIncomplete: "Finish or update your Stripe Connect setup before withdrawing.", reviewTitle: "Cash out earnings", reviewIntro: "Review your withdrawal details before submitting your request.",
     amount: "Full available amount", destination: "Payout destination", minimum: "Minimum", fees: "The final bank deposit may vary if provider or bank fees apply.",
     processing: "Your withdrawal will be submitted for processing. Funds may take additional time to arrive.",
     confirm: "Confirm Cash Out Request", cancel: "Cancel", submitting: "Submitting…", stale: "Your available balance changed. Review the updated amount, then confirm again.",
-    reviewUpdated: "Review updated amount", network: "We could not confirm the result. Retry using the same request reference.",
+    reviewUpdated: "Review updated amount", network: "We could not confirm the result. Check withdrawal history before trying again.",
+    uncertain: "The withdrawal outcome needs review. Check withdrawal history before trying again.",
     unavailable: "Cash Out is currently unavailable. Refresh to see the latest status.", success: "Your cash out request has been received.", requestReference: "Request reference",
     currentStatus: "Current status", viewHistory: "View withdrawal history", close: "Close", history: "Withdrawal history", empty: "No withdrawal requests yet.",
     requested: "Requested", processingStatus: "Processing", paidStatus: "Paid", canceled: "Canceled", actionRequired: "Action required", failed: "Failed",
@@ -43,11 +45,12 @@ const wording = {
     review: "Un pagamento precedente richiede una verifica prima di una nuova richiesta.", debtBlock: "Prima è necessario risolvere una rettifica per rimborso in sospeso.",
     destinationBlock: "Collega un conto Stripe per ricevere i pagamenti.", destinationNotReady: "Il conto collegato richiede attenzione prima del prelievo.", pendingBlock: "Le tue commissioni sono ancora nel periodo di attesa o in verifica.",
     minimumBlock: "Servono almeno €50 per richiedere il pagamento.", noFunds: "Non ci sono ancora fondi idonei disponibili.", payoutAccount: "Conto pagamenti Stripe Connect", connected: "Conto bancario che termina con", notConnected: "Configurazione incompleta",
-    manage: "Gestisci il conto per i pagamenti", reviewTitle: "Preleva i guadagni", reviewIntro: "Controlla i dettagli prima di inviare la richiesta.",
+    manage: "Gestisci il conto per i pagamenti", setupTitle: "Configura il tuo conto per i pagamenti", setupIntro: "Prima di poter prelevare i tuoi guadagni, devi collegare un conto per ricevere i pagamenti.", setupAction: "Configura il conto", setupLater: "Configura più tardi", setupIncomplete: "Completa o aggiorna la configurazione Stripe Connect prima del prelievo.", reviewTitle: "Preleva i guadagni", reviewIntro: "Controlla i dettagli prima di inviare la richiesta.",
     amount: "Intero importo disponibile", destination: "Destinazione del pagamento", minimum: "Minimo", fees: "L'importo accreditato in banca potrebbe variare in caso di commissioni del gestore o della banca.",
     processing: "La richiesta sarà inviata per l’elaborazione. L’accredito sul conto potrebbe richiedere altro tempo.",
     confirm: "Conferma richiesta di pagamento", cancel: "Annulla", submitting: "Invio in corso…", stale: "Il saldo disponibile è cambiato. Controlla il nuovo importo e conferma di nuovo.",
-    reviewUpdated: "Controlla il nuovo importo", network: "Non siamo riusciti a confermare l'esito. Riprova con lo stesso riferimento della richiesta.",
+    reviewUpdated: "Controlla il nuovo importo", network: "Non siamo riusciti a confermare l'esito. Controlla lo storico dei prelievi prima di riprovare.",
+    uncertain: "L'esito del prelievo richiede una verifica. Controlla lo storico prima di riprovare.",
     unavailable: "La richiesta di pagamento non è disponibile. Aggiorna la pagina per vedere lo stato attuale.", success: "La tua richiesta di prelievo è stata ricevuta.", requestReference: "Riferimento richiesta",
     currentStatus: "Stato attuale", viewHistory: "Vedi lo storico dei pagamenti richiesti", close: "Chiudi", history: "Storico dei pagamenti richiesti", empty: "Non hai ancora richieste di pagamento.",
     requested: "Richiesto", processingStatus: "In elaborazione", paidStatus: "Pagato", canceled: "Annullato", actionRequired: "Azione richiesta", failed: "Non riuscito",
@@ -79,13 +82,20 @@ export function PartnerCashoutPanel({ view, locale, compact = false, preview = f
   setupState?: "action-required" | "ready" | "restricted" | "setup-incomplete" | "setup-not-started"; showDiagnostics?: boolean;
 }) {
   const t = wording[locale];
+  const simulated = preview;
+  const providerLabel = simulated
+    ? (locale === "it" ? "Destinazione simulata" : "Simulated payout destination")
+    : "Stripe Connect";
   const router = useRouter();
-  const [dialog, setDialog] = useState<"review" | "success" | null>(null);
+  const pathname = usePathname();
+  const [dialog, setDialog] = useState<"setup" | "review" | "success" | null>(null);
   const [reviewedAmount, setReviewedAmount] = useState(view.availableCents);
   const [stale, setStale] = useState(false);
+  const [uncertain, setUncertain] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [success, setSuccess] = useState<{ id: string; amountCents: number; status: string; destinationLast4: string | null } | null>(null);
+  const successCopy = success ? cashoutSuccessCopy(success.amountCents, success.status, locale, simulated) : null;
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [previewCanceledIds, setPreviewCanceledIds] = useState<string[]>([]);
   const submitLock = useRef(false);
@@ -126,17 +136,26 @@ export function PartnerCashoutPanel({ view, locale, compact = false, preview = f
   }, [dialog, busy]);
 
   function openReview() {
-    if (blocker) return;
+    if (blocker && blocker !== "destination") return;
     returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (blocker === "destination") {
+      setDialog("setup");
+      return;
+    }
     setReviewedAmount(view.availableCents);
-    setStale(false); setMessage("");
+    setStale(false); setUncertain(false); setMessage("");
     keyRef.current ??= sessionStorage.getItem("partner-cashout-request-key") || crypto.randomUUID();
     sessionStorage.setItem("partner-cashout-request-key", keyRef.current);
     setDialog("review");
   }
 
+  function setUpLater() {
+    setDialog(null);
+    if (pathname !== "/dashboard") router.push("/dashboard");
+  }
+
   async function confirmRequest() {
-    if (submitLock.current || busy || reviewedAmount < view.minimumCents) return;
+    if (submitLock.current || busy || uncertain || reviewedAmount < view.minimumCents) return;
     if (stale) { setStale(false); setMessage(""); return; }
     submitLock.current = true; setBusy(true); setMessage("");
     try {
@@ -147,6 +166,9 @@ export function PartnerCashoutPanel({ view, locale, compact = false, preview = f
         setSuccess(result); setDialog("success");
         keyRef.current = null; sessionStorage.removeItem("partner-cashout-request-key");
         if (!preview) router.refresh();
+      } else if (result.kind === "uncertain") {
+        setUncertain(true); setMessage(t.uncertain);
+        if (!preview) router.refresh();
       } else if (result.kind === "changed") {
         if (result.newKey) {
           keyRef.current = crypto.randomUUID();
@@ -154,8 +176,11 @@ export function PartnerCashoutPanel({ view, locale, compact = false, preview = f
         }
         setReviewedAmount(result.availableCents); setStale(true); setMessage(t.stale);
         if (!preview) router.refresh();
-      } else setMessage(result.kind === "error" ? t.network : t.unavailable);
-    } catch { setMessage(t.network); }
+      } else {
+        setMessage(result.kind === "error" ? t.network : t.unavailable);
+        if (result.kind === "error") setUncertain(true);
+      }
+    } catch { setUncertain(true); setMessage(t.network); }
     finally { submitLock.current = false; setBusy(false); }
   }
 
@@ -176,24 +201,41 @@ export function PartnerCashoutPanel({ view, locale, compact = false, preview = f
   const history = view.history.map((item) => previewCanceledIds.includes(item.id)
     ? { ...item, status: "CANCELED", canCancel: false } : item);
   const visibleHistory = compact ? history.slice(0, 3) : history;
-  const dialogContent = dialog ? <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 p-0 sm:items-center sm:p-5" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setDialog(null); }}>
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="cashout-dialog-title" tabIndex={-1} className="max-h-[92dvh] w-full overflow-y-auto rounded-t-3xl bg-white p-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-2xl outline-none sm:max-w-lg sm:rounded-3xl sm:p-7">
-        <h2 id="cashout-dialog-title" className="font-serif text-3xl text-[var(--foreground)]">{dialog === "success" ? t.success : t.reviewTitle}</h2>
-        {dialog === "success" && success ? <div className="mt-5 space-y-3 text-sm"><p className="text-3xl font-semibold text-[var(--primary)]">{formatCurrencyFromCents(success.amountCents, locale)}</p><p>{t.requestReference}: <span className="break-all font-mono">{success.id}</span></p><p>{t.currentStatus}: {statusLabel(success.status, locale)}</p><p>Stripe Connect{success.destinationLast4 ? ` · •••• ${success.destinationLast4}` : ""}</p><div className="flex flex-wrap gap-3 pt-3"><Link href="/dashboard/earnings#cashout-history" className="btn-primary min-h-12" onClick={() => setDialog(null)}>{t.viewHistory}</Link><button type="button" className="btn-secondary min-h-12" onClick={() => setDialog(null)}>{t.close}</button></div></div> : <div className="mt-4 space-y-4 text-sm">
+  const dialogContent = dialog === "setup" ? <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 p-0 sm:items-center sm:p-5" onMouseDown={(event) => { if (event.target === event.currentTarget) setDialog(null); }}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="cashout-setup-title" aria-describedby="cashout-setup-description" tabIndex={-1} className="max-h-[92dvh] w-full overflow-y-auto rounded-t-3xl bg-white p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-2xl outline-none sm:max-w-lg sm:rounded-3xl sm:p-8">
+        <div className="flex items-start justify-between gap-4"><h2 id="cashout-setup-title" className="font-serif text-3xl text-[var(--foreground)]">{t.setupTitle}</h2><button type="button" onClick={() => setDialog(null)} aria-label={t.close} className="flex min-h-11 min-w-11 items-center justify-center rounded-full hover:bg-[var(--secondary)]"><IconX aria-hidden="true" size={22} /></button></div>
+        <p id="cashout-setup-description" className="mt-4 text-sm leading-7 text-[var(--muted)]">{t.setupIntro}</p>
+        {setupState && setupState !== "setup-not-started" ? <p className="mt-3 text-sm leading-6 text-[var(--muted)]">{t.setupIncomplete}</p> : null}
+        <div className="mt-7 flex flex-col gap-3 sm:flex-row-reverse"><Link href={`/partner/payout/stripe?returnTo=${encodeURIComponent("/dashboard")}`} className="btn-primary min-h-12 flex-1 justify-center text-center" onClick={() => setDialog(null)}>{t.setupAction}</Link><button type="button" className="btn-secondary min-h-12 flex-1" onClick={setUpLater}>{t.setupLater}</button></div>
+      </div>
+    </div> : dialog === "review" ? <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 p-0 sm:items-center sm:p-5" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setDialog(null); }}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="cashout-review-title" tabIndex={-1} className="max-h-[92dvh] w-full overflow-y-auto rounded-t-3xl bg-white p-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-2xl outline-none sm:max-w-lg sm:rounded-3xl sm:p-7">
+        <h2 id="cashout-review-title" className="font-serif text-3xl text-[var(--foreground)]">{t.reviewTitle}</h2>
+        <div className="mt-4 space-y-4 text-sm">
           <p className="text-[var(--muted)]">{t.reviewIntro}</p>
           <div className="rounded-2xl bg-[color:rgba(247,244,239,0.72)] p-4"><p className="text-xs text-[var(--muted)]">{t.available}: {formatCurrencyFromCents(view.availableCents, locale)}</p><p className="mt-2 text-xs text-[var(--muted)]">{t.amount}</p><p className="mt-1 break-words font-serif text-4xl text-[var(--primary)]">{formatCurrencyFromCents(reviewedAmount, locale)}</p></div>
-          <div><p className="font-semibold">{t.destination}</p><p className="mt-1 text-[var(--muted)]">Stripe Connect{view.bankName ? ` · ${view.bankName}` : ""}{view.destinationLast4 ? ` · ${t.connected} •••• ${view.destinationLast4}` : ""}</p></div>
-          <p>{t.minimum}: {formatCurrencyFromCents(view.minimumCents, locale)}</p><p className="leading-6 text-[var(--muted)]">{t.fees}</p><p className="leading-6 text-[var(--muted)]">{t.processing}</p>
-          {message ? <p role="alert" className="rounded-xl bg-amber-50 p-3 text-amber-950">{message}</p> : null}
-          <div className="flex flex-col gap-3 pt-2 sm:flex-row-reverse"><button type="button" className="btn-primary min-h-12 w-full disabled:opacity-50" disabled={busy || reviewedAmount < view.minimumCents} onClick={() => void confirmRequest()}>{busy ? t.submitting : stale ? t.reviewUpdated : t.confirm}</button><button type="button" className="btn-secondary min-h-12 w-full" disabled={busy} onClick={() => setDialog(null)}>{t.cancel}</button></div>
-        </div>}
+          <div><p className="font-semibold">{t.destination}</p><p className="mt-1 text-[var(--muted)]">{providerLabel}{view.bankName ? ` · ${view.bankName}` : ""}{view.destinationLast4 ? ` · ${t.connected} •••• ${view.destinationLast4}` : ""}</p></div>
+          <p>{t.minimum}: {formatCurrencyFromCents(view.minimumCents, locale)}</p>{simulated ? <p className="rounded-xl bg-amber-50 p-3 font-semibold text-amber-950">{locale === "it" ? "Solo test: nessun denaro o conto bancario reale è coinvolto." : "Test only: no real money or bank account is involved."}</p> : <><p className="leading-6 text-[var(--muted)]">{t.fees}</p><p className="leading-6 text-[var(--muted)]">{t.processing}</p></>}
+          {message ? <div role="alert" className="rounded-xl bg-amber-50 p-3 text-amber-950"><p>{message}</p>{!stale ? <Link href="/dashboard/earnings#cashout-history" className="mt-2 inline-block font-semibold text-[var(--primary)] underline" onClick={() => setDialog(null)}>{t.viewHistory}</Link> : null}</div> : null}
+          <div className="flex flex-col gap-3 pt-2 sm:flex-row-reverse"><button type="button" className="btn-primary min-h-12 w-full disabled:opacity-50" disabled={busy || uncertain || reviewedAmount < view.minimumCents} onClick={() => void confirmRequest()}>{busy ? t.submitting : stale ? t.reviewUpdated : t.confirm}</button><button type="button" className="btn-secondary min-h-12 w-full" disabled={busy} onClick={() => setDialog(null)}>{t.cancel}</button></div>
+        </div>
+      </div>
+    </div> : dialog === "success" && success && successCopy ? <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 p-0 sm:items-center sm:p-5" onMouseDown={(event) => { if (event.target === event.currentTarget) setDialog(null); }}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="cashout-success-title" tabIndex={-1} className="max-h-[92dvh] w-full overflow-y-auto rounded-t-3xl bg-white p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-2xl outline-none sm:max-w-md sm:rounded-3xl sm:p-8">
+        <span className="mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-[color:rgba(39,124,92,0.12)] text-[#1f6c51]" aria-hidden="true"><IconCheck size={30} stroke={3} /></span>
+        <h2 id="cashout-success-title" className="font-serif text-3xl leading-tight text-[var(--foreground)]">{successCopy.title}</h2>
+        <p className="mt-4 text-base font-semibold leading-7 text-[var(--foreground)]">{successCopy.description}</p>
+        <p className="mt-3 text-sm leading-6 text-[var(--muted)]">{successCopy.explanation}</p>
+        <div className="mt-5 rounded-2xl bg-[color:rgba(247,244,239,0.72)] p-4 text-sm"><p>{t.currentStatus}: <span className="font-semibold">{statusLabel(success.status, locale)}</span></p><p className="mt-2 break-all">{t.requestReference}: <span className="font-mono">{success.id}</span></p></div>
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row"><Link href={`/dashboard/earnings#withdrawal-${encodeURIComponent(success.id)}`} className="btn-primary min-h-12 flex-1 text-center" onClick={() => setDialog(null)}>{successCopy.view}</Link><button type="button" className="btn-secondary min-h-12 flex-1" onClick={() => setDialog(null)}>{successCopy.back}</button></div>
       </div>
     </div> : null;
   if (triggerOnly) return <>
-    <button type="button" className={triggerClassName} disabled={Boolean(blocker)} onClick={openReview}><IconWallet aria-hidden="true" size={22} />{t.cashout}</button>
+    <button type="button" className={triggerClassName} disabled={Boolean(blocker && blocker !== "destination")} onClick={openReview}><IconWallet aria-hidden="true" size={22} />{t.cashout}</button>
     {dialogContent}
   </>;
   return <section className="min-w-0 space-y-5" aria-label={t.title}>
+    {simulated ? <p className="rounded-xl border border-amber-300 bg-amber-50 p-4 font-semibold text-amber-950" role="status">{locale === "it" ? "TEST SIMULATO — Commissioni e destinazione sintetiche. Nessun trasferimento o accredito bancario reale." : "SIMULATED TEST — Synthetic commissions and payout destination. No real transfer or bank deposit."}</p> : null}
     <div className="card overflow-hidden p-5 sm:p-7" id="cashout-request">
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0 flex-1">
@@ -203,7 +245,7 @@ export function PartnerCashoutPanel({ view, locale, compact = false, preview = f
           <p className="mt-3 text-sm text-[var(--muted)]">{t.minimum}: {formatCurrencyFromCents(view.minimumCents, locale)}</p>
         </div>
         <div className="flex w-full flex-col gap-3 lg:w-auto lg:max-w-xs">
-          <button type="button" className="btn-primary min-h-12 w-full px-6 disabled:cursor-not-allowed disabled:opacity-50" disabled={Boolean(blocker)} onClick={openReview}>{t.cashout}</button>
+          <button type="button" className="btn-primary min-h-12 w-full px-6 disabled:cursor-not-allowed disabled:opacity-50" disabled={Boolean(blocker && blocker !== "destination")} onClick={openReview}>{t.cashout}</button>
           {blockMessage ? <p className="text-sm leading-6 text-[var(--muted)]" role="status">{blockMessage}</p> : null}
         </div>
       </div>
@@ -211,25 +253,25 @@ export function PartnerCashoutPanel({ view, locale, compact = false, preview = f
         {[[t.gross, view.grossEarnedCents], [t.pending, view.pendingCents], [t.reserved, view.reservedCents], [t.paid, view.paidCents]].map(([label, amount]) =>
           <div key={label} className="min-w-0 rounded-2xl bg-[color:rgba(247,244,239,0.72)] p-3 sm:p-4"><p className="text-xs leading-5 text-[var(--muted)]">{label}</p><p className="mt-2 break-words text-lg font-semibold text-[var(--foreground)] sm:text-xl">{formatCurrencyFromCents(Number(amount), locale)}</p></div>)}
       </div>
-      <p className="mt-3 text-xs leading-5 text-[var(--muted)]">{t.grossNote}</p>
+      <p className="mt-3 text-xs leading-5 text-[var(--muted)]">{simulated ? (locale === "it" ? "Solo commissioni test sintetiche; non sono guadagni reali." : "Synthetic test commissions only; these are not real earnings.") : t.grossNote}</p>
       {view.pendingCents === 0 ? <p className="mt-2 text-xs leading-5 text-[var(--muted)]">{t.noPending}</p> : null}
       {view.debtCents > 0 ? <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-950"><p className="font-semibold">{t.debt}: {formatCurrencyFromCents(view.debtCents, locale)}</p><p className="mt-2 text-sm leading-6">{t.debtBody}</p></div> : null}
       {showDiagnostics ? <p className="mt-5 text-xs leading-5 text-[var(--muted)]">{t.excluded}: {t.test} {formatCurrencyFromCents(view.testCents, locale)} · {t.unverified} {formatCurrencyFromCents(view.unverifiedCents, locale)}</p> : null}
     </div>
 
     <div className="card p-5 sm:p-7">
-      <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-serif text-2xl text-[var(--foreground)]">{t.payoutAccount}</h2><p className="mt-2 font-semibold text-[var(--foreground)]">{account[0]}</p><p className="mt-1 text-sm text-[var(--muted)]">{account[1]}</p>{view.destinationReady && view.destinationLast4 ? <p className="mt-1 text-sm text-[var(--muted)]">{view.bankName ? `${view.bankName} · ` : ""}{t.connected} •••• {view.destinationLast4}</p> : null}</div><Link href="/partner/payout" className="text-sm font-semibold text-[var(--primary)] underline-offset-4 hover:underline">{t.manage}</Link></div>
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-serif text-2xl text-[var(--foreground)]">{simulated ? providerLabel : t.payoutAccount}</h2><p className="mt-2 font-semibold text-[var(--foreground)]">{simulated ? (locale === "it" ? "Pronta per il test" : "Ready for testing") : account[0]}</p><p className="mt-1 text-sm text-[var(--muted)]">{simulated ? (locale === "it" ? "Configurazione simulata; nessun conto bancario collegato." : "Simulated setup; no bank account is connected.") : account[1]}</p>{view.destinationReady && view.destinationLast4 ? <p className="mt-1 text-sm text-[var(--muted)]">{view.bankName ? `${view.bankName} · ` : ""}{t.connected} •••• {view.destinationLast4}</p> : null}</div>{!simulated ? <Link href="/partner/payout" className="text-sm font-semibold text-[var(--primary)] underline-offset-4 hover:underline">{t.manage}</Link> : null}</div>
     </div>
 
     <div className="card p-5 sm:p-7" id="cashout-history">
       <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="font-serif text-2xl text-[var(--foreground)]">{t.history}</h2>{compact ? <Link href="/dashboard/earnings#cashout-history" className="text-sm font-semibold text-[var(--primary)] hover:underline">{t.seeAll}</Link> : null}</div>
       {message && !dialog ? <p className="mt-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-950" role="alert">{message}</p> : null}
       {visibleHistory.length ? <div className="mt-5 space-y-3">{visibleHistory.map((item) =>
-        <article key={item.id} className="min-w-0 rounded-2xl border border-[var(--border)] p-4">
+        <article key={item.id} id={`withdrawal-${item.id}`} className="min-w-0 scroll-mt-24 rounded-2xl border border-[var(--border)] p-4">
           <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-semibold text-[var(--foreground)]">{formatCurrencyFromCents(item.amountCents, locale)}</p><p className="mt-1 text-xs text-[var(--muted)]">{t.requestDate}: {date(item.requestedAt, locale)}</p></div><span className="max-w-full rounded-full bg-[color:rgba(39,124,92,0.12)] px-3 py-1 text-xs font-semibold text-[#1f6c51] break-words">{statusLabel(item.status, locale)}</span></div>
-          <p className="mt-2 text-sm text-[var(--muted)]">Stripe Connect{item.destinationLast4 ? ` · •••• ${item.destinationLast4}` : ""}</p>
+          <p className="mt-2 text-sm text-[var(--muted)]">{providerLabel}{item.destinationLast4 ? ` · •••• ${item.destinationLast4}` : ""}</p>
           {item.status === "PAID" && item.completedAt ? <p className="mt-1 text-xs text-[var(--muted)]">{t.completionDate}: {date(item.completedAt, locale)}</p> : null}
-          {item.status === "OUTCOME_UNKNOWN" ? <p className="mt-2 text-xs text-[var(--muted)]">{t.payoutPending}</p> : item.status === "ACTION_REQUIRED" ? <p className="mt-2 text-xs text-[var(--muted)]">{t.payoutAction}</p> : item.status === "PAID" ? <p className="mt-2 text-xs text-[var(--muted)]">{t.payoutPaid}</p> : ["FAILED_CONFIRMED", "INVALIDATED"].includes(item.status) ? <p className="mt-2 text-xs text-[var(--muted)]">{t.payoutFailed}</p> : null}
+          {item.status === "OUTCOME_UNKNOWN" ? <p className="mt-2 text-xs text-[var(--muted)]">{t.payoutPending}</p> : item.status === "ACTION_REQUIRED" ? <p className="mt-2 text-xs text-[var(--muted)]">{t.payoutAction}</p> : item.status === "PAID" ? <p className="mt-2 text-xs text-[var(--muted)]">{simulated ? (locale === "it" ? "Simulazione completata. Nessun accredito bancario." : "Simulation completed. No bank deposit.") : t.payoutPaid}</p> : ["FAILED_CONFIRMED", "INVALIDATED"].includes(item.status) ? <p className="mt-2 text-xs text-[var(--muted)]">{t.payoutFailed}</p> : null}
           {item.canCancel ? <button type="button" className="mt-3 min-h-11 text-sm font-semibold text-[var(--primary)] underline-offset-4 hover:underline disabled:opacity-50" disabled={Boolean(cancellingId)} onClick={() => void cancelRequest(item)}>{t.cancelRequest}</button> : null}
         </article>)}
       </div> : <p className="mt-5 text-sm text-[var(--muted)]">{t.empty}</p>}
