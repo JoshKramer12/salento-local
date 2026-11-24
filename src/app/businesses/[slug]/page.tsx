@@ -33,6 +33,7 @@ import {
   buildTownImage,
   getCategoryLabel,
 } from "@/lib/site";
+import { normalizePhoneNumber } from "@/lib/validation";
 
 type BusinessPageProps = {
   params: Promise<{ slug: string }>;
@@ -313,6 +314,9 @@ export default async function BusinessPage({ params }: BusinessPageProps) {
     ownerUserId: business.ownerUserId,
   }) ? null : `/claim?business=${encodeURIComponent(business.slug)}`;
   const businessWebsiteLabel = getWebsiteDisplayLabel(business.website);
+  const storedWhatsapp = business.socialLinks && typeof business.socialLinks === "object" && !Array.isArray(business.socialLinks)
+    ? (business.socialLinks as Record<string, unknown>).whatsapp : null;
+  const businessWhatsapp = typeof storedWhatsapp === "string" ? normalizePhoneNumber(storedWhatsapp) : null;
   const socialLinks = (() => {
     if (!business.socialLinks || typeof business.socialLinks !== "object" || Array.isArray(business.socialLinks)) {
       return [];
@@ -422,7 +426,7 @@ export default async function BusinessPage({ params }: BusinessPageProps) {
 
         {hasDistinctAbout ? <section className="rounded-[1.7rem] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[0_10px_26px_rgba(66,51,31,0.05)] sm:p-6"><h2 className="font-serif text-3xl text-[var(--foreground)]">{copy.about}</h2><p className="mt-3 text-[0.98rem] leading-7 text-[var(--muted-strong)]">{aboutDescription}</p></section> : null}
         <BusinessOpeningHours locale={locale} openingHoursText={business.openingHoursText} schedule={schedule} />
-        <BusinessContactCard address={business.address} addressHref={addressSearchUrl} callHref={business.phone ? `tel:${business.phone}` : null} directionsHref={directionsUrl} email={business.email} locale={locale} phone={business.phone} socialLinks={socialLinks} townLine={townLine} websiteHref={businessWebsite} websiteLabel={businessWebsiteLabel} />
+        <BusinessContactCard address={business.address} addressHref={addressSearchUrl} callHref={business.phone ? `tel:${business.phone}` : null} directionsHref={directionsUrl} email={business.email} locale={locale} phone={business.phone} whatsapp={businessWhatsapp} socialLinks={socialLinks} townLine={townLine} websiteHref={businessWebsite} websiteLabel={businessWebsiteLabel} />
         <BusinessReviews locale={locale} rating={business.rating} reviewCount={business.reviewCount} reviews={business.reviews.map((review) => ({ ...review, createdAt: new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-GB", { dateStyle: "medium" }).format(review.createdAt) }))} />
         <ReviewComposer businessId={business.id} businessName={business.name} locale={locale} />
       </div>

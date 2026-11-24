@@ -22,7 +22,7 @@ type EditBusinessPageProps = {
 
 const editSteps = new Set(["business", "contact", "owner", "about", "hours", "photos"]);
 
-function getSocialLink(value: unknown, key: "facebook" | "instagram") {
+function getSocialLink(value: unknown, key: "facebook" | "instagram" | "whatsapp") {
   if (!value || typeof value !== "object" || Array.isArray(value)) return "";
 
   const candidate = (value as Record<string, unknown>)[key];
@@ -215,7 +215,7 @@ export default async function EditBusinessPage({ params, searchParams }: EditBus
           signerRoleOther: latestSubmission?.signerRoleOther ?? "",
           townId: business.townId,
           website: business.website ?? "",
-          whatsapp: latestSubmission?.whatsapp ?? business.phone ?? "",
+          whatsapp: getSocialLink(business.socialLinks, "whatsapp"),
         }}
         towns={towns}
       />

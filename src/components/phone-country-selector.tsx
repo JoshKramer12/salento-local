@@ -8,6 +8,7 @@ import type { PhoneCountryOption } from "@/lib/phone-country-options";
 type PhoneCountrySelectorProps = {
   "aria-label": string;
   "aria-invalid"?: boolean;
+  disabled?: boolean;
   onChange: (country: CountryCode) => void;
   options: PhoneCountryOption[];
   value: CountryCode;
@@ -16,6 +17,7 @@ type PhoneCountrySelectorProps = {
 export function PhoneCountrySelector({
   "aria-invalid": ariaInvalid = false,
   "aria-label": ariaLabel,
+  disabled = false,
   onChange,
   options,
   value,
@@ -25,9 +27,10 @@ export function PhoneCountrySelector({
   return (
     <div className="relative min-w-0">
       <select
+        disabled={disabled}
         value={value}
         onChange={(event) => onChange(event.target.value as CountryCode)}
-        className="peer absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+        className="peer absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 disabled:cursor-default"
         aria-label={ariaLabel}
         aria-invalid={ariaInvalid}
       >
@@ -39,7 +42,7 @@ export function PhoneCountrySelector({
       </select>
       <div
         aria-hidden="true"
-        className={`input-field flex min-h-[3.2rem] items-center gap-1.5 !py-2 !pl-3 !pr-2 text-sm font-semibold tabular-nums transition peer-focus-visible:border-[rgba(30,111,140,0.45)] peer-focus-visible:shadow-[0_0_0_4px_rgba(30,111,140,0.08)] ${
+        className={`input-field flex min-h-[3.2rem] items-center gap-1.5 !py-2 !pl-3 !pr-2 text-sm font-semibold tabular-nums transition peer-focus-visible:border-[rgba(30,111,140,0.45)] peer-focus-visible:shadow-[0_0_0_4px_rgba(30,111,140,0.08)] ${disabled ? "opacity-60" : ""} ${
           ariaInvalid ? "border-[var(--error)]" : ""
         }`}
       >

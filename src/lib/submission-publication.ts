@@ -12,6 +12,7 @@ import {
 import type { Locale } from "@/lib/i18n";
 import { getSubmissionOwnerUserIdForPublication } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
+import { normalizePhoneNumber } from "@/lib/validation";
 
 function slugify(value: string) {
   return value
@@ -123,11 +124,13 @@ async function buildUniqueBusinessSlug(
 function buildSubmissionSocialLinks(submission: {
   facebook?: string | null;
   instagram?: string | null;
+  whatsapp?: string | null;
 }) {
   return Object.fromEntries(
     [
       ["facebook", normalizeFacebookUrl(submission.facebook ?? "")],
       ["instagram", normalizeInstagramUrl(submission.instagram ?? "")],
+      ["whatsapp", normalizePhoneNumber(submission.whatsapp)],
     ].filter((entry): entry is [string, string] => Boolean(entry[1])),
   );
 }
@@ -183,6 +186,7 @@ export async function publishSubmissionAfterPayment(params: {
       longDescription: true,
       openingHours: true,
       phone: true,
+      whatsapp: true,
       photoUrls: true,
       shortDescription: true,
       town: {

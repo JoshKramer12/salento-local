@@ -114,6 +114,7 @@ import {
   loginSchema,
   localPartnerOnboardingSchema,
   normalizeEmail,
+  normalizePhoneNumber,
   normalizeUsername,
   ownedBusinessProfileSchema,
   signupSchema,
@@ -1328,6 +1329,7 @@ async function saveBusinessSubmission(
     businessEmail: parsed.data.email,
     ownerEmail: parsed.data.ownerEmail,
   });
+  const publicEmail = parsed.data.email?.trim() || "";
 
   const [town, category] = await Promise.all([
     parsed.data.townId
@@ -1442,6 +1444,7 @@ async function saveBusinessSubmission(
         [
           ["facebook", normalizeFacebookUrl(parsed.data.facebook)],
           ["instagram", normalizeInstagramUrl(parsed.data.instagram)],
+          ["whatsapp", normalizePhoneNumber(parsed.data.whatsapp)],
         ].filter((entry): entry is [string, string] => Boolean(entry[1])),
       );
       const mapsUrl =
@@ -1450,7 +1453,6 @@ async function saveBusinessSubmission(
         `${parsed.data.businessName}-${town?.slug ?? "salento"}`,
         existingSubmission.createdBusinessId,
       );
-      const publicEmail = contractualEmail;
       const businessData = {
         address: parsed.data.address,
         categoryId: parsed.data.categoryId,
@@ -1562,7 +1564,7 @@ async function saveBusinessSubmission(
           businessPriceCents: 0,
           categoryId: parsed.data.categoryId,
           commissionCents: 0,
-          contractualEmail: publicEmail || null,
+          contractualEmail: contractualEmail || null,
           createdBusinessId: business.id,
           email: publicEmail,
           facebook: normalizeSubmissionSocialValue(parsed.data.facebook),
@@ -1592,7 +1594,7 @@ async function saveBusinessSubmission(
           status: "PUBLISHED",
           townId: parsed.data.townId,
           website: parsed.data.website,
-          whatsapp: parsed.data.whatsapp?.trim() || parsed.data.phone?.trim() || "",
+          whatsapp: parsed.data.whatsapp?.trim() || "",
         },
       });
 
@@ -1612,6 +1614,7 @@ async function saveBusinessSubmission(
       [
         ["facebook", normalizeFacebookUrl(parsed.data.facebook)],
         ["instagram", normalizeInstagramUrl(parsed.data.instagram)],
+        ["whatsapp", normalizePhoneNumber(parsed.data.whatsapp)],
       ].filter((entry): entry is [string, string] => Boolean(entry[1])),
     );
     const mapsUrl =
@@ -1619,7 +1622,6 @@ async function saveBusinessSubmission(
     const businessSlug = await buildUniqueBusinessSlug(
       `${parsed.data.businessName}-${town.slug}`,
     );
-    const publicEmail = contractualEmail;
     const photoRows = (parsed.data.photoUrls ?? []).map((url, index) => ({
       alt: `${parsed.data.businessName} photo ${index + 1}`,
       sortOrder: index,
@@ -1697,7 +1699,7 @@ async function saveBusinessSubmission(
         businessPriceCents: 0,
         categoryId: parsed.data.categoryId,
         commissionCents: 0,
-        contractualEmail: publicEmail || null,
+        contractualEmail: contractualEmail || null,
         createdBusinessId: business.id,
         email: publicEmail,
         facebook: normalizeSubmissionSocialValue(parsed.data.facebook),
@@ -1728,7 +1730,7 @@ async function saveBusinessSubmission(
         townId: parsed.data.townId,
         userId: viewer.id,
         website: parsed.data.website,
-        whatsapp: parsed.data.whatsapp?.trim() || parsed.data.phone?.trim() || "",
+        whatsapp: parsed.data.whatsapp?.trim() || "",
       },
     });
 
@@ -1743,9 +1745,7 @@ async function saveBusinessSubmission(
   }
 
   const status: SubmissionStatus = wantsPaymentStep ? getStatusAfterSubmit() : "DRAFT";
-  const normalizedWhatsapp =
-    parsed.data.whatsapp?.trim() || parsed.data.phone?.trim() || "";
-  const publicEmail = contractualEmail;
+  const normalizedWhatsapp = parsed.data.whatsapp?.trim() || "";
   const nextPaymentStatus: PaymentStatus =
     wantsPaymentStep
       ? buildPaymentStatusForMethod(parsed.data.paymentMethod)
@@ -1772,7 +1772,7 @@ async function saveBusinessSubmission(
     businessTermsVersion: wantsPaymentStep ? LISTING_OFFER.businessTermsVersion : null,
     businessName: parsed.data.businessName,
     categoryId: parsed.data.categoryId,
-    contractualEmail: publicEmail || null,
+    contractualEmail: contractualEmail || null,
     email: publicEmail,
     facebook: normalizeSubmissionSocialValue(parsed.data.facebook),
     firstYearPriceCentsAtAcceptance: wantsPaymentStep ? LISTING_OFFER.annualPriceCents : null,
@@ -1821,7 +1821,7 @@ async function saveBusinessSubmission(
           submission: {
             amountOwedCents,
             businessName: paymentSubmission.businessName,
-            email: publicEmail,
+            email: contractualEmail,
             id,
             ownerEmail: paymentSubmission.ownerEmail,
             ownerName: paymentSubmission.ownerName,
@@ -2707,8 +2707,8 @@ export async function updateOwnedBusinessProfileAction(
   }
 
   const normalizedOwnerPhone = parsed.data.ownerPhone.trim();
-  const normalizedPublicPhone = parsed.data.phone?.trim() || normalizedOwnerPhone;
-  const normalizedPublicEmail = parsed.data.email ?? parsed.data.ownerEmail ?? "";
+  const normalizedPublicPhone = parsed.data.phone?.trim() || "";
+  const normalizedPublicEmail = parsed.data.email?.trim() || "";
 
   await prisma.$transaction(async (tx) => {
     await tx.business.update({
@@ -2757,7 +2757,6 @@ export async function updateOwnedBusinessProfileAction(
           phone: normalizedPublicPhone,
           shortDescription: parsed.data.shortDescription,
           website: parsed.data.website || "",
-          whatsapp: normalizedPublicPhone,
         },
       });
     }
@@ -2932,6 +2931,8 @@ export async function updateOwnedBusinessWithWizardAction(
     business.socialLinks && typeof business.socialLinks === "object" && !Array.isArray(business.socialLinks)
       ? { ...business.socialLinks }
       : {};
+  const hadPublicWhatsapp = typeof currentSocialLinks.whatsapp === "string" &&
+    Boolean(normalizePhoneNumber(currentSocialLinks.whatsapp));
   const facebook = normalizeFacebookUrl(parsed.data.facebook);
   const instagram = normalizeInstagramUrl(parsed.data.instagram);
 
@@ -2939,6 +2940,9 @@ export async function updateOwnedBusinessWithWizardAction(
   else delete currentSocialLinks.facebook;
   if (instagram) currentSocialLinks.instagram = instagram;
   else delete currentSocialLinks.instagram;
+  const whatsapp = normalizePhoneNumber(parsed.data.whatsapp);
+  if (whatsapp) currentSocialLinks.whatsapp = whatsapp;
+  else delete currentSocialLinks.whatsapp;
 
   const mapsUrl = selectedAddress
     ? buildGoogleMapsSearchUrl(selectedAddress)
@@ -3029,7 +3033,7 @@ export async function updateOwnedBusinessWithWizardAction(
     const latestSubmission = await tx.businessSubmission.findFirst({
       where: { createdBusinessId: business.id },
       orderBy: { createdAt: "desc" },
-      select: { id: true },
+      select: { id: true, whatsapp: true },
     });
 
     if (latestSubmission) {
@@ -3069,7 +3073,7 @@ export async function updateOwnedBusinessWithWizardAction(
           shortDescription: parsed.data.shortDescription,
           townId: town.id,
           website: parsed.data.website,
-          whatsapp: parsed.data.whatsapp,
+          whatsapp: parsed.data.whatsapp || (!hadPublicWhatsapp ? latestSubmission.whatsapp : ""),
         },
       });
     }

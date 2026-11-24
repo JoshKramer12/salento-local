@@ -1,6 +1,7 @@
 import {
   IconBrandFacebook,
   IconBrandInstagram,
+  IconBrandWhatsapp,
   IconExternalLink,
   IconMapPin,
   IconPhone,
@@ -17,6 +18,7 @@ type BusinessContactCardProps = {
   email?: string | null;
   locale?: Locale;
   phone?: string | null;
+  whatsapp?: string | null;
   socialLinks?: Array<{
     href: string;
     label: string;
@@ -35,6 +37,7 @@ export function BusinessContactCard({
   email,
   locale = "it",
   phone,
+  whatsapp,
   socialLinks = [],
   townLine,
   websiteHref,
@@ -49,6 +52,7 @@ export function BusinessContactCard({
           directions: "Indicazioni",
           email: "Email",
           phone: "Telefono",
+          whatsapp: "WhatsApp",
           website: "Sito web",
         }
       : {
@@ -58,6 +62,7 @@ export function BusinessContactCard({
           directions: "Directions",
           email: "Email",
           phone: "Phone",
+          whatsapp: "WhatsApp",
           website: "Website",
         };
 
@@ -96,6 +101,13 @@ export function BusinessContactCard({
             </a>
           </div>
         ) : null}
+
+        {whatsapp ? <div className="flex items-center gap-3">
+          <IconBrandWhatsapp size={17} className="shrink-0 text-[var(--primary)]" aria-hidden="true" />
+          <a href={`https://wa.me/${whatsapp.replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer" className="text-base font-medium text-[var(--foreground)] hover:text-[var(--primary)] hover:underline" aria-label={`${copy.whatsapp}: ${whatsapp}`}>
+            {copy.whatsapp}: {whatsapp}
+          </a>
+        </div> : null}
 
         {email ? (
           <div className="flex min-w-0 items-center gap-3">

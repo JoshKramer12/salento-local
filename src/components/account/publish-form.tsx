@@ -18,11 +18,13 @@ import {
   IconCopy,
   IconCreditCard,
   IconDeviceFloppy,
+  IconLock,
   IconPhoto,
   IconPlus,
   IconSignature,
   IconTrash,
   IconUser,
+  IconWorld,
   IconX,
 } from "@tabler/icons-react";
 import {
@@ -169,7 +171,18 @@ type PhoneParts = {
   number: string;
 };
 
-type LocalDraftSnapshot = SubmissionFormValues & {
+type OwnerWhatsappChoice = "business-whatsapp" | "business-phone" | "different" | null;
+type OwnerEmailChoice = "business-email" | "different" | "none" | null;
+type ContactSelectionDraft = {
+  businessWhatsappSameAsPhone?: boolean;
+  businessWhatsappManual?: string;
+  ownerWhatsappChoice?: OwnerWhatsappChoice;
+  ownerWhatsappManual?: string;
+  ownerEmailChoice?: OwnerEmailChoice;
+  ownerEmailManual?: string;
+};
+
+type LocalDraftSnapshot = SubmissionFormValues & ContactSelectionDraft & {
   id?: string;
   updatedAt?: string;
 };
@@ -756,6 +769,7 @@ export function PublishForm({
   const router = useRouter();
   const isEditMode = Boolean(editMode);
   const isOwnerFlow = role === "BUSINESS_OWNER" && !adminMode;
+  const isPartnerFlow = role === "GETTER" && !adminMode;
   const skipOwnerStep = isOwnerFlow && !isEditMode;
   const initialSubmissionValues = buildSubmissionFormValues(
     skipOwnerStep && ownerContactDefaults ? initializeOwnerContact(submission, ownerContactDefaults) : submission,
@@ -786,8 +800,12 @@ export function PublishForm({
   const [businessWhatsappParts, setBusinessWhatsappParts] = useState<PhoneParts>(() =>
     splitPhoneValue(initialSubmissionValues.whatsapp),
   );
+  const [businessWhatsappSameAsPhone, setBusinessWhatsappSameAsPhone] = useState(false);
   const [ownerContactParts, setOwnerContactParts] = useState<PhoneParts>(() =>
     splitPhoneValue(initialSubmissionValues.ownerPhone),
+  );
+  const [ownerWhatsappChoice, setOwnerWhatsappChoice] = useState<OwnerWhatsappChoice>(
+    initialSubmissionValues.ownerPhone.trim() ? "different" : null,
   );
   const [addressSelectionError, setAddressSelectionError] = useState("");
   const [businessEmail, setBusinessEmail] = useState(initialSubmissionValues.email);
@@ -795,8 +813,13 @@ export function PublishForm({
   const [instagram, setInstagram] = useState(initialSubmissionValues.instagram);
   const [facebook, setFacebook] = useState(initialSubmissionValues.facebook);
   const [ownerName, setOwnerName] = useState(initialSubmissionValues.ownerName);
-  const [ownerEmail, setOwnerEmail] = useState(initialSubmissionValues.ownerEmail);
-  const [ownerHasNoEmail, setOwnerHasNoEmail] = useState(initialSubmissionValues.ownerHasNoEmail);
+  const [ownerEmailManual, setOwnerEmailManual] = useState(initialSubmissionValues.ownerEmail);
+  const [ownerHasNoEmailInput, setOwnerHasNoEmailInput] = useState(initialSubmissionValues.ownerHasNoEmail);
+  const [ownerEmailChoice, setOwnerEmailChoice] = useState<OwnerEmailChoice>(() =>
+    initialSubmissionValues.email.trim()
+      ? initialSubmissionValues.ownerHasNoEmail ? "none" : initialSubmissionValues.ownerEmail.trim() ? "different" : null
+      : null,
+  );
   const [ownerStepAttempted, setOwnerStepAttempted] = useState(false);
   const [agreementAccepted, setAgreementAccepted] = useState(false);
   const [ownerInformationConfirmed, setOwnerInformationConfirmed] = useState(false);
@@ -815,6 +838,13 @@ export function PublishForm({
   });
   const [renewalChosen, setRenewalChosen] = useState(() => typeof window !== "undefined" &&
     ["AUTO", "MANUAL"].includes(new URLSearchParams(window.location.search).get("renewal") ?? ""));
+  const hasBusinessEmail = Boolean(businessEmail.trim());
+  const ownerHasNoEmail = isPartnerFlow && hasBusinessEmail
+    ? ownerEmailChoice === "none" : ownerHasNoEmailInput;
+  const ownerEmail = isPartnerFlow && hasBusinessEmail
+    ? ownerEmailChoice === "business-email" ? businessEmail.trim()
+      : ownerEmailChoice === "different" ? ownerEmailManual : ""
+    : ownerHasNoEmail ? "" : ownerEmailManual;
   const effectiveRenewalPreference = !ownerEmail.trim()
     ? "MANUAL"
     : renewalPreference;
@@ -893,8 +923,26 @@ export function PublishForm({
   );
   const hasFieldError = (field: string) => highlightedFields.has(field);
   const businessPhone = buildPhoneValue(businessPhoneParts);
-  const businessWhatsapp = buildPhoneValue(businessWhatsappParts);
-  const ownerContact = buildPhoneValue(ownerContactParts);
+  const businessWhatsapp = buildPhoneValue(
+    isPartnerFlow && businessWhatsappSameAsPhone ? businessPhoneParts : businessWhatsappParts,
+  );
+  const businessPhoneNumber = parsePhoneNumberFromString(businessPhone);
+  const businessWhatsappNumber = parsePhoneNumberFromString(businessWhatsapp);
+  const sameBusinessContactNumber = Boolean(
+    businessPhoneNumber?.isValid() && businessWhatsappNumber?.isValid() &&
+    businessPhoneNumber?.number === businessWhatsappNumber?.number,
+  );
+  const hasBusinessWhatsapp = Boolean(businessWhatsapp.trim());
+  const availableOwnerWhatsappChoice = !isPartnerFlow ? null
+    : ownerWhatsappChoice === "business-whatsapp" && !hasBusinessWhatsapp ? null
+    : ownerWhatsappChoice === "business-phone" && !businessPhone ? null
+    : ownerWhatsappChoice === "business-phone" && hasBusinessWhatsapp && sameBusinessContactNumber
+      ? "business-whatsapp" : ownerWhatsappChoice;
+  const ownerContact = isPartnerFlow
+    ? availableOwnerWhatsappChoice === "business-whatsapp" ? businessWhatsapp
+      : availableOwnerWhatsappChoice === "business-phone" ? businessPhone
+      : availableOwnerWhatsappChoice === "different" ? buildPhoneValue(ownerContactParts) : ""
+    : buildPhoneValue(ownerContactParts);
   const businessPhoneErrorMessage =
     state.fieldErrors?.phone || getLivePhoneValidationMessage(businessPhone, locale);
   const businessWhatsappErrorMessage =
@@ -1322,7 +1370,50 @@ export function PublishForm({
   } : sharedCopy, [isOwnerFlow, locale, sharedCopy]);
 
   const renderPrivateContactFields = () => (
-    <div className="grid gap-4 sm:grid-cols-2"><label className="field-label self-start"><FieldLabel title={copy.ownerName} required={copy.required} /><input value={ownerName} onChange={(event) => setOwnerName(event.target.value)} className="input-field" /></label><label className="field-label"><FieldLabel title={copy.ownerWhatsapp} required={copy.required} /><div className="grid grid-cols-[7.25rem_minmax(0,1fr)] gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]"><PhoneCountrySelector value={ownerContactParts.country} onChange={(country) => { setOwnerMatchesBusinessWhatsapp(false); setOwnerContactParts({ ...ownerContactParts, country }); }} options={phoneCountryOptions} aria-label={copy.phoneCode} aria-invalid={hasOwnerPhoneError} /><input value={ownerContactParts.number} onChange={(event) => { setOwnerMatchesBusinessWhatsapp(false); setOwnerContactParts({ ...ownerContactParts, number: normalizeEditablePhoneNumberInput(event.target.value) }); }} inputMode="tel" className="input-field" aria-invalid={hasOwnerPhoneError} /></div><FieldError message={ownerPhoneErrorMessage} /><CopyToggle checked={ownerMatchesBusinessWhatsapp} onChange={(checked) => { setOwnerMatchesBusinessWhatsapp(checked); if (checked) setOwnerContactParts(businessPhoneParts); }} label={copy.sameAsBusinessPhone} /></label><label className="field-label sm:col-span-2"><FieldLabel title={copy.ownerEmail} required={ownerHasNoEmail ? undefined : copy.required} /><input type="email" value={ownerEmail} disabled={ownerHasNoEmail} onChange={(event) => setOwnerEmail(event.target.value)} className="input-field disabled:opacity-60" /><CopyToggle checked={ownerHasNoEmail} onChange={(checked) => { setOwnerHasNoEmail(checked); if (checked) { setOwnerEmail(""); setRenewalPreference("MANUAL"); } }} label={copy.noEmail} /></label></div>
+    <div className="grid gap-4 sm:grid-cols-2">
+      <label className="field-label self-start">
+        <FieldLabel title={copy.ownerName} required={copy.required} />
+        <input value={ownerName} onChange={(event) => setOwnerName(event.target.value)} className="input-field" />
+      </label>
+      {isPartnerFlow ? (
+        <fieldset className="field-label">
+          <legend className="font-semibold">{copy.ownerWhatsapp} <span className="text-[var(--muted)]">({copy.required})</span></legend>
+          <div className="mt-3 grid gap-2">
+            {hasBusinessWhatsapp ? <label className="flex items-center gap-2"><input type="radio" name="owner-whatsapp-choice" checked={availableOwnerWhatsappChoice === "business-whatsapp"} onChange={() => setOwnerWhatsappChoice("business-whatsapp")} />{locale === "it" ? "Uguale al WhatsApp dell'attività" : "Same as business WhatsApp"}</label> : null}
+            {!hasBusinessWhatsapp || !sameBusinessContactNumber ? <label className="flex items-center gap-2"><input type="radio" name="owner-whatsapp-choice" checked={availableOwnerWhatsappChoice === "business-phone"} onChange={() => setOwnerWhatsappChoice("business-phone")} />{locale === "it" ? "Uguale al telefono dell'attività" : "Same as business phone"}</label> : null}
+            <label className="flex items-center gap-2"><input type="radio" name="owner-whatsapp-choice" checked={availableOwnerWhatsappChoice === "different"} onChange={() => setOwnerWhatsappChoice("different")} />{locale === "it" ? "Usa un numero diverso" : "Use a different number"}</label>
+          </div>
+          {availableOwnerWhatsappChoice === "business-whatsapp" || availableOwnerWhatsappChoice === "business-phone" ? <p className="mt-3 rounded-xl bg-[var(--secondary)] px-3 py-2 text-sm">{ownerContact}</p> : null}
+          {availableOwnerWhatsappChoice === "different" ? <div className="mt-3 grid grid-cols-[7.25rem_minmax(0,1fr)] gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]">
+            <PhoneCountrySelector value={ownerContactParts.country} onChange={(country) => setOwnerContactParts({ ...ownerContactParts, country })} options={phoneCountryOptions} aria-label={copy.phoneCode} aria-invalid={hasOwnerPhoneError} />
+            <input value={ownerContactParts.number} onChange={(event) => setOwnerContactParts({ ...ownerContactParts, number: normalizeEditablePhoneNumberInput(event.target.value) })} inputMode="tel" className="input-field" aria-label={copy.ownerWhatsapp} aria-invalid={hasOwnerPhoneError} />
+          </div> : null}
+          {ownerWhatsappChoice && !availableOwnerWhatsappChoice ? <p className="mt-2 text-sm text-[var(--muted)]">{locale === "it" ? "Il numero selezionato non è più disponibile. Scegli di nuovo." : "The selected number is no longer available. Choose again."}</p> : null}
+          <FieldError message={ownerPhoneErrorMessage} />
+        </fieldset>
+      ) : <div className="field-label">
+        <FieldLabel title={copy.ownerWhatsapp} required={copy.required} />
+        <div className="grid grid-cols-[7.25rem_minmax(0,1fr)] gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]">
+          <PhoneCountrySelector value={ownerContactParts.country} onChange={(country) => { setOwnerMatchesBusinessWhatsapp(false); setOwnerContactParts({ ...ownerContactParts, country }); }} options={phoneCountryOptions} aria-label={copy.phoneCode} aria-invalid={hasOwnerPhoneError} />
+          <input value={ownerContactParts.number} onChange={(event) => { setOwnerMatchesBusinessWhatsapp(false); setOwnerContactParts({ ...ownerContactParts, number: normalizeEditablePhoneNumberInput(event.target.value) }); }} inputMode="tel" className="input-field" aria-label={copy.ownerWhatsapp} aria-invalid={hasOwnerPhoneError} />
+        </div>
+        <FieldError message={ownerPhoneErrorMessage} />
+        <CopyToggle checked={ownerMatchesBusinessWhatsapp} onChange={(checked) => { setOwnerMatchesBusinessWhatsapp(checked); if (checked) setOwnerContactParts(businessPhoneParts); }} label={copy.sameAsBusinessPhone} />
+      </div>}
+      {isPartnerFlow && hasBusinessEmail ? <fieldset className="field-label sm:col-span-2">
+        <legend className="font-semibold">{copy.ownerEmail}</legend>
+        <div className="mt-3 grid gap-2">
+          <label className="flex items-center gap-2"><input type="radio" name="owner-email-choice" checked={ownerEmailChoice === "business-email"} onChange={() => { setOwnerEmailChoice("business-email"); setOwnerHasNoEmailInput(false); }} />{locale === "it" ? "Uguale all'email dell'attività" : "Same as business email"}</label>
+          <label className="flex items-center gap-2"><input type="radio" name="owner-email-choice" checked={ownerEmailChoice === "different"} onChange={() => { setOwnerEmailChoice("different"); setOwnerHasNoEmailInput(false); }} />{locale === "it" ? "Usa un'email diversa" : "Use a different email"}</label>
+          <label className="flex items-center gap-2"><input type="radio" name="owner-email-choice" checked={ownerEmailChoice === "none"} onChange={() => { setOwnerEmailChoice("none"); setOwnerHasNoEmailInput(true); setRenewalPreference("MANUAL"); }} />{locale === "it" ? "Il titolare non ha un indirizzo email" : "Owner does not have an email"}</label>
+        </div>
+        {ownerEmailChoice === "business-email" ? <p className="mt-3 rounded-xl bg-[var(--secondary)] px-3 py-2 text-sm">{ownerEmail}</p> : null}
+        {ownerEmailChoice === "different" ? <input type="email" value={ownerEmailManual} onChange={(event) => setOwnerEmailManual(event.target.value)} className="input-field mt-3" aria-label={copy.ownerEmail} /> : null}
+      </fieldset> : <div className="field-label sm:col-span-2">
+        <label className="field-label"><FieldLabel title={copy.ownerEmail} required={ownerHasNoEmail ? undefined : copy.required} /><input type="email" value={ownerHasNoEmail ? "" : ownerEmailManual} disabled={ownerHasNoEmail} onChange={(event) => setOwnerEmailManual(event.target.value)} className="input-field disabled:opacity-60" /></label>
+        <CopyToggle checked={ownerHasNoEmail} onChange={(checked) => { setOwnerHasNoEmailInput(checked); if (checked) setRenewalPreference("MANUAL"); }} label={copy.noEmail} />
+      </div>}
+    </div>
   );
 
   function setPreviewUrlForSlot(slot: PhotoSlot, nextUrl: string | null) {
@@ -1354,7 +1445,7 @@ export function PublishForm({
     });
   }
 
-  const restoreSubmission = useEffectEvent((nextSubmission: SubmissionFormValues) => {
+  const restoreSubmission = useEffectEvent((nextSubmission: SubmissionFormValues & ContactSelectionDraft) => {
     const nextOfferItems = parseOfferItems(nextSubmission.longDescription);
     const nextGeneratedSummary = buildShortDescription(nextOfferItems);
     const nextPhotos = parsePhotos(nextSubmission.photoUrls);
@@ -1368,15 +1459,31 @@ export function PublishForm({
     setSelectedAddress(nextSelectedAddress);
     setSelectedTownId(matchedTown?.id ?? nextSubmission.townId);
     setBusinessPhoneParts(splitPhoneValue(nextSubmission.phone));
-    setBusinessWhatsappParts(splitPhoneValue(nextSubmission.whatsapp));
-    setOwnerContactParts(splitPhoneValue(nextSubmission.ownerPhone));
+    setBusinessWhatsappParts(splitPhoneValue(nextSubmission.businessWhatsappManual ?? nextSubmission.whatsapp));
+    setBusinessWhatsappSameAsPhone(nextSubmission.businessWhatsappSameAsPhone === true);
+    setOwnerContactParts(splitPhoneValue(nextSubmission.ownerWhatsappManual ?? nextSubmission.ownerPhone));
+    setOwnerWhatsappChoice(
+      nextSubmission.ownerWhatsappChoice === "business-whatsapp" ||
+      nextSubmission.ownerWhatsappChoice === "business-phone" ||
+      nextSubmission.ownerWhatsappChoice === "different"
+        ? nextSubmission.ownerWhatsappChoice : nextSubmission.ownerPhone.trim() ? "different" : null,
+    );
     setBusinessEmail(nextSubmission.email);
     setWebsite(nextSubmission.website);
     setInstagram(normalizeSubmissionSocialInput(nextSubmission.instagram));
     setFacebook(normalizeSubmissionSocialInput(nextSubmission.facebook));
     setOwnerName(nextSubmission.ownerName);
-    setOwnerEmail(nextSubmission.ownerEmail);
-    setOwnerHasNoEmail(nextSubmission.ownerHasNoEmail);
+    setOwnerEmailManual(nextSubmission.ownerEmailManual ?? nextSubmission.ownerEmail);
+    setOwnerHasNoEmailInput(nextSubmission.ownerHasNoEmail);
+    setOwnerEmailChoice(
+      nextSubmission.ownerEmailChoice === "business-email" ||
+      nextSubmission.ownerEmailChoice === "different" ||
+      nextSubmission.ownerEmailChoice === "none"
+        ? nextSubmission.ownerEmailChoice
+        : nextSubmission.email.trim()
+          ? nextSubmission.ownerHasNoEmail ? "none" : nextSubmission.ownerEmail.trim() ? "different" : null
+          : null,
+    );
     setSignerFullName(nextSubmission.signerFullName);
     setSignerRole(nextSubmission.signerRole);
     setSignerRoleOther(nextSubmission.signerRoleOther);
@@ -1569,6 +1676,8 @@ export function PublishForm({
       agreementSignature: signature,
       businessSummary,
       businessName,
+      businessWhatsappSameAsPhone,
+      businessWhatsappManual: buildPhoneValue(businessWhatsappParts),
       categoryId,
       email: businessEmail,
       facebook,
@@ -1578,9 +1687,13 @@ export function PublishForm({
       longDescription: longDescriptionValue,
       openingHours: openingHoursValue,
       ownerEmail,
+      ownerEmailChoice,
+      ownerEmailManual,
       ownerHasNoEmail,
       ownerName,
       ownerPhone: ownerContact,
+      ownerWhatsappChoice,
+      ownerWhatsappManual: buildPhoneValue(ownerContactParts),
       signerFullName,
       signerRole,
       signerRoleOther,
@@ -1600,6 +1713,8 @@ export function PublishForm({
       businessPhone,
       businessSummary,
       businessWhatsapp,
+      businessWhatsappParts,
+      businessWhatsappSameAsPhone,
       categoryId,
       currentSubmissionId,
       facebook,
@@ -1608,8 +1723,12 @@ export function PublishForm({
       openingHoursValue,
       ownerContact,
       ownerEmail,
+      ownerEmailChoice,
+      ownerEmailManual,
       ownerHasNoEmail,
       ownerName,
+      ownerContactParts,
+      ownerWhatsappChoice,
       signerFullName,
       signerRole,
       signerRoleOther,
@@ -2097,7 +2216,6 @@ export function PublishForm({
   }
 
   const firstSubmission = previousSuccessfulSubmissionCount === 0;
-  const isPartnerFlow = role === "GETTER" && !adminMode;
   const collectionSteps: Array<{ key: WizardStep; label: string }> = [
     { key: "business", label: locale === "it" ? "Attività" : "Business" },
     { key: "contact", label: locale === "it" ? "Contatti" : "Contact" },
@@ -2451,12 +2569,37 @@ export function PublishForm({
         </div> : null}
 
         {wizardStep === "contact" ? <div className="grid gap-5">
-          <div><p className="section-kicker">2. {locale === "it" ? "Contatti pubblici" : "Public contact"}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? (isOwnerFlow ? "Come possono contattarti i clienti?" : "Come possono contattarli i clienti?") : (isOwnerFlow ? "How can customers contact you?" : "How can customers contact them?")}</h1>{firstSubmission ? <p className="mt-3 rounded-2xl bg-[rgba(42,98,87,0.08)] p-4 text-sm text-[var(--foreground)]">{locale === "it" ? (isOwnerFlow ? "Qual è il numero migliore per contattare la tua attività?" : "Chiedi al titolare: Qual e il numero migliore per contattarti?") : (isOwnerFlow ? "What's the best number customers should use to contact your business?" : "Ask the owner: What's the best number customers should use to contact you?")}</p> : null}<p className="mt-3 text-sm text-[var(--muted)]">{locale === "it" ? "Questi dati possono comparire pubblicamente nella scheda." : "These details may appear publicly on the listing."}</p></div>
-          <div className="grid gap-4 sm:grid-cols-2"><label className="field-label"><FieldLabel title={copy.businessPhone} required={copy.required} /><div className="grid grid-cols-[7.25rem_minmax(0,1fr)] gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]"><PhoneCountrySelector value={businessPhoneParts.country} onChange={(country) => setBusinessPhoneParts({ ...businessPhoneParts, country })} options={phoneCountryOptions} aria-label={copy.phoneCode} aria-invalid={hasBusinessPhoneError} /><input value={businessPhoneParts.number} onChange={(event) => setBusinessPhoneParts({ ...businessPhoneParts, number: normalizeEditablePhoneNumberInput(event.target.value) })} inputMode="tel" className="input-field" /></div><FieldError message={businessPhoneErrorMessage} /></label><label className="field-label"><FieldLabel title={copy.whatsapp} optional={copy.optional} /><div className="grid grid-cols-[7.25rem_minmax(0,1fr)] gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]"><PhoneCountrySelector value={businessWhatsappParts.country} onChange={(country) => setBusinessWhatsappParts({ ...businessWhatsappParts, country })} options={phoneCountryOptions} aria-label={copy.phoneCode} aria-invalid={hasBusinessWhatsappError} /><input value={businessWhatsappParts.number} onChange={(event) => setBusinessWhatsappParts({ ...businessWhatsappParts, number: normalizeEditablePhoneNumberInput(event.target.value) })} inputMode="tel" className="input-field" /></div></label><label className="field-label"><FieldLabel title={copy.businessEmail} optional={copy.optional} /><input type="email" value={businessEmail} onChange={(event) => setBusinessEmail(event.target.value)} className="input-field" /></label><label className="field-label"><FieldLabel title="Website" optional={copy.optional} /><input value={website} onChange={(event) => setWebsite(event.target.value)} className="input-field" placeholder="https://" /></label><label className="field-label"><FieldLabel title="Instagram" optional={copy.optional} /><SocialHandleInput hasError={hasFieldError("instagram")} value={instagram} onChange={setInstagram} /></label><label className="field-label"><FieldLabel title="Facebook" optional={copy.optional} /><SocialHandleInput hasError={hasFieldError("facebook")} value={facebook} onChange={setFacebook} /></label></div>
+          <div>
+            <p className="section-kicker">2. {locale === "it" ? "Contatti pubblici" : "Public contact"}</p>
+            <h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{isPartnerFlow ? (locale === "it" ? "Come possono i clienti contattare questa attività?" : "How can customers contact this business?") : locale === "it" ? (isOwnerFlow ? "Come possono contattarti i clienti?" : "Come possono contattarli i clienti?") : (isOwnerFlow ? "How can customers contact you?" : "How can customers contact them?")}</h1>
+            {isPartnerFlow ? <div className="mt-3 flex gap-3 rounded-2xl border border-[rgba(42,98,87,0.2)] bg-[rgba(42,98,87,0.08)] p-4 text-sm leading-6 text-[var(--foreground)]">
+              <IconWorld size={22} className="mt-0.5 shrink-0 text-[var(--primary)]" aria-hidden="true" />
+              <div><strong className="block">{locale === "it" ? "INFORMAZIONI PUBBLICHE" : "PUBLIC INFORMATION"}</strong><span>{locale === "it" ? "I recapiti inseriti qui saranno visibili nella pagina pubblica dell'attività e potranno essere consultati dai clienti." : "The contact details you enter here will appear on the business's public listing and can be seen by customers."}</span></div>
+            </div> : <p className="mt-3 text-sm text-[var(--muted)]">{locale === "it" ? "Questi dati possono comparire pubblicamente nella scheda." : "These details may appear publicly on the listing."}</p>}
+            {firstSubmission ? <p className="mt-3 rounded-2xl bg-[rgba(42,98,87,0.08)] p-4 text-sm text-[var(--foreground)]">{locale === "it" ? (isOwnerFlow ? "Qual è il numero migliore per contattare la tua attività?" : "Chiedi al titolare: Qual è il numero migliore per contattare l'attività?") : (isOwnerFlow ? "What's the best number customers should use to contact your business?" : "Ask the owner: What's the best number customers should use to contact the business?")}</p> : null}
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="field-label"><label htmlFor="business-phone"><FieldLabel title={copy.businessPhone} required={copy.required} /></label><div className="grid grid-cols-[7.25rem_minmax(0,1fr)] gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]"><PhoneCountrySelector value={businessPhoneParts.country} onChange={(country) => setBusinessPhoneParts({ ...businessPhoneParts, country })} options={phoneCountryOptions} aria-label={copy.phoneCode} aria-invalid={hasBusinessPhoneError} /><input id="business-phone" value={businessPhoneParts.number} onChange={(event) => setBusinessPhoneParts({ ...businessPhoneParts, number: normalizeEditablePhoneNumberInput(event.target.value) })} inputMode="tel" className="input-field" aria-invalid={hasBusinessPhoneError} /></div><FieldError message={businessPhoneErrorMessage} /></div>
+            <div className="field-label"><label htmlFor="business-whatsapp"><FieldLabel title={copy.whatsapp} optional={copy.optional} /></label><div className="grid grid-cols-[7.25rem_minmax(0,1fr)] gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]"><PhoneCountrySelector value={businessWhatsappSameAsPhone && isPartnerFlow ? businessPhoneParts.country : businessWhatsappParts.country} onChange={(country) => setBusinessWhatsappParts({ ...businessWhatsappParts, country })} options={phoneCountryOptions} aria-label={copy.phoneCode} aria-invalid={hasBusinessWhatsappError} disabled={isPartnerFlow && businessWhatsappSameAsPhone} /><input id="business-whatsapp" value={businessWhatsappSameAsPhone && isPartnerFlow ? businessPhoneParts.number : businessWhatsappParts.number} onChange={(event) => setBusinessWhatsappParts({ ...businessWhatsappParts, number: normalizeEditablePhoneNumberInput(event.target.value) })} readOnly={isPartnerFlow && businessWhatsappSameAsPhone} inputMode="tel" className="input-field read-only:opacity-60" aria-invalid={hasBusinessWhatsappError} /></div><FieldError message={businessWhatsappErrorMessage} />{isPartnerFlow ? <CopyToggle checked={businessWhatsappSameAsPhone} onChange={setBusinessWhatsappSameAsPhone} label={locale === "it" ? "Uguale al telefono dell'attività" : "Same as business phone"} /> : null}</div>
+            <label className="field-label"><FieldLabel title={copy.businessEmail} optional={copy.optional} /><input type="email" value={businessEmail} onChange={(event) => { const next = event.target.value; if (isPartnerFlow) { if (!businessEmail.trim() && next.trim()) setOwnerEmailChoice(ownerHasNoEmailInput ? "none" : ownerEmailManual.trim() ? "different" : null); if (businessEmail.trim() && !next.trim()) { if (ownerEmailChoice === "business-email" && !ownerEmailManual.trim()) setOwnerEmailManual(businessEmail.trim()); setOwnerEmailChoice(null); } } setBusinessEmail(next); }} className="input-field" /></label>
+            <label className="field-label"><FieldLabel title="Website" optional={copy.optional} /><input value={website} onChange={(event) => setWebsite(event.target.value)} className="input-field" placeholder="https://" /></label>
+            <label className="field-label"><FieldLabel title="Instagram" optional={copy.optional} /><SocialHandleInput hasError={hasFieldError("instagram")} value={instagram} onChange={setInstagram} /></label>
+            <label className="field-label"><FieldLabel title="Facebook" optional={copy.optional} /><SocialHandleInput hasError={hasFieldError("facebook")} value={facebook} onChange={setFacebook} /></label>
+          </div>
           {skipOwnerStep ? <section className="grid gap-4 border-t border-[var(--border)] pt-5"><h2 className="font-serif text-2xl">{locale === "it" ? "I tuoi contatti privati" : "Your private contact information"}</h2><p className="text-sm text-[var(--muted)]">{locale === "it" ? "Controlla i dati del tuo account. Puoi modificarli per questa scheda; restano privati." : "Check your account details. You can edit them for this listing; they stay private."}</p>{renderPrivateContactFields()}</section> : null}
         </div> : null}
 
-        {wizardStep === "owner" ? <div className="grid gap-5"><div><p className="section-kicker">3. {locale === "it" ? "Titolare" : "Owner"}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? (isOwnerFlow ? "I tuoi contatti privati" : "Con chi stai parlando?") : (isOwnerFlow ? "Your private contact information" : "Who are you speaking with?")}</h1><p className="mt-3 rounded-2xl border border-[rgba(42,98,87,0.16)] bg-[rgba(247,244,239,0.7)] p-4 text-sm leading-6 text-[var(--foreground)]"><strong>{locale === "it" ? "Informazioni private." : "Private information."}</strong> {locale === "it" ? "Servono per approvazione e comunicazioni: non compariranno nella scheda pubblica." : "These are used for approval and communication and will not appear on the public listing."}</p></div>{renderPrivateContactFields()}</div> : null}
+        {wizardStep === "owner" ? <div className="grid gap-5">
+          <div>
+            <p className="section-kicker">3. {locale === "it" ? "Titolare" : "Owner"}</p>
+            <h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? (isOwnerFlow ? "I tuoi contatti privati" : "Con chi stai parlando?") : (isOwnerFlow ? "Your private contact information" : "Who are you speaking with?")}</h1>
+            {isPartnerFlow ? <div className="mt-3 flex gap-3 rounded-2xl border border-[rgba(42,98,87,0.2)] bg-[rgba(247,244,239,0.9)] p-4 text-sm leading-6 text-[var(--foreground)]">
+              <IconLock size={22} className="mt-0.5 shrink-0 text-[var(--primary)]" aria-hidden="true" />
+              <div><strong className="block">{locale === "it" ? "INFORMAZIONI PRIVATE DEL TITOLARE" : "PRIVATE OWNER INFORMATION"}</strong><span>{locale === "it" ? "Queste informazioni vengono utilizzate per contattare il titolare, verificarne l'identità e gestire il suo account. Non saranno visibili nella pagina pubblica dell'attività, a meno che gli stessi recapiti non siano stati inseriti anche nel passaggio 2." : "This information is used to contact the owner, verify their identity, and manage their account. It will not appear on the public business listing unless the same contact details were separately provided in Step 2."}</span></div>
+            </div> : <p className="mt-3 rounded-2xl border border-[rgba(42,98,87,0.16)] bg-[rgba(247,244,239,0.7)] p-4 text-sm leading-6 text-[var(--foreground)]"><strong>{locale === "it" ? "Informazioni private." : "Private information."}</strong> {locale === "it" ? "Servono per approvazione e comunicazioni: non compariranno nella scheda pubblica." : "These are used for approval and communication and will not appear on the public listing."}</p>}
+          </div>
+          {renderPrivateContactFields()}
+        </div> : null}
 
         {wizardStep === "about" ? <div className="grid gap-5"><div><p className="section-kicker">{collectionSteps.findIndex((step) => step.key === "about") + 1}. {locale === "it" ? "Descrizione" : "About"}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{locale === "it" ? "Raccontaci dell'attività" : "Tell us about the business"}</h1>{firstSubmission ? <p className="mt-3 rounded-2xl bg-[rgba(42,98,87,0.08)] p-4 text-sm">{locale === "it" ? (isOwnerFlow ? "Cosa vorresti che chi visita il Salento sapesse della tua attività?" : "Chiedi: Cosa vorresti che chi visita il Salento sapesse della tua attività?") : (isOwnerFlow ? "What would you like people visiting Salento to know about your business?" : "Ask: What would you like people visiting Salento to know about your business?")}</p> : null}</div><div className="grid gap-3"><FieldLabel title={copy.sellOrOffer} description={locale === "it" ? "Aggiungi almeno due punti." : "Add at least two points."} required={copy.required} />{offerItems.map((item, index) => <div key={index} className="flex gap-2"><input ref={(node) => { offerInputRefs.current[index] = node; }} value={item} onChange={(event) => updateOfferItem(index, event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addOfferItem(index); } }} className="input-field" placeholder={copy.sellOrOfferPlaceholder} /><button type="button" onClick={() => removeOfferItem(index)} className="btn-secondary px-3" aria-label={copy.removeBullet}><IconTrash size={18} /></button></div>)}<button type="button" onClick={() => addOfferItem()} className="btn-secondary w-fit"><IconPlus size={18} /> {locale === "it" ? "Aggiungi un altro" : "Add another"}</button></div><label className="field-label"><FieldLabel title={copy.businessSummary} optional={copy.optional} /><textarea value={businessSummary} onChange={(event) => setBusinessSummary(event.target.value)} className="input-field min-h-28" placeholder={copy.businessSummaryPlaceholder} /></label></div> : null}
 
@@ -2820,7 +2963,7 @@ export function PublishForm({
           onSave={() => requestDraftSave("manual", true)}
         /> : null}
 
-        {wizardStep === "invite" ? <PayLaterPartnerInvitation submissionId={currentSubmissionId} businessName={businessName} ownerEmail={ownerEmail} ownerPhone={ownerContact} locale={locale} financialPaymentPaused={financialPaymentPaused} onBack={() => { setEmailCorrectionFromInvite(false); moveToWizardStep(inviteOrigin); }} onCorrectEmail={(nextEmail) => { if (nextEmail) { setOwnerEmail(nextEmail); setOwnerHasNoEmail(false); } setEmailCorrectionFromInvite(true); moveToWizardStep("owner"); }} onFixField={(field) => { const step: WizardStep = ["businessName", "categoryId", "townId", "address"].includes(field) ? "business" : field === "phone" ? "contact" : ["ownerName", "ownerPhone", "ownerEmail"].includes(field) ? (skipOwnerStep ? "contact" : "owner") : field === "longDescription" ? "about" : field === "openingHours" ? "hours" : "photos"; setEmailCorrectionFromInvite(step === "owner"); moveToWizardStep(step); }} /> : null}
+        {wizardStep === "invite" ? <PayLaterPartnerInvitation submissionId={currentSubmissionId} businessName={businessName} ownerEmail={ownerEmail} ownerPhone={ownerContact} locale={locale} financialPaymentPaused={financialPaymentPaused} onBack={() => { setEmailCorrectionFromInvite(false); moveToWizardStep(inviteOrigin); }} onCorrectEmail={(nextEmail) => { if (nextEmail) { setOwnerEmailManual(nextEmail); setOwnerEmailChoice("different"); setOwnerHasNoEmailInput(false); } setEmailCorrectionFromInvite(true); moveToWizardStep("owner"); }} onFixField={(field) => { const step: WizardStep = ["businessName", "categoryId", "townId", "address"].includes(field) ? "business" : field === "phone" ? "contact" : ["ownerName", "ownerPhone", "ownerEmail"].includes(field) ? (skipOwnerStep ? "contact" : "owner") : field === "longDescription" ? "about" : field === "openingHours" ? "hours" : "photos"; setEmailCorrectionFromInvite(step === "owner"); moveToWizardStep(step); }} /> : null}
 
         {wizardStep === "owner-review" ? <div className="grid gap-6"><div><p className="section-kicker">{ownerFlowCopy.ownerConfirmation}</p><h1 className="mt-2 font-serif text-3xl text-[var(--foreground)]">{ownerName ? `${locale === "it" ? "Ciao" : "Hi"} ${ownerName.split(" ")[0]}` : locale === "it" ? "Ciao" : "Hi"}</h1><p className="mt-3 max-w-xl text-[var(--muted)]">{ownerFlowCopy.ownerPrepared}</p></div>{renderOwnerConfirmationSummary()}<label className="owner-confirmation-checkbox"><input type="checkbox" checked={ownerInformationConfirmed} onChange={(event) => setOwnerInformationConfirmed(event.target.checked)} className="mt-1 h-5 w-5 shrink-0 accent-[var(--primary)]" /><span>{locale === "it" ? "Confermo che questi dati dell'attività sono corretti." : "I confirm that these business details are correct."}</span></label><button type="button" onClick={() => moveToWizardStep("review")} className="owner-confirmation-help">{locale === "it" ? (isOwnerFlow ? "Qualcosa non va? Modifica i tuoi dati" : "Qualcosa non va? Chiedi al partner di modificare") : (isOwnerFlow ? "Something looks wrong? Edit your details" : "Something looks wrong? Ask the partner to edit")}</button></div> : null}
 
