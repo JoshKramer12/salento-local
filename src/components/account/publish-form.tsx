@@ -65,6 +65,12 @@ import { LISTING_OFFER, LISTING_SIGNER_ROLE_VALUES } from "@/lib/listing-offer";
 import type { PhoneCountryOption } from "@/lib/phone-country-options";
 import { getCategoryLabel } from "@/lib/site";
 import { normalizeSubmissionSocialInput } from "@/lib/business-links";
+import {
+  resolvePartnerEmailContact,
+  resolvePartnerPhoneContacts,
+  type OwnerEmailChoice,
+  type OwnerWhatsappChoice,
+} from "@/lib/contact-information";
 import { formatIncompleteHoursMessage, getIncompleteHoursDays } from "@/lib/opening-hours-feedback";
 import { copyHoursToDays, countConfiguredDestinations, isCompleteCopySource } from "@/lib/opening-hours-copy";
 import { initializeOwnerContact, type OwnerContactDefaults } from "@/lib/publish-owner-defaults";
@@ -171,8 +177,6 @@ type PhoneParts = {
   number: string;
 };
 
-type OwnerWhatsappChoice = "business-whatsapp" | "business-phone" | "different" | null;
-type OwnerEmailChoice = "business-email" | "different" | "none" | null;
 type ContactSelectionDraft = {
   businessWhatsappSameAsPhone?: boolean;
   businessWhatsappManual?: string;
@@ -839,12 +843,12 @@ export function PublishForm({
   const [renewalChosen, setRenewalChosen] = useState(() => typeof window !== "undefined" &&
     ["AUTO", "MANUAL"].includes(new URLSearchParams(window.location.search).get("renewal") ?? ""));
   const hasBusinessEmail = Boolean(businessEmail.trim());
-  const ownerHasNoEmail = isPartnerFlow && hasBusinessEmail
-    ? ownerEmailChoice === "none" : ownerHasNoEmailInput;
-  const ownerEmail = isPartnerFlow && hasBusinessEmail
-    ? ownerEmailChoice === "business-email" ? businessEmail.trim()
-      : ownerEmailChoice === "different" ? ownerEmailManual : ""
-    : ownerHasNoEmail ? "" : ownerEmailManual;
+  const partnerEmailContact = resolvePartnerEmailContact({
+    businessEmail, ownerEmailChoice, ownerEmailManual, ownerHasNoEmailInput,
+  });
+  const ownerHasNoEmail = isPartnerFlow ? partnerEmailContact.ownerHasNoEmail : ownerHasNoEmailInput;
+  const ownerEmail = isPartnerFlow ? partnerEmailContact.ownerEmail
+    : ownerHasNoEmailInput ? "" : ownerEmailManual;
   const effectiveRenewalPreference = !ownerEmail.trim()
     ? "MANUAL"
     : renewalPreference;
@@ -923,25 +927,18 @@ export function PublishForm({
   );
   const hasFieldError = (field: string) => highlightedFields.has(field);
   const businessPhone = buildPhoneValue(businessPhoneParts);
-  const businessWhatsapp = buildPhoneValue(
-    isPartnerFlow && businessWhatsappSameAsPhone ? businessPhoneParts : businessWhatsappParts,
-  );
-  const businessPhoneNumber = parsePhoneNumberFromString(businessPhone);
-  const businessWhatsappNumber = parsePhoneNumberFromString(businessWhatsapp);
-  const sameBusinessContactNumber = Boolean(
-    businessPhoneNumber?.isValid() && businessWhatsappNumber?.isValid() &&
-    businessPhoneNumber?.number === businessWhatsappNumber?.number,
-  );
-  const hasBusinessWhatsapp = Boolean(businessWhatsapp.trim());
-  const availableOwnerWhatsappChoice = !isPartnerFlow ? null
-    : ownerWhatsappChoice === "business-whatsapp" && !hasBusinessWhatsapp ? null
-    : ownerWhatsappChoice === "business-phone" && !businessPhone ? null
-    : ownerWhatsappChoice === "business-phone" && hasBusinessWhatsapp && sameBusinessContactNumber
-      ? "business-whatsapp" : ownerWhatsappChoice;
+  const partnerPhoneContacts = resolvePartnerPhoneContacts({
+    businessPhone,
+    businessWhatsappManual: buildPhoneValue(businessWhatsappParts),
+    businessWhatsappSameAsPhone: isPartnerFlow && businessWhatsappSameAsPhone,
+    ownerWhatsappChoice,
+    ownerWhatsappManual: buildPhoneValue(ownerContactParts),
+  });
+  const { businessWhatsapp, hasBusinessWhatsapp, sameBusinessContactNumber } = partnerPhoneContacts;
+  const availableOwnerWhatsappChoice = isPartnerFlow
+    ? partnerPhoneContacts.availableOwnerWhatsappChoice : null;
   const ownerContact = isPartnerFlow
-    ? availableOwnerWhatsappChoice === "business-whatsapp" ? businessWhatsapp
-      : availableOwnerWhatsappChoice === "business-phone" ? businessPhone
-      : availableOwnerWhatsappChoice === "different" ? buildPhoneValue(ownerContactParts) : ""
+    ? partnerPhoneContacts.ownerPhone
     : buildPhoneValue(ownerContactParts);
   const businessPhoneErrorMessage =
     state.fieldErrors?.phone || getLivePhoneValidationMessage(businessPhone, locale);

@@ -65,7 +65,8 @@ import {
   isValidItalianIban,
   normalizeIban,
 } from "@/lib/partner-payout-methods";
-import { LISTING_OFFER, resolveContractualEmail } from "@/lib/listing-offer";
+import { LISTING_OFFER } from "@/lib/listing-offer";
+import { getConfirmedPublicWhatsapp, resolveSubmissionContactValues } from "@/lib/contact-information";
 import { ensureManualElementPaymentIntent, getNoEmailPaymentPhoneError } from "@/lib/no-email-payment";
 import { ensureEmbeddedSubscription } from "@/lib/embedded-subscription";
 import {
@@ -1325,11 +1326,11 @@ async function saveBusinessSubmission(
     };
   }
 
-  const contractualEmail = resolveContractualEmail({
+  const { contractualEmail, publicEmail, publicWhatsapp } = resolveSubmissionContactValues({
     businessEmail: parsed.data.email,
+    businessWhatsapp: parsed.data.whatsapp,
     ownerEmail: parsed.data.ownerEmail,
   });
-  const publicEmail = parsed.data.email?.trim() || "";
 
   const [town, category] = await Promise.all([
     parsed.data.townId
@@ -1406,6 +1407,7 @@ async function saveBusinessSubmission(
 
   let existingSubmission: {
     createdBusinessId: string | null;
+    createdAt: Date;
     id: string;
     userId: string;
     payLaterInvitation: { revokedAt: Date | null; completedAt: Date | null } | null;
@@ -1418,6 +1420,7 @@ async function saveBusinessSubmission(
       },
       select: {
         createdBusinessId: true,
+        createdAt: true,
         id: true,
         userId: true,
         payLaterInvitation: { select: { revokedAt: true, completedAt: true } },
@@ -1444,7 +1447,12 @@ async function saveBusinessSubmission(
         [
           ["facebook", normalizeFacebookUrl(parsed.data.facebook)],
           ["instagram", normalizeInstagramUrl(parsed.data.instagram)],
-          ["whatsapp", normalizePhoneNumber(parsed.data.whatsapp)],
+          ["whatsapp", getConfirmedPublicWhatsapp({
+            businessPhone: parsed.data.phone,
+            businessWhatsapp: publicWhatsapp,
+            createdAt: existingSubmission.createdAt,
+            verifiedFrom: process.env.PUBLIC_WHATSAPP_VERIFIED_FROM,
+          })],
         ].filter((entry): entry is [string, string] => Boolean(entry[1])),
       );
       const mapsUrl =
@@ -1594,7 +1602,7 @@ async function saveBusinessSubmission(
           status: "PUBLISHED",
           townId: parsed.data.townId,
           website: parsed.data.website,
-          whatsapp: parsed.data.whatsapp?.trim() || "",
+          whatsapp: publicWhatsapp,
         },
       });
 
@@ -1614,7 +1622,7 @@ async function saveBusinessSubmission(
       [
         ["facebook", normalizeFacebookUrl(parsed.data.facebook)],
         ["instagram", normalizeInstagramUrl(parsed.data.instagram)],
-        ["whatsapp", normalizePhoneNumber(parsed.data.whatsapp)],
+        ["whatsapp", normalizePhoneNumber(publicWhatsapp)],
       ].filter((entry): entry is [string, string] => Boolean(entry[1])),
     );
     const mapsUrl =
@@ -1730,7 +1738,7 @@ async function saveBusinessSubmission(
         townId: parsed.data.townId,
         userId: viewer.id,
         website: parsed.data.website,
-        whatsapp: parsed.data.whatsapp?.trim() || "",
+        whatsapp: publicWhatsapp,
       },
     });
 
@@ -1745,7 +1753,6 @@ async function saveBusinessSubmission(
   }
 
   const status: SubmissionStatus = wantsPaymentStep ? getStatusAfterSubmit() : "DRAFT";
-  const normalizedWhatsapp = parsed.data.whatsapp?.trim() || "";
   const nextPaymentStatus: PaymentStatus =
     wantsPaymentStep
       ? buildPaymentStatusForMethod(parsed.data.paymentMethod)
@@ -1803,7 +1810,7 @@ async function saveBusinessSubmission(
     userId: viewer.id,
     verificationChannel: null,
     website: parsed.data.website,
-    whatsapp: normalizedWhatsapp,
+    whatsapp: publicWhatsapp,
   };
 
   async function preparePaymentDestination(id: string, amountOwedCents: number) {

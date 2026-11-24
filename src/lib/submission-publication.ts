@@ -12,7 +12,7 @@ import {
 import type { Locale } from "@/lib/i18n";
 import { getSubmissionOwnerUserIdForPublication } from "@/lib/payment";
 import { prisma } from "@/lib/prisma";
-import { normalizePhoneNumber } from "@/lib/validation";
+import { getConfirmedPublicWhatsapp } from "@/lib/contact-information";
 
 function slugify(value: string) {
   return value
@@ -122,15 +122,22 @@ async function buildUniqueBusinessSlug(
 }
 
 function buildSubmissionSocialLinks(submission: {
+  createdAt: Date;
   facebook?: string | null;
   instagram?: string | null;
+  phone: string;
   whatsapp?: string | null;
 }) {
   return Object.fromEntries(
     [
       ["facebook", normalizeFacebookUrl(submission.facebook ?? "")],
       ["instagram", normalizeInstagramUrl(submission.instagram ?? "")],
-      ["whatsapp", normalizePhoneNumber(submission.whatsapp)],
+      ["whatsapp", getConfirmedPublicWhatsapp({
+        businessPhone: submission.phone,
+        businessWhatsapp: submission.whatsapp ?? "",
+        createdAt: submission.createdAt,
+        verifiedFrom: process.env.PUBLIC_WHATSAPP_VERIFIED_FROM,
+      })],
     ].filter((entry): entry is [string, string] => Boolean(entry[1])),
   );
 }
@@ -177,6 +184,7 @@ export async function publishSubmissionAfterPayment(params: {
       addressStreetNumber: true,
       businessName: true,
       categoryId: true,
+      createdAt: true,
       createdBusinessId: true,
       email: true,
       facebook: true,
